@@ -150,9 +150,23 @@ wait $PSONDE
 r "P2 reprise $(date -u +%T)"; sonde sim4g 95 60 50ms; r "P2 fin $(date -u +%T)"
 arreter_degradeurs
 
+# Les tranches de sonde.sh sont alignées sur l'horloge (multiples de -t). Un profil dont la fenêtre
+# chevauche une frontière voit sa panne coupée en deux (fin de tranche + échec d'ouverture), et ses
+# contrôles de rafale deviennent dépendants de l'heure de démarrage. On attend donc la frontière
+# suivante quand le profil (durée + marge) la franchirait.
+eviter_frontiere() {  # DUREE_S TRANCHE_S
+  local duree=$1 tranche=$2 now reste
+  now=$(date -u +%s); reste=$(( tranche - now % tranche ))
+  if (( reste < duree + 15 )); then
+    r "attente de la frontière de tranche ($reste s) pour un test déterministe"
+    sleep $(( reste + 2 ))
+  fi
+}
+
 # P3 — coupure franche de 15 s (t = 40 s à 55 s) sur fond 90 ms ± 10 ms sans perte, 90 s, une seule
 # tranche. Le témoin ref-udp, non dégradé, reste joignable : la coupure n'est PAS une panne locale.
 PROFIL=simcoupure; mettre_en_place
+eviter_frontiere 90 600
 degradeurs --delai-ms 90 --gigue-ms 10 --coupure 40:15 --graine 3
 amorcer_tunnel
 r "P3 $PROFIL début $(date -u +%T) (coupure prévue de +40 s à +55 s)"; sonde simcoupure 90 600 200ms; r "P3 fin $(date -u +%T)"
@@ -161,6 +175,7 @@ arreter_degradeurs
 # P4 — cible injoignable au démarrage de la sonde pendant 20 s : échec d'ouverture journalisé, puis reprise
 PROFIL=simouverture; mettre_en_place
 # (pas d'amorçage du tunnel : la cible est coupée dès le départ)
+eviter_frontiere 60 600
 degradeurs --delai-ms 90 --gigue-ms 10 --coupure 0:20 --graine 4
 # Fin donnée en date absolue (-F), comme sur le terrain avec systemd.
 r "P4 $PROFIL début $(date -u +%T) (cible coupée de +0 s à +20 s du dégradeur, soit environ 18 s vues par la sonde)"
@@ -175,6 +190,7 @@ arreter_degradeurs
 PROFIL=simlocale; mettre_en_place
 degradeurs --delai-ms 90 --gigue-ms 10 --graine 5
 amorcer_tunnel
+eviter_frontiere 150 600
 r "P5 $PROFIL début $(date -u +%T)"
 sonde simlocale 150 600 200ms &
 PSONDE=$!
