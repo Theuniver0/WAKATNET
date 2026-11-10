@@ -188,3 +188,10 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - Correction : le seuil fixe devient une borne calculée à partir de la panne détectée.
   - Rejeu 2 revérifié : 0 échec. Les preuves du dépôt passent aussi.
 - **Non prouvé :** un passage complet de bout en bout qui déclenche réellement l'attente de frontière.
+
+### Courriels aux agrégateurs (10/11/2026)
+
+- Questionnaire mis à jour avec les décisions du G0 : le point 3 du courriel type présente maintenant le mode A puis le mode C. Ajout des questions 38 (référence de transaction du SMS, D9), 39 (remboursement) et 40 (ordre de priorité).
+- `docs/courriels/2026-11-10-agregateurs.md` : trois courriels (pawaPay, CinetPay, YengaPay). Chaque courriel pose 3 ou 4 questions décisives et joint le questionnaire complet.
+- `docs/courriels/pj/*.docx`, produits par `generer_pj.py` (pandoc). Rendu vérifié en PDF : 4 à 5 pages, 40 questions générales et toutes les questions propres présentes. Deux défauts de mise en page corrigés : questions propres collées en un seul paragraphe, et tiret parasite sur 2a et 2b.
+- Les adresses des destinataires ne sont pas renseignées : aucune adresse officielle n'a pu être vérifiée.
