@@ -1,0 +1,53 @@
+# WAKATNET labo — serveur virtuel principal (JOUET : pas la conception phase 1).
+server wakatnet {
+	listen {
+		type = auth
+		ipaddr = 10.213.0.1
+		port = 1812
+	}
+	listen {
+		type = acct
+		ipaddr = 10.213.0.1
+		port = 1813
+	}
+
+	authorize {
+		# CHAP-Password présent -> Auth-Type := CHAP
+		chap
+		# Appelle radius.authorize(...) (jouet) via authorize_check_query / authorize_reply_query.
+		# run-lab.sh remplace la ligne suivante par "sql" (défaut) ou par la variante L6e.
+@SQL_CALL@
+		if (notfound) {
+			update reply {
+				&Reply-Message := "ticket_inconnu"
+			}
+			reject
+		}
+		pap
+	}
+
+	authenticate {
+		Auth-Type CHAP {
+			chap
+		}
+		Auth-Type PAP {
+			pap
+		}
+	}
+
+	preacct {
+		ok
+	}
+
+	# Règle 2 : accounting écrit UNIQUEMENT dans un fichier detail. Aucun SQL ici.
+	accounting {
+		detail_wk
+		ok
+	}
+
+	post-auth {
+		Post-Auth-Type REJECT {
+			ok
+		}
+	}
+}

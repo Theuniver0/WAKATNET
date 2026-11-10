@@ -23,5 +23,9 @@ dist/
 build/
 coverage/
 *.log
+# Preuves de labo : versionnées (valeurs de labo uniquement)
+!infra/lab/freeradius/evidence/*.log
+!infra/dev/evidence/*.log
+!docs/labo/**/*.log
 __pycache__/
 .venv/

@@ -1,0 +1,113 @@
+# WAKATNET — environnement de DÉVELOPPEMENT / LABO uniquement (phase 0).
+#
+# En production, FreeRADIUS, PostgreSQL et WireGuard sont installés
+# nativement (systemd) sur chaque nœud : décision D7 (SPEC §3, §4).
+# Ce fichier ne doit jamais servir à déployer un nœud.
+#
+# Secrets : infra/dev/.env (non versionné), créé à la main à partir de
+# infra/dev/.env.example. Voir infra/README.md.
+#
+# Tous les ports publiés sont liés à 127.0.0.1.
+
+name: wakatnet-dev
+
+x-dev-env: &dev-env
+  env_file:
+    - path: ./dev/.env
+      required: true
+
+services:
+  postgres:
+    # 16.15 vérifié sur Docker Hub le 10/11/2026
+    # (digest sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657).
+    image: postgres:16.15@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    <<: *dev-env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Exécuté une seule fois, à la création du volume.
+      - ./dev/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:${WAKATNET_PG_PORT:-5432}:5432"
+    networks: [wakatnet-dev]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    # 7.4.12 vérifié sur Docker Hub le 10/11/2026
+    # (digest sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90).
+    # Réservé à BullMQ (phases suivantes). Hors chemin critique RADIUS (SPEC §4, règle 1).
+    image: redis:7.4.12@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+    <<: *dev-env
+    # Le mot de passe est passé à redis-server par l'entrée standard
+    # (`redis-server -`), jamais en argument : il n'apparaît ni dans `ps`
+    # ni dans `docker inspect` (SPEC §13, règle 5).
+    command:
+      - sh
+      - -c
+      - printf 'requirepass %s\n' "$$REDIS_PASSWORD" | docker-entrypoint.sh redis-server -
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:${WAKATNET_REDIS_PORT:-6379}:6379"
+    networks: [wakatnet-dev]
+    healthcheck:
+      # REDISCLI_AUTH évite `redis-cli -a <secret>` en ligne de commande.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  freeradius:
+    # Image officielle, branche 3.2.x. 3.2.10 vérifié sur Docker Hub le 10/11/2026
+    # (digest sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9).
+    image: freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
+    <<: *dev-env
+    environment:
+      # Réseau autorisé dans dev/freeradius/clients.conf ; doit rester
+      # identique au sous-réseau du réseau wakatnet-dev ci-dessous.
+      RADIUS_DEV_CLIENT_NET: ${WAKATNET_DEV_SUBNET:-172.29.213.0/24}
+    # -X : mode debug (sortie équivalente à `radiusd -X`). DEV UNIQUEMENT :
+    # ce mode journalise les attributs, mots de passe de test compris.
+    command: ["-X"]
+    volumes:
+      # Configuration de phase 0 minimale : seuls clients.conf et le site
+      # default (IPv4 seul, voir l'en-tête du fichier) sont surchargés.
+      # La configuration de phase 1 vivra dans infra/freeradius/ (autre ticket).
+      - ./dev/freeradius/clients.conf:/etc/freeradius/clients.conf:ro
+      - ./dev/freeradius/site-default.conf:/etc/freeradius/sites-available/default:ro
+    ports:
+      - "127.0.0.1:${WAKATNET_RADIUS_AUTH_PORT:-1812}:1812/udp"
+      - "127.0.0.1:${WAKATNET_RADIUS_ACCT_PORT:-1813}:1813/udp"
+    networks: [wakatnet-dev]
+    restart: unless-stopped
+
+  # Outil : radclient (même image que le serveur, donc même version et même
+  # dictionnaire, dictionary.mikrotik inclus). Lancé à la demande :
+  #   docker compose -f infra/docker-compose.yml --profile tools run --rm -T radclient \
+  #     -x freeradius:1812 auth < requete.txt
+  radclient:
+    image: freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
+    profiles: ["tools"]
+    <<: *dev-env
+    entrypoint: ["sh", "/opt/wakatnet/radclient.sh"]
+    volumes:
+      - ./dev/tools/radclient.sh:/opt/wakatnet/radclient.sh:ro
+    networks: [wakatnet-dev]
+    restart: "no"
+
+networks:
+  wakatnet-dev:
+    name: wakatnet-dev
+    ipam:
+      config:
+        - subnet: ${WAKATNET_DEV_SUBNET:-172.29.213.0/24}
+
+volumes:
+  pgdata:
+  redisdata:

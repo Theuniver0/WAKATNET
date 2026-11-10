@@ -82,3 +82,25 @@ Conséquence (§14.1.2) : les skills [PC] étant absents, le travail se fait sel
 | 5. `/setup-matt-pocock-skills` [Y] | **en attente de Yacouba** | réponses recommandées : tickets Markdown dans `.scratch/`, étiquettes par défaut, `CONTEXT.md` unique + `docs/adr/` |
 | 6. `git-guardrails-claude-code` | **non fait** | skill absent de cette session, et accord de Yacouba requis. Garde-fou non prouvé = ne compte pas. |
 | 7. `setup-pre-commit` | **non fait** | skill absent ; pas encore de `package.json` |
+
+### Phase 0 — livrables produits dans cette session
+
+Méthode : un workflow de 24 agents. Recherche par thème (RouterOS, FreeRADIUS, réglementaire, 6 lots d'agrégateurs), puis une contre-vérification adversariale par lot, où le vérificateur l'emporte si une citation est introuvable. En parallèle : labo FreeRADIUS exécuté, pile de dev, protocole CHR, puis synthèse et critique de complétude. Les 16 lacunes relevées par la critique ont été corrigées à la main ensuite (voir ci-dessous).
+
+| Livrable | État | Preuve |
+|---|---|---|
+| `infra/lab/freeradius/` (L1–L6, serveur seul) | **36 PASS / 0 FAIL sur FreeRADIUS 3.2.5** ; rejoué par la critique, puis rejoué après correction de `run-lab.sh` | `infra/lab/freeradius/evidence/00-summary.log` et journaux associés (désormais versionnés) |
+| `infra/docker-compose.yml` (dev) | démarre ; FreeRADIUS 3.2.10, PostgreSQL 16.15, Redis 7.4.12 épinglés par digest ; ports en 127.0.0.1 | `infra/dev/evidence/compose-2026-11-10.log` |
+| `docs/LABO.md` | **0 [LABO] RouterOS tranché sur 10** (pas de CHR) ; 7 points serveur tranchés sur 3.2.5 ; protocoles CHR LABO-00 à 16 rédigés ; écarts avec le §1 | — |
+| `docs/PAYMENT_PROVIDERS.md` | 11 prestataires. **Aucune page officielle lue en entier** (domaines bloqués) : seuls le code des SDK officiels et des extraits de recherche, marqués « non vérifié (extrait) ». Coût d'un ticket à 100 F : inconnu. | — |
+| `docs/QUESTIONS_AGREGATEURS.md` | couvre la liste minimale du §12 (contrôlé par la critique) | — |
+| `docs/CONFORMITE.md` | gabarit ; mode B verrouillé | — |
+| `docs/G0.md` | dossier de décision D1–D6, D9 ; Q1 et Q7 | — |
+
+Corrections après la critique : preuves sorties du `.gitignore` ; digests réellement épinglés ; preuve de la pile de dev archivée ; `run-lab.sh` passe le SQL par l'entrée standard ; constat « `NAS-IP-Address` non comparé à l'IP source » ; §1.5 marqué non vérifié ; questions aux agrégateurs reformulées (extraits ≠ faits) ; `suppress_secrets` décrit comme le défaut de l'image ; dossier G0.
+
+Écarts majeurs avec le §1 : FreeRADIUS 3.2.10 (et non 3.2.8), ne jamais utiliser 3.2.9 ; `require_message_authenticator` du bloc client inopérant pour les clients dynamiques, il faut `&FreeRADIUS-Client-Require-MA = yes` (prouvé sur 3.2.5, lu dans le code de 3.2.8 à 3.2.10) ; base arrêtée ⇒ Reject (enjeu T13).
+
+Push : refusé (403, la Claude GitHub App n'a pas accès au dépôt). Commits locaux seulement.
+
+**Arrêt à la porte G0** (§12) : voir `docs/G0.md`. Attente de Yacouba.
