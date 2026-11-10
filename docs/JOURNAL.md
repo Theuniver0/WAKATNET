@@ -141,3 +141,11 @@ Question restée sans réponse : la part du parc en RouterOS 6 / hAP lite. Consi
 2. FreeRADIUS : **paquets officiels de l'éditeur**, version épinglée ≥ 3.2.10, compilation en repli.
 
 Consigné dans `docs/adr/0004-hebergement.md`. Reste au G0 : D9 ; D2 et D3 attendent les agrégateurs.
+
+### Décision D9 (10/11/2026)
+
+1. Récupération après une page fermée : **jeton d'appareil, repli numéro + extrait de la référence de transaction**.
+2. Conservation : **numéro en clair 6 mois puis HMAC + forme masquée ; MAC et sessions 12 mois ; tentatives 90 jours**. J'ai corrigé une erreur de `docs/G0.md` : « numéro haché » ne protège rien sur 8 chiffres, il faut un HMAC à clé secrète.
+3. Visibilité : **masqué + recherche par numéro** ; numéro complet réservé au super-admin, consultation journalisée.
+
+Consigné dans `docs/adr/0005-identite-client-final.md`. Au G0, toutes les décisions qui relèvent de Yacouba sont tranchées sauf D2 et D3 (elles attendent les agrégateurs). La porte reste fermée tant que les preuves de labo manquent.
