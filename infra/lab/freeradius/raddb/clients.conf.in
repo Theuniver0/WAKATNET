@@ -1,0 +1,12 @@
+# WAKATNET labo — remplace clients.conf de la distribution.
+# Un seul bloc couvre tout l'overlay : aucun client statique (ni localhost).
+# @...@ est substitué par run-lab.sh selon la variante testée.
+client overlay {
+	ipaddr = 10.213.0.0/16
+	# Serveur virtuel qui fait la recherche SQL au premier paquet d'une IP inconnue.
+	dynamic_clients = dynamic_clients
+	# Durée de vie du client en cache (spec : 300 s ; 20 s pour le test L4).
+	lifetime = @LIFETIME@
+	# Valeur du bloc (variante @VARIANT@).
+	require_message_authenticator = @BLOCK_REQUIRE_MA@
+}

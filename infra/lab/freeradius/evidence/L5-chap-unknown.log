@@ -1,0 +1,17 @@
+# 2026-11-10T16:17:44+00:00 netns=wk-r1 (10.213.1.10/16) -> 10.213.0.1:1812 auth paquet=auth-chap-unknown.txt secret=r1-old
+(0) /home/user/WAKATNET/infra/lab/freeradius/packets/auth-chap-unknown.txt: Expected Access-Accept got Access-Reject
+Sent Access-Request Id 81 from 0.0.0.0:60702 to 10.213.0.1:1812 length 124
+	User-Name = "INCONNU99"
+	CHAP-Password = 0xcf85afa3ed1fb833c324c66daf323143b4
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Service-Type = Login-User
+	Message-Authenticator = 0x00
+	Cleartext-Password = "nimporte"
+Received Access-Reject Id 81 from 10.213.0.1:1812 to 10.213.1.10:60702 length 54
+	Message-Authenticator = 0xc0ba593d6cc14c89390ad629570ca16c
+	Reply-Message = "ticket_inconnu"
+  (code de sortie radclient = 1)

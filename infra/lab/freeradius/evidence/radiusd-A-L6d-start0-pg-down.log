@@ -1,0 +1,393 @@
+FreeRADIUS Version 3.2.5
+Copyright (C) 1999-2023 The FreeRADIUS server project and contributors
+There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE
+You may redistribute copies of FreeRADIUS under the terms of the
+GNU General Public License
+For more information about these matters, see the file named COPYRIGHT
+Starting - reading configuration files ...
+including dictionary file /usr/share/freeradius/dictionary
+including dictionary file /usr/share/freeradius/dictionary.dhcp
+including dictionary file /usr/share/freeradius/dictionary.vqp
+including dictionary file /var/tmp/wakatnet-lab-freeradius/raddb/dictionary
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/radiusd.conf
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/proxy.conf
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/clients.conf
+including files in directory /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/sql
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/pap
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/detail_wk
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/chap
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/expr
+including files in directory /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/debug
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/dhcp
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/abfab-tr
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/eap
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/control
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/accounting
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/rfc7542
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/operator-name
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/canonicalization
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/moonshot-targeted-ids
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/cui
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/policy.d/filter
+including files in directory /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/dynamic_clients
+including configuration file /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/wakatnet
+main {
+ security {
+ 	user = "freerad"
+ 	group = "freerad"
+ 	allow_core_dumps = no
+ }
+	name = "freeradius"
+	prefix = "/usr"
+	localstatedir = "/var"
+	logdir = "/var/log/freeradius"
+	run_dir = "/var/run/freeradius"
+}
+main {
+	name = "freeradius"
+	prefix = "/usr"
+	localstatedir = "/var"
+	sbindir = "/usr/sbin"
+	logdir = "/var/log/freeradius"
+	run_dir = "/var/run/freeradius"
+	libdir = "/usr/lib/freeradius"
+	radacctdir = "/var/log/freeradius/radacct"
+	hostname_lookups = no
+	max_request_time = 30
+	proxy_dedup_window = 1
+	cleanup_delay = 5
+	max_requests = 16384
+	max_fds = 512
+	postauth_client_lost = no
+	pidfile = "/var/run/freeradius/freeradius.pid"
+	checkrad = "/usr/sbin/checkrad"
+	debug_level = 0
+	proxy_requests = yes
+ log {
+ 	stripped_names = no
+ 	auth = no
+ 	auth_badpass = no
+ 	auth_goodpass = no
+ 	colourise = yes
+ 	msg_denied = "You are already logged in - access denied"
+ }
+ resources {
+ }
+ security {
+ 	max_attributes = 200
+ 	reject_delay = 1.000000
+ 	status_server = yes
+ 	require_message_authenticator = "auto"
+ 	limit_proxy_state = "auto"
+ }
+}
+radiusd: #### Loading Realms and Home Servers ####
+ proxy server {
+ 	retry_delay = 5
+ 	retry_count = 3
+ 	default_fallback = no
+ 	dead_time = 120
+ 	wake_all_if_all_dead = no
+ }
+ home_server localhost {
+ 	nonblock = no
+ 	ipaddr = 127.0.0.1
+ 	port = 1812
+ 	type = "auth"
+ 	secret = <<< secret >>>
+ 	response_window = 20.000000
+ 	response_timeouts = 1
+ 	max_outstanding = 65536
+ 	zombie_period = 40
+ 	status_check = "status-server"
+ 	ping_interval = 30
+ 	check_interval = 30
+ 	check_timeout = 4
+ 	num_answers_to_alive = 3
+ 	revive_interval = 120
+  limit {
+  	max_connections = 16
+  	max_requests = 0
+  	lifetime = 0
+  	idle_timeout = 0
+  }
+  coa {
+  	irt = 2
+  	mrt = 16
+  	mrc = 5
+  	mrd = 30
+  }
+ }
+ home_server_pool my_auth_failover {
+	type = fail-over
+	home_server = localhost
+ }
+ realm example.com {
+	auth_pool = my_auth_failover
+ }
+ realm LOCAL {
+ }
+radiusd: #### Loading Clients ####
+ client overlay {
+ 	ipaddr = 10.213.0.0/16
+ 	require_message_authenticator = "yes"
+  limit {
+  	max_connections = 16
+  	lifetime = 0
+  	idle_timeout = 30
+  }
+ 	dynamic_clients = "dynamic_clients"
+ 	lifetime = 300
+ }
+Debugger not attached
+systemd watchdog is disabled
+ # Creating Auth-Type = CHAP
+ # Creating Auth-Type = PAP
+radiusd: #### Instantiating modules ####
+ modules {
+  # Loaded module rlm_sql
+  # Loading module "sql" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/sql
+  sql {
+  	driver = "rlm_sql_postgresql"
+  	server = "127.0.0.1"
+  	port = 55432
+  	login = "wk_radius"
+  	password = <<< secret >>>
+  	radius_db = "wakatnet_lab"
+  	read_groups = no
+  	read_profiles = no
+  	read_clients = no
+  	delete_stale_sessions = yes
+  	sql_user_name = "%{User-Name}"
+  	default_user_profile = ""
+  	client_query = "SELECT id,nasname,shortname,type,secret FROM nas"
+  	authorize_check_query = "SELECT id, username, attribute, value, op FROM radius.authorize('%{SQL-User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', '%{Called-Station-Id}') WHERE kind = 'check' ORDER BY id"
+  	authorize_reply_query = "SELECT id, username, attribute, value, op FROM radius.authorize('%{SQL-User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', '%{Called-Station-Id}') WHERE kind = 'reply' ORDER BY id"
+  	safe_characters = "@abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_: /"
+  	auto_escape = no
+   accounting {
+   	reference = ".query"
+    type {
+     accounting-on {
+     }
+     accounting-off {
+     }
+     start {
+     }
+     interim-update {
+     }
+     stop {
+     }
+    }
+   }
+   post-auth {
+   	reference = ".query"
+   }
+  }
+rlm_sql (sql): Driver rlm_sql_postgresql (module rlm_sql_postgresql) loaded and linked
+  # Loaded module rlm_pap
+  # Loading module "pap" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/pap
+  pap {
+  	normalise = yes
+  }
+  # Loaded module rlm_detail
+  # Loading module "detail_wk" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/detail_wk
+  detail detail_wk {
+  	filename = "/var/tmp/wakatnet-lab-freeradius/detail/detail-%{Packet-Src-IP-Address}-%Y%m%d"
+  	header = "%t"
+  	permissions = 384
+  	locking = no
+  	dates_as_integer = no
+  	escape_filenames = no
+  	log_packet_header = no
+  }
+  # Loaded module rlm_chap
+  # Loading module "chap" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/chap
+  # Loaded module rlm_always
+  # Loading module "reject" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always reject {
+  	rcode = "reject"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "fail" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always fail {
+  	rcode = "fail"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "ok" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always ok {
+  	rcode = "ok"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "handled" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always handled {
+  	rcode = "handled"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "invalid" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always invalid {
+  	rcode = "invalid"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "userlock" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always userlock {
+  	rcode = "userlock"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "notfound" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always notfound {
+  	rcode = "notfound"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "noop" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always noop {
+  	rcode = "noop"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loading module "updated" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  always updated {
+  	rcode = "updated"
+  	simulcount = 0
+  	mpp = no
+  }
+  # Loaded module rlm_expr
+  # Loading module "expr" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/expr
+  expr {
+  	safe_characters = "@abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_: /äéöüàâæçèéêëîïôœùûüaÿÄÉÖÜßÀÂÆÇÈÉÊËÎÏÔŒÙÛÜŸ"
+  }
+  instantiate {
+  }
+  # Instantiating module "sql" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/sql
+rlm_sql (sql): Ignoring read_groups as group_membership_query is not configured
+   postgresql {
+   	send_application_name = yes
+   }
+rlm_sql (sql): Attempting to connect to database "wakatnet_lab"
+rlm_sql (sql): Initialising connection pool
+   pool {
+   	start = 0
+   	min = 0
+   	max = 4
+   	spare = 1
+   	uses = 0
+   	lifetime = 0
+   	cleanup_interval = 30
+   	idle_timeout = 60
+   	retry_delay = 5
+   	max_retries = 1
+   	spread = no
+   }
+  # Instantiating module "pap" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/pap
+  # Instantiating module "detail_wk" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/detail_wk
+  # Instantiating module "reject" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "fail" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "ok" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "handled" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "invalid" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "userlock" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "notfound" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "noop" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+  # Instantiating module "updated" from file /var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/always
+ } # modules
+radiusd: #### Loading Virtual Servers ####
+server { # from file /var/tmp/wakatnet-lab-freeradius/raddb/radiusd.conf
+} # server
+server dynamic_clients { # from file /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/dynamic_clients
+ # Loading authorize {...}
+} # server dynamic_clients
+server wakatnet { # from file /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/wakatnet
+ # Loading authenticate {...}
+Compiling Auth-Type CHAP for attr Auth-Type
+Compiling Auth-Type PAP for attr Auth-Type
+ # Loading authorize {...}
+ # Loading preacct {...}
+ # Loading accounting {...}
+ # Loading post-auth {...}
+Compiling Post-Auth-Type REJECT for attr Post-Auth-Type
+} # server wakatnet
+radiusd: #### Opening IP addresses and Ports ####
+listen {
+  	type = "auth"
+  	ipaddr = 10.213.0.1
+  	port = 1812
+}
+listen {
+  	type = "acct"
+  	ipaddr = 10.213.0.1
+  	port = 1813
+}
+Listening on auth address 10.213.0.1 port 1812 bound to server wakatnet
+Listening on acct address 10.213.0.1 port 1813 bound to server wakatnet
+Listening on proxy address * port 35561
+Ready to process requests
+(0) server dynamic_clients {
+(0) # Executing section authorize from file /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/dynamic_clients
+(0)   authorize {
+(0)     update request {
+rlm_sql (sql): 0 of 0 connections in use.  You  may need to increase "spare"
+rlm_sql (sql): Opening additional connection (0), 1 of 4 pending slots used
+rlm_sql_postgresql: Connecting using parameters: dbname='wakatnet_lab' host='127.0.0.1' port=55432 user='wk_radius' password='radius-labo-mdp' application_name='FreeRADIUS 3.2.5 - radiusd (sql)'
+rlm_sql_postgresql: Connection failed: connection to server at "127.0.0.1", port 55432 failed: Connection refused 	Is the server running on that host and accepting TCP/IP connections? 
+rlm_sql_postgresql: Socket destructor called, closing socket
+rlm_sql (sql): Opening connection failed (0)
+(0)       EXPAND %{User-Name}
+(0)          --> 
+(0)       SQL-User-Name set to ''
+rlm_sql (sql): 0 of 0 connections in use.  You  may need to increase "spare"
+rlm_sql (sql): Last connection attempt failed, waiting 5 seconds before retrying
+(0)       EXPAND %{sql:SELECT secret FROM radius.client_lookup('%{Packet-Src-IP-Address}')}
+(0)          --> 
+(0)       &Tmp-String-0 := 
+(0)     } # update request = noop
+(0)     if (&Tmp-String-0 && (&Tmp-String-0 != "")) {
+(0)     if (&Tmp-String-0 && (&Tmp-String-0 != ""))  -> FALSE
+(0)     else {
+(0)       [fail] = fail
+(0)     } # else = fail
+(0)   } # authorize = fail
+(0) } # server dynamic_clients
+Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.10 port 59772 proto udp
+Ready to process requests
+(0) server dynamic_clients {
+(0) # Executing section authorize from file /var/tmp/wakatnet-lab-freeradius/raddb/sites-enabled/dynamic_clients
+(0)   authorize {
+(0)     update request {
+rlm_sql (sql): 0 of 0 connections in use.  You  may need to increase "spare"
+rlm_sql (sql): Last connection attempt failed, waiting 5 seconds before retrying
+(0)       EXPAND %{User-Name}
+(0)          --> 
+(0)       SQL-User-Name set to ''
+rlm_sql (sql): 0 of 0 connections in use.  You  may need to increase "spare"
+rlm_sql (sql): Last connection attempt failed, waiting 5 seconds before retrying
+(0)       EXPAND %{sql:SELECT secret FROM radius.client_lookup('%{Packet-Src-IP-Address}')}
+(0)          --> 
+(0)       &Tmp-String-0 := 
+(0)     } # update request = noop
+(0)     if (&Tmp-String-0 && (&Tmp-String-0 != "")) {
+(0)     if (&Tmp-String-0 && (&Tmp-String-0 != ""))  -> FALSE
+(0)     else {
+(0)       [fail] = fail
+(0)     } # else = fail
+(0)   } # authorize = fail
+(0) } # server dynamic_clients
+Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.10 port 59772 proto udp
+Ready to process requests
+Ready to process requests
+Signalled to terminate
+Exiting normally
+rlm_sql (sql): Removing connection pool

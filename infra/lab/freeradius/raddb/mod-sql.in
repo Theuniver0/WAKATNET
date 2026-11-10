@@ -1,0 +1,39 @@
+# WAKATNET labo — instance rlm_sql vers PostgreSQL, rôle wk_radius.
+# Pas de queries.conf de la distribution : seules les requêtes d'autorisation
+# (fonction radius.authorize) existent. Aucune requête d'accounting.
+sql {
+	dialect = "postgresql"
+	driver = "rlm_sql_postgresql"
+	postgresql {
+		send_application_name = yes
+	}
+	server = "127.0.0.1"
+	port = @PG_PORT@
+	login = "wk_radius"
+	password = "@RADIUS_PW@"
+	radius_db = "wakatnet_lab"
+
+	read_clients = no
+	read_groups = no
+	read_profiles = no
+
+	# Une seule fonction pour check et reply (jouet ; appelée deux fois).
+	authorize_check_query = "SELECT id, username, attribute, value, op FROM radius.authorize('%{SQL-User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', '%{Called-Station-Id}') WHERE kind = 'check' ORDER BY id"
+	authorize_reply_query = "SELECT id, username, attribute, value, op FROM radius.authorize('%{SQL-User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', '%{Called-Station-Id}') WHERE kind = 'reply' ORDER BY id"
+
+	sql_user_name = "%{User-Name}"
+
+	pool {
+		start = @POOL_START@
+		min = @POOL_START@
+		max = 4
+		spare = 1
+		uses = 0
+		# Valeur de la distribution : 30 s. Réduite pour que le labo observe la reconnexion.
+		retry_delay = 5
+		lifetime = 0
+		idle_timeout = 60
+		connect_timeout = 3
+		max_retries = 1
+	}
+}

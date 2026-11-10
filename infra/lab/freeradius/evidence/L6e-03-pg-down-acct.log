@@ -1,0 +1,15 @@
+# 2026-11-10T16:19:22+00:00 netns=wk-r1 (10.213.1.10/16) -> 10.213.0.1:1813 acct paquet=acct-interim.txt secret=r1-old
+Sent Accounting-Request Id 131 from 0.0.0.0:39013 to 10.213.0.1:1813 length 116
+	Acct-Status-Type = Interim-Update
+	User-Name = "TICKETLAB1"
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Acct-Session-Id = "81a00001"
+	Acct-Session-Time = 60
+	Acct-Input-Octets = 1000
+	Acct-Output-Octets = 5000
+Received Accounting-Response Id 131 from 10.213.0.1:1813 to 10.213.1.10:39013 length 20
+  (code de sortie radclient = 0)

@@ -1,0 +1,55 @@
+# Preuve docker-compose de dev — 2026-11-10T16:15:59Z — .env temporaire aléatoire, supprimé ensuite
+## docker version
+29.9.2
+Docker Compose version v5.6.1
+## config --quiet
+config OK (exit 0)
+## images (digest)
+    image: freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
+    image: postgres:16.15@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    image: redis:7.4.12@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+## up -d
+ Container wakatnet-dev-redis-1 Starting 
+ Container wakatnet-dev-postgres-1 Starting 
+ Container wakatnet-dev-freeradius-1 Started 
+ Container wakatnet-dev-redis-1 Started 
+ Container wakatnet-dev-postgres-1 Started 
+## ps
+SERVICE      STATUS                    PORTS
+freeradius   Up 12 seconds             127.0.0.1:1812-1813->1812-1813/udp
+postgres     Up 12 seconds (healthy)   127.0.0.1:5432->5432/tcp
+redis        Up 12 seconds (healthy)   127.0.0.1:6379->6379/tcp
+## radiusd -v
+radiusd: FreeRADIUS Version 3.2.10 (git #9071ea041), for host x86_64-pc-linux-gnu
+## postgres version + schémas
+PostgreSQL 16.15 (Debian 16.15-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit
+app
+ledger
+radius
+0
+## redis sans mot de passe
+NOAUTH Authentication required.
+
+## accès Access-Request (bon secret ; attendu : Reject, aucun utilisateur déclaré)
+Sent Access-Request Id 21 from 0.0.0.0:34199 to 172.29.213.2:1812 length 62
+Received Access-Reject Id 21 from 172.29.213.2:1812 to 172.29.213.5:34199 length 38
+## accounting Start
+Received Accounting-Response Id 186 from 172.29.213.2:1813 to 172.29.213.5:59238 length 20
+## ports écoutés sur l'hôte
+udp 127.0.0.1:1812
+udp 127.0.0.1:1813
+tcp 127.0.0.1:6379
+tcp 127.0.0.1:5432
+## log serveur (extraits)
+freeradius-1  |  	require_message_authenticator = "yes"
+freeradius-1  |  	secret = <<< secret >>>
+freeradius-1  |  	require_message_authenticator = "yes"
+freeradius-1  |  	secret = <<< secret >>>
+freeradius-1  | Listening on auth address 127.0.0.1 port 18120 bound to server inner-tunnel
+freeradius-1  | Listening on auth address * port 1812 bound to server default
+freeradius-1  | Listening on acct address * port 1813 bound to server default
+freeradius-1  | Listening on proxy address * port 43133
+## down -v
+ Volume wakatnet-dev_redisdata Removed 
+ Volume wakatnet-dev_pgdata Removed 
+ Network wakatnet-dev Removed 

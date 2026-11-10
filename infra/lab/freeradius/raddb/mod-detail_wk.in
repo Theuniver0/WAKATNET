@@ -1,0 +1,9 @@
+# WAKATNET labo — accounting vers un fichier detail (rejoué plus tard vers PostgreSQL).
+detail detail_wk {
+	filename = @WORKDIR@/detail/detail-%{Packet-Src-IP-Address}-%Y%m%d
+	escape_filenames = no
+	permissions = 0600
+	header = "%t"
+	locking = no
+	log_packet_header = no
+}

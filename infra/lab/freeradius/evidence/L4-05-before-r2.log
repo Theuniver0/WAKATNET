@@ -1,0 +1,17 @@
+# 2026-11-10T16:18:30+00:00 netns=wk-r2 (10.213.1.20/16) -> 10.213.0.1:1812 auth paquet=auth-chap-ma.txt secret=r2
+(0) /home/user/WAKATNET/infra/lab/freeradius/packets/auth-chap-ma.txt: Expected Access-Accept got Access-Reject
+Sent Access-Request Id 138 from 0.0.0.0:45227 to 10.213.0.1:1812 length 125
+	User-Name = "TICKETLAB1"
+	CHAP-Password = 0x8a4f0b295b237b337438744daca2a096ce
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Service-Type = Login-User
+	Message-Authenticator = 0x00
+	Cleartext-Password = "mdp-ticket-labo"
+Received Access-Reject Id 138 from 10.213.0.1:1812 to 10.213.1.20:45227 length 54
+	Message-Authenticator = 0xd441e6a1d508b09cd4834694d218f56c
+	Reply-Message = "ticket_inconnu"
+  (code de sortie radclient = 1)

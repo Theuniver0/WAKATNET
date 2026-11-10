@@ -1,0 +1,184 @@
+# Lignes clés extraites des journaux radiusd -X (fichier : numéro de ligne : texte)
+radiusd-A-L1-L3-L5.log:85: 	require_message_authenticator = "auto"
+radiusd-A-L1-L3-L5.log:116:  	lifetime = 0
+radiusd-A-L1-L3-L5.log:138: 	require_message_authenticator = "yes"
+radiusd-A-L1-L3-L5.log:141:  	lifetime = 0
+radiusd-A-L1-L3-L5.log:145: 	lifetime = 20
+radiusd-A-L1-L3-L5.log:286:   	lifetime = 0
+radiusd-A-L1-L3-L5.log:382:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L1-L3-L5.log:396:Adding client 10.213.1.10/32
+radiusd-A-L1-L3-L5.log:397:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-A-L1-L3-L5.log:399:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-A-L1-L3-L5.log:401:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-A-L1-L3-L5.log:452:(0) Sent Access-Accept Id 119 from 10.213.0.1:1812 to 10.213.1.10:41062 length 59
+radiusd-A-L1-L3-L5.log:500:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L1-L3-L5.log:514:Adding client 10.213.1.20/32
+radiusd-A-L1-L3-L5.log:564:(1) Sent Access-Accept Id 227 from 10.213.0.1:1812 to 10.213.1.20:46621 length 59
+radiusd-A-L1-L3-L5.log:595:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L1-L3-L5.log:596:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.9.99 port 35772 proto udp
+radiusd-A-L1-L3-L5.log:624:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L1-L3-L5.log:625:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.9.99 port 35772 proto udp
+radiusd-A-L1-L3-L5.log:653:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L1-L3-L5.log:654:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.30 port 57385 proto udp
+radiusd-A-L1-L3-L5.log:685:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L1-L3-L5.log:686:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.30 port 57385 proto udp
+radiusd-A-L1-L3-L5.log:688:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.99.0.5 port 55798 proto udp
+radiusd-A-L1-L3-L5.log:690:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.99.0.5 port 55798 proto udp
+radiusd-A-L1-L3-L5.log:693:Dropping packet without response because of error: Received packet from 10.213.1.20 with invalid Message-Authenticator!  (Shared secret is incorrect.) (from client labo-r2)
+radiusd-A-L1-L3-L5.log:698:Dropping packet without response because of error: Received packet from 10.213.1.20 with invalid Message-Authenticator!  (Shared secret is incorrect.) (from client labo-r2)
+radiusd-A-L1-L3-L5.log:745:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L1-L3-L5.log:759:Adding client 10.213.1.10/32
+radiusd-A-L1-L3-L5.log:760:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-A-L1-L3-L5.log:762:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-A-L1-L3-L5.log:764:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-A-L1-L3-L5.log:812:(4) Sent Access-Accept Id 76 from 10.213.0.1:1812 to 10.213.1.10:51943 length 59
+radiusd-A-L1-L3-L5.log:866:(5) Sent Access-Accept Id 19 from 10.213.0.1:1812 to 10.213.1.10:43558 length 59
+radiusd-A-L1-L3-L5.log:929:(6) Sent Access-Reject Id 161 from 10.213.0.1:1812 to 10.213.1.10:55402 length 59
+radiusd-A-L1-L3-L5.log:977:(7) Sent Access-Reject Id 81 from 10.213.0.1:1812 to 10.213.1.10:60702 length 54
+radiusd-A-L4.log:85: 	require_message_authenticator = "auto"
+radiusd-A-L4.log:116:  	lifetime = 0
+radiusd-A-L4.log:138: 	require_message_authenticator = "yes"
+radiusd-A-L4.log:141:  	lifetime = 0
+radiusd-A-L4.log:145: 	lifetime = 20
+radiusd-A-L4.log:286:   	lifetime = 0
+radiusd-A-L4.log:382:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L4.log:396:Adding client 10.213.1.10/32
+radiusd-A-L4.log:446:(0) Sent Access-Accept Id 217 from 10.213.0.1:1812 to 10.213.1.10:56982 length 59
+radiusd-A-L4.log:494:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L4.log:508:Adding client 10.213.1.20/32
+radiusd-A-L4.log:558:(1) Sent Access-Accept Id 2 from 10.213.0.1:1812 to 10.213.1.20:47957 length 59
+radiusd-A-L4.log:612:(2) Sent Access-Accept Id 180 from 10.213.0.1:1812 to 10.213.1.10:53439 length 59
+radiusd-A-L4.log:618:Dropping packet without response because of error: Received packet from 10.213.1.10 with invalid Message-Authenticator!  (Shared secret is incorrect.) (from client labo-r1)
+radiusd-A-L4.log:623:Dropping packet without response because of error: Received packet from 10.213.1.10 with invalid Message-Authenticator!  (Shared secret is incorrect.) (from client labo-r1)
+radiusd-A-L4.log:674:(5) Sent Access-Reject Id 138 from 10.213.0.1:1812 to 10.213.1.20:45227 length 54
+radiusd-A-L4.log:722:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L4.log:736:Adding client 10.213.1.10/32
+radiusd-A-L4.log:738:Dropping packet without response because of error: Received packet from 10.213.1.10 with invalid Message-Authenticator!  (Shared secret is incorrect.) (from client labo-r1)
+radiusd-A-L4.log:743:Dropping packet without response because of error: Received packet from 10.213.1.10 with invalid Message-Authenticator!  (Shared secret is incorrect.) (from client labo-r1)
+radiusd-A-L4.log:796:(8) Sent Access-Accept Id 64 from 10.213.0.1:1812 to 10.213.1.10:54580 length 59
+radiusd-A-L4.log:827:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L4.log:828:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.20 port 38938 proto udp
+radiusd-A-L4.log:856:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L4.log:857:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.20 port 38938 proto udp
+radiusd-A-L6.log:85: 	require_message_authenticator = "auto"
+radiusd-A-L6.log:116:  	lifetime = 0
+radiusd-A-L6.log:138: 	require_message_authenticator = "yes"
+radiusd-A-L6.log:141:  	lifetime = 0
+radiusd-A-L6.log:145: 	lifetime = 300
+radiusd-A-L6.log:286:   	lifetime = 0
+radiusd-A-L6.log:382:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L6.log:396:Adding client 10.213.1.10/32
+radiusd-A-L6.log:446:(0) Sent Access-Accept Id 82 from 10.213.0.1:1812 to 10.213.1.10:47995 length 59
+radiusd-A-L6.log:474:(1) Sent Accounting-Response Id 142 from 10.213.0.1:1813 to 10.213.1.10:43039 length 20
+radiusd-A-L6.log:504:(2) Sent Accounting-Response Id 237 from 10.213.0.1:1813 to 10.213.1.10:42283 length 20
+radiusd-A-L6.log:538:(3) sql: ERROR: Error getting check attributes
+radiusd-A-L6.log:550:(3) Sent Access-Reject Id 104 from 10.213.0.1:1812 to 10.213.1.10:55053 length 38
+radiusd-A-L6.log:578:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L6.log:579:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.20 port 58070 proto udp
+radiusd-A-L6.log:603:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L6.log:604:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.20 port 58070 proto udp
+radiusd-A-L6.log:663:(4) Sent Access-Accept Id 222 from 10.213.0.1:1812 to 10.213.1.10:58798 length 59
+radiusd-A-L6c-start-pg-down.log:85: 	require_message_authenticator = "auto"
+radiusd-A-L6c-start-pg-down.log:116:  	lifetime = 0
+radiusd-A-L6c-start-pg-down.log:138: 	require_message_authenticator = "yes"
+radiusd-A-L6c-start-pg-down.log:141:  	lifetime = 0
+radiusd-A-L6c-start-pg-down.log:145: 	lifetime = 300
+radiusd-A-L6c-start-pg-down.log:286:   	lifetime = 0
+radiusd-A-L6c-start-pg-down.log:299:/var/tmp/wakatnet-lab-freeradius/raddb/mods-enabled/sql[4]: Instantiation failed for module "sql"
+radiusd-A-L6d-start0-pg-down.log:85: 	require_message_authenticator = "auto"
+radiusd-A-L6d-start0-pg-down.log:116:  	lifetime = 0
+radiusd-A-L6d-start0-pg-down.log:138: 	require_message_authenticator = "yes"
+radiusd-A-L6d-start0-pg-down.log:141:  	lifetime = 0
+radiusd-A-L6d-start0-pg-down.log:145: 	lifetime = 300
+radiusd-A-L6d-start0-pg-down.log:286:   	lifetime = 0
+radiusd-A-L6d-start0-pg-down.log:362:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L6d-start0-pg-down.log:363:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.10 port 59772 proto udp
+radiusd-A-L6d-start0-pg-down.log:387:Virtual-Server dynamic_clients returned fail, creating dynamic client failed
+radiusd-A-L6d-start0-pg-down.log:388:Ignoring request to auth address 10.213.0.1 port 1812 bound to server wakatnet from unknown client 10.213.1.10 port 59772 proto udp
+radiusd-A-L6e-do-not-respond.log:85: 	require_message_authenticator = "auto"
+radiusd-A-L6e-do-not-respond.log:116:  	lifetime = 0
+radiusd-A-L6e-do-not-respond.log:138: 	require_message_authenticator = "yes"
+radiusd-A-L6e-do-not-respond.log:141:  	lifetime = 0
+radiusd-A-L6e-do-not-respond.log:145: 	lifetime = 300
+radiusd-A-L6e-do-not-respond.log:286:   	lifetime = 0
+radiusd-A-L6e-do-not-respond.log:382:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-A-L6e-do-not-respond.log:396:Adding client 10.213.1.10/32
+radiusd-A-L6e-do-not-respond.log:448:(0) Sent Access-Accept Id 81 from 10.213.0.1:1812 to 10.213.1.10:37195 length 59
+radiusd-A-L6e-do-not-respond.log:483:(1) sql: ERROR: Error getting check attributes
+radiusd-A-L6e-do-not-respond.log:499:(1) Not sending reply to client.
+radiusd-A-L6e-do-not-respond.log:530:(2) Sent Accounting-Response Id 131 from 10.213.0.1:1813 to 10.213.1.10:39013 length 20
+radiusd-A-L6e-do-not-respond.log:593:(3) Sent Access-Accept Id 125 from 10.213.0.1:1812 to 10.213.1.10:47115 length 59
+radiusd-L3-B.log:85: 	require_message_authenticator = "auto"
+radiusd-L3-B.log:116:  	lifetime = 0
+radiusd-L3-B.log:138: 	require_message_authenticator = "yes"
+radiusd-L3-B.log:141:  	lifetime = 0
+radiusd-L3-B.log:145: 	lifetime = 20
+radiusd-L3-B.log:286:   	lifetime = 0
+radiusd-L3-B.log:394:Adding client 10.213.1.10/32
+radiusd-L3-B.log:396:BlastRADIUS check: Received packet without Message-Authenticator.
+radiusd-L3-B.log:449:(0) Sent Access-Accept Id 64 from 10.213.0.1:1812 to 10.213.1.10:56299 length 59
+radiusd-L3-B.log:500:(1) Sent Access-Accept Id 117 from 10.213.0.1:1812 to 10.213.1.10:60191 length 59
+radiusd-L3-B.log:506:BlastRADIUS check: Received packet without Message-Authenticator.
+radiusd-L3-B.log:559:(2) Sent Access-Accept Id 134 from 10.213.0.1:1812 to 10.213.1.10:57956 length 59
+radiusd-L3-B.log:619:Adding client 10.213.1.20/32
+radiusd-L3-B.log:666:(3) Sent Access-Accept Id 20 from 10.213.0.1:1812 to 10.213.1.20:36259 length 59
+radiusd-L3-B.log:672:BlastRADIUS check: Received packet without Message-Authenticator.
+radiusd-L3-B.log:725:(4) Sent Access-Accept Id 182 from 10.213.0.1:1812 to 10.213.1.20:59023 length 59
+radiusd-L3-C.log:85: 	require_message_authenticator = "auto"
+radiusd-L3-C.log:116:  	lifetime = 0
+radiusd-L3-C.log:138: 	require_message_authenticator = "auto"
+radiusd-L3-C.log:141:  	lifetime = 0
+radiusd-L3-C.log:145: 	lifetime = 20
+radiusd-L3-C.log:286:   	lifetime = 0
+radiusd-L3-C.log:394:Adding client 10.213.1.10/32
+radiusd-L3-C.log:396:BlastRADIUS check: Received packet without Message-Authenticator.
+radiusd-L3-C.log:449:(0) Sent Access-Accept Id 192 from 10.213.0.1:1812 to 10.213.1.10:58393 length 59
+radiusd-L3-C.log:500:(1) Sent Access-Accept Id 201 from 10.213.0.1:1812 to 10.213.1.10:37597 length 59
+radiusd-L3-C.log:506:BlastRADIUS check: Received packet without Message-Authenticator.
+radiusd-L3-C.log:559:(2) Sent Access-Accept Id 76 from 10.213.0.1:1812 to 10.213.1.10:53107 length 59
+radiusd-L3-C.log:619:Adding client 10.213.1.20/32
+radiusd-L3-C.log:666:(3) Sent Access-Accept Id 14 from 10.213.0.1:1812 to 10.213.1.20:54783 length 59
+radiusd-L3-C.log:672:BlastRADIUS check: Received packet without Message-Authenticator.
+radiusd-L3-C.log:725:(4) Sent Access-Accept Id 1 from 10.213.0.1:1812 to 10.213.1.20:42845 length 59
+radiusd-L3-D.log:85: 	require_message_authenticator = "auto"
+radiusd-L3-D.log:116:  	lifetime = 0
+radiusd-L3-D.log:138: 	require_message_authenticator = "auto"
+radiusd-L3-D.log:141:  	lifetime = 0
+radiusd-L3-D.log:145: 	lifetime = 20
+radiusd-L3-D.log:286:   	lifetime = 0
+radiusd-L3-D.log:382:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-L3-D.log:396:Adding client 10.213.1.10/32
+radiusd-L3-D.log:397:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:399:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:401:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:449:(0) Sent Access-Accept Id 36 from 10.213.0.1:1812 to 10.213.1.10:40588 length 59
+radiusd-L3-D.log:454:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:456:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:458:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:505:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-L3-D.log:519:Adding client 10.213.1.20/32
+radiusd-L3-D.log:566:(1) Sent Access-Accept Id 219 from 10.213.0.1:1812 to 10.213.1.20:54517 length 59
+radiusd-L3-D.log:571:Receive - Insecure packet from host 10.213.1.20:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:573:Receive - Insecure packet from host 10.213.1.20:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-D.log:575:Receive - Insecure packet from host 10.213.1.20:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:85: 	require_message_authenticator = "auto"
+radiusd-L3-E.log:116:  	lifetime = 0
+radiusd-L3-E.log:138: 	require_message_authenticator = "no"
+radiusd-L3-E.log:141:  	lifetime = 0
+radiusd-L3-E.log:145: 	lifetime = 20
+radiusd-L3-E.log:286:   	lifetime = 0
+radiusd-L3-E.log:382:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-L3-E.log:396:Adding client 10.213.1.10/32
+radiusd-L3-E.log:397:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:399:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:401:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:449:(0) Sent Access-Accept Id 229 from 10.213.0.1:1812 to 10.213.1.10:45859 length 59
+radiusd-L3-E.log:454:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:456:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:458:Receive - Insecure packet from host 10.213.1.10:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:505:(0)         &FreeRADIUS-Client-Require-MA = yes
+radiusd-L3-E.log:519:Adding client 10.213.1.20/32
+radiusd-L3-E.log:566:(1) Sent Access-Accept Id 220 from 10.213.0.1:1812 to 10.213.1.20:56572 length 59
+radiusd-L3-E.log:571:Receive - Insecure packet from host 10.213.1.20:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:573:Receive - Insecure packet from host 10.213.1.20:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.
+radiusd-L3-E.log:575:Receive - Insecure packet from host 10.213.1.20:  Packet does not contain required Message-Authenticator attribute.  You may need to set "require_message_authenticator = no" in the configuration.

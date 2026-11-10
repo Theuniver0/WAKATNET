@@ -1,0 +1,25 @@
+# WAKATNET labo — recherche d'un client dynamique dans PostgreSQL.
+# Appelé une seule fois par IP source inconnue de 10.213.0.0/16, puis
+# le client reste en cache pendant "lifetime" secondes.
+server dynamic_clients {
+	authorize {
+		update request {
+			&Tmp-String-0 := "%{sql:SELECT secret FROM radius.client_lookup('%{Packet-Src-IP-Address}')}"
+		}
+		if (&Tmp-String-0 && (&Tmp-String-0 != "")) {
+			update control {
+				&FreeRADIUS-Client-IP-Address = "%{Packet-Src-IP-Address}"
+				&FreeRADIUS-Client-Secret = "%{Tmp-String-0}"
+				&FreeRADIUS-Client-Shortname = "%{sql:SELECT shortname FROM radius.client_lookup('%{Packet-Src-IP-Address}')}"
+				&FreeRADIUS-Client-NAS-Type = "other"
+				&FreeRADIUS-Client-Virtual-Server = "wakatnet"
+@ATTR_REQUIRE_MA_LINE@
+			}
+			ok
+		}
+		else {
+			# IP inconnue ou routeur inactif : aucun client créé, paquet ignoré.
+			fail
+		}
+	}
+}

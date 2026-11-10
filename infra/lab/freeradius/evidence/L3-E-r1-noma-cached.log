@@ -1,0 +1,7 @@
+# 2026-11-10T16:18:13+00:00 netns=wk-r1 (10.213.1.10/16) -> 10.213.0.1:1812 radreq.py mode=noma secret=r1-old
+Sent Access-Request Id 205 to 10.213.0.1:1812 length 87 Message-Authenticator=absent
+  packet hex: 01cd00577190fea2672a5973e3f6c7f73ef0ff90010c5449434b45544c41423103138b255b43ff108ba3a888302e1e25821aff2007776b2d72311f1341412d42422d43432d30302d30302d30311e0a686f7473706f7431
+  (essai 1) pas de réponse après 2.0 s
+  (essai 2) pas de réponse après 2.0 s
+  (essai 3) pas de réponse après 2.0 s
+No reply from server for ID 205
