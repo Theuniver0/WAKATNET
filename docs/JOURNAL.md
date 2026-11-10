@@ -104,3 +104,16 @@ Corrections après la critique : preuves sorties du `.gitignore` ; digests réel
 Push : refusé (403, la Claude GitHub App n'a pas accès au dépôt). Commits locaux seulement.
 
 **Arrêt à la porte G0** (§12) : voir `docs/G0.md`. Attente de Yacouba.
+
+---
+
+## 2026-11-10 — Session 1 (suite) : porte G0, décision D1
+
+PR n°1 (mise en place et phase 0) fusionnée par Yacouba. Branche de travail repartie de `main`.
+
+Séance de questions sur D1, une à la fois :
+1. Circuit au lancement : **A puis C**, B verrouillé.
+2. Commission en mode A : pourcentage par ticket, **crédits prépayés avec découvert plafonné**. Yacouba a d'abord répondu « un pourcentage sur chaque ticket vendu », ce qui fixe le montant mais pas le mécanisme. La question a été reposée, et c'est le mécanisme recommandé qui a été retenu.
+3. Propriétaire sans compte marchand : Yacouba a répondu « chaque détenteur de WiFi a le droit de créer un compte, ajouter ses routeurs et gérer le débit à son choix ». C'est consigné comme **accès ouvert**. La vente en ligne s'active au branchement du compte marchand ; c'est une conséquence du mode A, signalée à Yacouba.
+
+Consigné dans `docs/adr/0001-circuit-de-l-argent.md` ; `docs/G0.md` mis à jour. Prochaine décision proposée : **D4** (rendue urgente par l'accès ouvert).
