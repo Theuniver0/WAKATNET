@@ -104,3 +104,33 @@ Corrections après la critique : preuves sorties du `.gitignore` ; digests réel
 Push : refusé (403, la Claude GitHub App n'a pas accès au dépôt). Commits locaux seulement.
 
 **Arrêt à la porte G0** (§12) : voir `docs/G0.md`. Attente de Yacouba.
+
+---
+
+## 2026-11-10 — Session 1 (suite) : porte G0, décision D1
+
+PR n°1 (mise en place et phase 0) fusionnée par Yacouba. Branche de travail repartie de `main`.
+
+Séance de questions sur D1, une à la fois :
+1. Circuit au lancement : **A puis C**, B verrouillé.
+2. Commission en mode A : pourcentage par ticket, **crédits prépayés avec découvert plafonné**. Yacouba a d'abord répondu « un pourcentage sur chaque ticket vendu », ce qui fixe le montant mais pas le mécanisme. La question a été reposée, et c'est le mécanisme recommandé qui a été retenu.
+3. Propriétaire sans compte marchand : Yacouba a répondu « chaque détenteur de WiFi a le droit de créer un compte, ajouter ses routeurs et gérer le débit à son choix ». C'est consigné comme **accès ouvert**. La vente en ligne s'active au branchement du compte marchand ; c'est une conséquence du mode A, signalée à Yacouba.
+
+Consigné dans `docs/adr/0001-circuit-de-l-argent.md` ; `docs/G0.md` mis à jour. Prochaine décision proposée : **D4** (rendue urgente par l'accès ouvert).
+
+### Décision D4 (10/11/2026)
+
+Séance de questions sur D4 :
+1. Modèle : **un % du prix du forfait avec un plancher**, à l'activation (premier Accounting-Start), débité des crédits.
+2. Valeurs : **10 % et plancher de 10 F** (Yacouba a préféré cette option à ma recommandation, 5 % et 5 F).
+
+J'ai corrigé en séance une erreur de raisonnement que j'avais faite : un % papier plus bas ne pousse pas vers la vente en ligne, puisque la vente en ligne coûte aussi les frais d'agrégateur. Conséquence de conception signalée : un ticket papier existant s'active toujours ; au plafond du découvert, c'est la génération de nouveaux lots qui est bloquée.
+
+Consigné dans `docs/adr/0002-frais-tickets-papier.md` ; `docs/G0.md` mis à jour.
+
+### Décision D5 (10/11/2026)
+
+1. Yacouba a répondu « 7.15+ et 6 ». Cela contredit SPEC §2.3 et §11 ; je lui ai présenté les coûts (deuxième tunnel sur le chemin critique, second script, matrice à refaire, RouterOS 6 en fin de vie). Choix retenu : **RouterOS 6 en phase 2b**, 6.49.x long-term, un seul tunnel.
+2. Support : **toute version ≥ minimum** (contre ma recommandation : versions testées seulement). Conséquence consignée : rejeu de la matrice T sur CHR à chaque nouvelle stable.
+
+Question restée sans réponse : la part du parc en RouterOS 6 / hAP lite. Consigné dans `docs/adr/0003-versions-routeros.md`.
