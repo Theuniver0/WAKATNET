@@ -1,0 +1,27 @@
+# Claude Code
+.claude/worktrees/
+.claude/settings.local.json
+
+# Secrets : créés et remplis à la main par Yacouba, jamais versionnés
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+secrets/
+**/secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+wireguard/*.conf
+infra/**/clients.local.conf
+
+# Dépendances et artefacts
+node_modules/
+dist/
+build/
+coverage/
+*.log
+__pycache__/
+.venv/
