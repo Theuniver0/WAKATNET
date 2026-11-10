@@ -175,3 +175,16 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Stockage** : environ 750 Mo de captures par sonde pour 72 h. Elles ne vont pas dans le dépôt ; l'archivage reste à décider.
 
 `docs/LABO.md` : LABO-17 ajouté et renvoi depuis LABO-09. `.gitignore` : exception pour `infra/lab/latence/evidence/**/*.log`.
+
+#### Rejeu indépendant du test de latence (règle 9 du §13)
+
+- **Rejeu 1 : 137 PASS, 3 FAIL.**
+  - Cause : la panne injectée tombait sur une frontière de tranche alignée sur l'horloge (22:00:00). La rafale a été coupée en deux : 8,4 s de pertes, mais 13,3 s de silence.
+  - Le « 73/73 » de l'agent dépendait donc de l'heure de démarrage.
+  - Correction : `eviter_frontiere` dans `outils/test-local.sh`, testée à part (attente de 10 s quand il le faut, aucune sinon). Le cas est aussi documenté au §8.1 du protocole.
+- **Rejeu 2 : 139 PASS, 1 FAIL.**
+  - Constat : seuil fixe « perte hors panne locale < 1 % » dans le tunnel, alors que le test tolère jusqu'à 4 s de bords non classés.
+  - Vérifié sur la capture : toutes les pertes du tunnel tombent dans les fenêtres injectées, sans traîne de reprise WireGuard.
+  - Correction : le seuil fixe devient une borne calculée à partir de la panne détectée.
+  - Rejeu 2 revérifié : 0 échec. Les preuves du dépôt passent aussi.
+- **Non prouvé :** un passage complet de bout en bout qui déclenche réellement l'attente de frontière.

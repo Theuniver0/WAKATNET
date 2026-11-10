@@ -109,8 +109,17 @@ def main():
             14 <= int(r["panne_locale_s"]) <= 24, r["panne_locale_s"])
         ctl(f"P5 {cible} brut : au moins une rafale ≥ 10 s", int(r["rafales_10s"]) >= 1, r["rafales_10s"])
         ctl(f"P5 {cible} HL : aucune rafale ≥ 3 s", int(r["hl_rafales_3s"]) == 0, r["hl_rafales_3s"])
-        ctl(f"P5 {cible} HL : perte < 1 % (brut nettement plus haut)",
-            f(r, "hl_perte_pct") < 1 and f(r, "perte_pct") > 3, f"HL {r['hl_perte_pct']} / brut {r['perte_pct']}")
+        # Borne de la perte hors panne locale : seules les secondes de bord des 18 s injectées, que le
+        # contrôle ci-dessus tolère (panne détectée ≥ 14 s), peuvent rester comptées en perte, plus 1 s
+        # de marge. Un seuil fixe (1 %) contredisait cette tolérance : le 10/11/2026, panne détectée
+        # 16 s, toutes les pertes du tunnel dans les fenêtres injectées, HL = 1,5 % -> faux échec.
+        iv_ms = float(r["intervalle_ms"])
+        bord_s = max(0, 18 - int(r["panne_locale_s"])) + 1
+        denom = max(1, int(r["envoyes"]) - int(r["hl_retires"]))
+        borne = 100.0 * (bord_s * 1000.0 / iv_ms) / denom
+        ctl(f"P5 {cible} HL : perte ≤ secondes de bord non classées (borne calculée), brut nettement plus haut",
+            f(r, "hl_perte_pct") <= borne and f(r, "perte_pct") > 3,
+            f"HL {r['hl_perte_pct']} ≤ borne {borne:.2f} ; brut {r['perte_pct']}")
         if sens == "udp":
             ctl(f"P5 {cible} arrêt d'irtt sur erreur d'envoi reconnu", int(r["fin_erreur_envoi"]) >= 1, r["fin_erreur_envoi"])
 
