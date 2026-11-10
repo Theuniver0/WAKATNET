@@ -1,0 +1,16 @@
+2026-11-10T21:40:12Z epoch=1794346812 demarrage site=labo acces=simouverture intervalle=200ms tranche=600s longueur=0 extra= uptime_s=5922.12 fin_prevue=1794346872 ntp_synchronise=inconnu irtt=0.9.0 hote=vm
+2026-11-10T21:40:12Z epoch=1794346812 cible_lancee cible=vm-udp hote=10.77.0.2:3112 pid=16991
+2026-11-10T21:40:12Z epoch=1794346812 cible_lancee cible=vm-wg hote=10.254.213.1:2112 pid=16996
+2026-11-10T21:40:12Z epoch=1794346812 cible_lancee cible=ref-udp hote=10.77.0.2:2112 pid=17009
+2026-11-10T21:40:21Z epoch=1794346821 echec_ouverture cible=vm-wg debut=1794346812 fin=1794346821 rc=1 erreur=[OpenTimeout]_no_reply_from_server
+2026-11-10T21:40:21Z epoch=1794346821 echec_ouverture cible=vm-udp debut=1794346812 fin=1794346821 rc=1 erreur=[OpenTimeout]_no_reply_from_server
+2026-11-10T21:40:30Z epoch=1794346830 echec_ouverture cible=vm-udp debut=1794346821 fin=1794346830 rc=1 erreur=[OpenTimeout]_no_reply_from_server
+2026-11-10T21:40:30Z epoch=1794346830 echec_ouverture cible=vm-wg debut=1794346821 fin=1794346830 rc=1 erreur=[OpenTimeout]_no_reply_from_server
+2026-11-10T21:40:35Z epoch=1794346835 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simouverture-vm-wg.T214030Z.json.gz rc=0 send_err=non
+2026-11-10T21:41:12Z epoch=1794346872 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simouverture-ref-udp.T214012Z.json.gz rc=0 send_err=non
+2026-11-10T21:41:12Z epoch=1794346872 fin_programmee cible=ref-udp
+2026-11-10T21:41:12Z epoch=1794346872 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simouverture-vm-udp.T214030Z.json.gz rc=0 send_err=non
+2026-11-10T21:41:12Z epoch=1794346872 fin_programmee cible=vm-udp
+2026-11-10T21:41:13Z epoch=1794346873 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simouverture-vm-wg.T214035Z.json.gz rc=0 send_err=non
+2026-11-10T21:41:13Z epoch=1794346873 fin_programmee cible=vm-wg
+2026-11-10T21:41:13Z epoch=1794346873 arret fin_programmee=oui

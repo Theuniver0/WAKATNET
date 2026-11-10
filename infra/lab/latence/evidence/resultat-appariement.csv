@@ -1,0 +1,6 @@
+site,acces,cible_x,cible_y,heures,x_meilleur_pct,y_meilleur_pct,ecart_median_ms,soirees,soirees_x_meilleur,soirees_y_meilleur,verdict
+labo,sim4g,ref-udp,vm-udp,1,100.0,0.0,-224.79,1,1,0,ref-udp meilleur
+labo,simcoupure,ref-udp,vm-udp,1,100.0,0.0,,1,1,0,ref-udp meilleur
+labo,simfibre,ref-udp,vm-udp,1,100.0,0.0,-109.321,1,1,0,ref-udp meilleur
+labo,simlocale,ref-udp,vm-udp,1,100.0,0.0,-108.484,1,1,0,ref-udp meilleur
+labo,simouverture,ref-udp,vm-udp,1,100.0,0.0,-108.984,1,1,0,ref-udp meilleur

@@ -1,0 +1,74 @@
+### 1er passage : WG_ADRESSE=10.254.213.1/24 WG_ADRESSE_R=10.254.214.1/24 installer
+[stub] systemctl daemon-reload
+[stub] systemctl restart irtt
+clé privée WireGuard générée sur place (/etc/wireguard/wg-labo.cle-privee, 600)
+[stub] systemctl start wg-quick@wg-labo
+clé publique WireGuard de la VM (à recopier dans la sonde) :
+<clé publique>
+adresse dans le tunnel : 10.254.213.1   port WireGuard : UDP 51820   irtt : UDP 2112
+rc=0
+### 2e passage (idempotence)
+[stub] systemctl daemon-reload
+[stub] systemctl restart irtt
+[stub] systemctl start wg-quick@wg-labo
+clé publique WireGuard de la VM (à recopier dans la sonde) :
+<clé publique>
+adresse dans le tunnel : 10.254.213.1   port WireGuard : UDP 51820   irtt : UDP 2112
+rc=0
+### fichiers créés
+total 8
+-rw------- 1 root root  45 wg-labo.cle-privee
+-rw------- 1 root root 211 wg-labo.conf
+-rw-r--r-- 1 root root   0 wg-labo.pairs
+### PrivateKey dans wg-labo.conf (attendu 0) : 0
+### ligne Address de wg-labo.conf
+Address = 10.254.213.1/24, 10.254.214.1/24
+### override irtt
+# wakatnet-labo : limites du serveur irtt de mesure
+[Service]
+ExecStart=
+ExecStart=/usr/bin/irtt server -b 0.0.0.0:2112 -i 10ms -d 2h --timeout=20m
+### ruleset nftables dans le netns
+table inet wakatnet_labo {
+	chain entree {
+		type filter hook input priority filter; policy drop;
+		iif "lo" accept
+		ct state established,related accept
+		ct state invalid drop
+		tcp dport 22 accept
+		udp dport 51820 accept
+		udp dport 2112 accept
+		ip protocol icmp accept
+		meta l4proto ipv6-icmp accept
+	}
+
+	chain transfert {
+		type filter hook forward priority filter; policy drop;
+	}
+}
+### ajouter-pair sonde-l 10.254.213.11 (variante L)
+[stub] systemctl start wg-quick@wg-labo
+(interface wg-labo absente : pair enregistré, pris en compte au démarrage de wg-quick@wg-labo)
+rc=0
+### ajouter-pair routeur-r 10.254.214.21 (variante R)
+[stub] systemctl start wg-quick@wg-labo
+(interface wg-labo absente : pair enregistré, pris en compte au démarrage de wg-quick@wg-labo)
+rc=0
+### refus : IP 10.254.213.11 déjà attribuée à ouaga1-fibre
+IP 10.254.213.11 déjà attribuée à : ouaga1-fibre
+rc=2
+### même NOM, nouvelle clé, même IP : mise à jour acceptée
+[stub] systemctl start wg-quick@wg-labo
+(interface wg-labo absente : pair enregistré, pris en compte au démarrage de wg-quick@wg-labo)
+rc=0
+### fichier des pairs (NOM CLE IP)
+ouaga1-fibre-r <clé publique> 10.254.214.21
+ouaga1-fibre <clé publique> 10.254.213.11
+### refus clé invalide
+clé publique invalide
+rc=2
+### refus IP hors plage
+IP attendue dans 10.254.213.0/24 ou 10.254.214.0/24
+rc=2
+### refus WG_ADRESSE_R hors plage
+rc=2 WG_ADRESSE_R attendue en 10.254.214.x/24

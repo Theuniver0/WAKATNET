@@ -18,7 +18,7 @@
    - B tourne chez l'autre hébergeur ;
    - le test T13 est rejoué avec ce B ;
    - la procédure de promotion de B est rejouée (`docs/RUNBOOK.md`).
-4. **Mesure avant achat.** Avant de choisir les datacenters (A, B Hetzner, puis B définitif), on mesure pendant 48 h la latence et la perte depuis 2 ou 3 routeurs réels au Burkina (fibre, 4G, Starlink) vers chaque candidat. Le protocole est à rédiger dans `docs/LABO.md`. Les résultats servent aussi à régler le `timeout` de `/radius` (§6.2).
+4. **Mesure avant achat.** Avant de choisir les datacenters (A, B Hetzner, puis B définitif), on mesure pendant 48 h la latence et la perte depuis 2 ou 3 routeurs réels au Burkina (fibre, 4G, Starlink) vers chaque candidat. Protocole : `docs/PROTOCOLE_LATENCE.md` (LABO-17). Les résultats servent aussi à régler le `timeout` de `/radius` (§6.2).
 5. **FreeRADIUS** : **paquets officiels de l'éditeur de FreeRADIUS** (dépôt APT pour Debian), version épinglée (≥ 3.2.10, jamais 3.2.9) ; compilation depuis le tag officiel en repli.
    - Le dépôt exact (nom de l'éditeur, URL, clé de signature) est **à vérifier** : l'éditeur a peut-être changé de nom.
    - Le choix est confirmé par un ADR après un essai sur une VM Debian 13 : version installée, signature du dépôt vérifiée, présence de `rlm_sql_postgresql`, rejeu de `infra/lab/freeradius/run-lab.sh` adapté.

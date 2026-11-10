@@ -1,0 +1,80 @@
+test-local.sh  2026-11-10T20:28:44Z  noyau 6.18.44-fc-v338  irtt 0.9.0  wireguard-tools v1.0.20210914 - https://git.zx2c4.com/wireguard-tools/  python Python 3.13.18
+P1 simfibre début 20:28:51
+P1 fin 20:31:51
+P2 sim4g début 20:31:59
+P2 SIGTERM à la sonde 20:32:44
+P2 reprise 20:32:44
+P2 fin 20:34:20
+P3 simcoupure début 20:34:28 (coupure prévue de +40 s à +55 s)
+P3 fin 20:35:58
+P4 simouverture début 20:36:03 (cible coupée de +0 s à +20 s)
+P4 fin 20:37:03
+fin des captures 2026-11-10T20:37:03Z
+écrit : /home/user/WAKATNET/infra/lab/latence/evidence/resultat.md /home/user/WAKATNET/infra/lab/latence/evidence/resultat.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-heures.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-correlation.csv
+PASS P1 vm-udp pertes = paquets jetés : irtt 19, dégradeur 19
+PASS P1 vm-udp perte % dans [0,2 ; 1,0] : 0.532
+PASS P1 vm-udp p50 dans [88 ; 95] ms : 91.363
+PASS P1 vm-udp p95 dans [102 ; 113] ms (théorie 90 + 1,645 × 10 ≈ 106) : 108.638
+PASS P1 vm-udp gigue dans [9 ; 14] ms (théorie 2σ/√π ≈ 11,3) : 11.408
+PASS P1 vm-udp rafale max ≤ 3 paquets : 1
+FAIL P2 vm-udp pertes = paquets jetés : irtt 58, dégradeur 54
+PASS P2 vm-udp perte % dans [1,0 ; 3,5] : 2.091
+PASS P2 vm-udp p50 dans [145 ; 160] ms : 150.703
+PASS P2 vm-udp p95 dans [200 ; 232] ms (théorie ≈ 216) : 215.171
+PASS P2 vm-udp r ajusté dans [12 ; 45] % (injecté 25) : 22.807
+PASS P2 vm-udp rafale max ≥ 3 paquets (pertes groupées) : 11
+PASS P3 vm-udp rafale max dans [14,8 ; 15,8] s : 15.2
+PASS P3 vm-udp rafale max dans [74 ; 78] paquets (15 s / 200 ms = 75) : 75
+PASS P3 vm-udp une seule rafale ≥ 10 s : 1
+PASS P3 vm-udp toutes les pertes sont dans la coupure : perdus 75, rafale 75
+PASS P3 vm-udp K = 1, T = 1,1 s : % d'expiration = % de perte (aucun RTT > 1,05 s) : 16.7411 / 16.741
+PASS P3 vm-udp K = 3, T = 5 s : la coupure fait encore basculer (2 × 5 s < 15 s) : 5.5804 %, 1 épisode
+PASS P4 vm-udp indisponibilité d'ouverture ≈ 100 paquets (20 s / 200 ms) : 100
+PASS P4 vm-udp rafale max dans [19,5 ; 21.5] s : 20.191
+PASS P4 vm-udp aucune perte réelle : 0.0
+PASS P1 vm-wg pertes = paquets jetés : irtt 19, dégradeur 19
+PASS P1 vm-wg perte % dans [0,2 ; 1,0] : 0.532
+PASS P1 vm-wg p50 dans [88 ; 95] ms : 91.777
+PASS P1 vm-wg p95 dans [102 ; 113] ms (théorie 90 + 1,645 × 10 ≈ 106) : 109.246
+PASS P1 vm-wg gigue dans [9 ; 14] ms (théorie 2σ/√π ≈ 11,3) : 11.379
+PASS P1 vm-wg rafale max ≤ 3 paquets : 1
+PASS P2 vm-wg pertes = paquets jetés : irtt 57, dégradeur 54
+PASS P2 vm-wg perte % dans [1,0 ; 3,5] : 2.057
+PASS P2 vm-wg p50 dans [145 ; 160] ms : 151.422
+PASS P2 vm-wg p95 dans [200 ; 232] ms (théorie ≈ 216) : 215.877
+PASS P2 vm-wg r ajusté dans [12 ; 45] % (injecté 25) : 23.214
+PASS P2 vm-wg rafale max ≥ 3 paquets (pertes groupées) : 11
+PASS P3 vm-wg rafale max dans [14,8 ; 15,8] s : 15.2
+PASS P3 vm-wg rafale max dans [74 ; 78] paquets (15 s / 200 ms = 75) : 75
+PASS P3 vm-wg une seule rafale ≥ 10 s : 1
+PASS P3 vm-wg toutes les pertes sont dans la coupure : perdus 75, rafale 75
+PASS P3 vm-wg K = 1, T = 1,1 s : % d'expiration = % de perte (aucun RTT > 1,05 s) : 16.7785 / 16.779
+PASS P3 vm-wg K = 3, T = 5 s : la coupure fait encore basculer (2 × 5 s < 15 s) : 5.5928 %, 1 épisode
+PASS P4 vm-wg indisponibilité d'ouverture ≈ 100 paquets (20 s / 200 ms) : 100
+PASS P4 vm-wg rafale max dans [19,5 ; 27] s : 23.595
+FAIL P4 vm-wg aucune perte réelle : 0.538
+RÉSULTAT : ÉCHEC — P2 vm-udp pertes = paquets jetés, P4 vm-wg aucune perte réelle
+écrit : /tmp/wk-test-analyse-jk2pr9mg/resultat.md /tmp/wk-test-analyse-jk2pr9mg/resultat.csv /tmp/wk-test-analyse-jk2pr9mg/resultat-heures.csv /tmp/wk-test-analyse-jk2pr9mg/resultat-correlation.csv
+PASS a perte % : obtenu 7.5, attendu 7.5
+PASS a rafale max paquets : obtenu 75, attendu 75
+PASS a rafale max s : obtenu 15.0, attendu 15.0
+PASS a p50 ms : obtenu 100.0, attendu 100.0
+PASS a max ms : obtenu 1500.0, attendu 1500.0
+PASS a perte montante : obtenu 37, attendu 37
+PASS a échec K=1 T=1 s % : obtenu 7.6, attendu 7.6
+PASS a épisodes K=1 T=1 s : obtenu 2, attendu 2
+PASS a échec K=1 T=2 s % : obtenu 7.5, attendu 7.5
+PASS a échec K=2 T=1 s % : obtenu 7.0, attendu 7.0
+PASS a rafales >= 10 s : obtenu 1, attendu 1
+PASS b rafale max s : obtenu 5.0, attendu 5.0
+PASS b rafales >= 1 s : obtenu 2, attendu 2
+PASS pic : paquets de a : obtenu 1000, attendu 1000
+PASS a,b panne a s : obtenu 15, attendu 15
+PASS a,b simultanées s : obtenu 5, attendu 5
+PASS a,b P(b|a) % : obtenu 33.333, attendu 33.333
+PASS a,b panne locale s : obtenu 5, attendu 5
+PASS a,b P(b|a) hors locale % : obtenu 0.0, attendu 0.0
+PASS a,c P(c|a) hors locale % : obtenu 100.0, attendu 100.0
+dossier : /tmp/wk-test-analyse-jk2pr9mg
+RÉSULTAT : tout conforme
+fin 2026-11-10T20:37:04Z

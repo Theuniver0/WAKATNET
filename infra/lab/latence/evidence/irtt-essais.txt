@@ -1,0 +1,15 @@
+irtt 0.9.0  2026-11-10T21:45:26Z
+### 1. Signaux (client vers un serveur local, -i 100ms -d 20s, signaux envoyés 2 s après le départ)
+TERM seul                    code 0  tranche écrite : oui
+INT seul                     code 0  tranche écrite : oui
+TERM puis INT, aussitôt      code 3  tranche écrite : NON
+INT puis TERM, aussitôt      code 3  tranche écrite : NON
+TERM puis INT, 50 ms après   code 0  tranche écrite : oui
+TERM puis TERM, aussitôt     code 0  tranche écrite : oui
+### 2. Interface de la sonde tombée pendant une tranche (veth down 4 s, 3 s après le départ)
+code de sortie d'irtt : 0
+Terminated due to send error: write udp4 10.88.0.1:42779->10.88.0.2:2112: write: network is unreachable
+        timer error  4.63µs   281µs           690µs   220µs
+             timer stats: 0/15 (0.00%) missed, 0.14% error
+durée demandée 12.0 s ; durée réelle 3.0 s ; 15 paquets ; 0 perdus
+send_err : {"Op": "write", "Net": "udp4", "Source": {"IP": "10.88.0.1", "Port": 42779, "Zone": ""}, "Addr": {"IP": "10.88.0.2", "Port": 2112, "Zone": ""}, "Err": {"Syscall": "write", "Err": 101}}

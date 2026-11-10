@@ -1,0 +1,12 @@
+PING 10.254.213.1 (10.254.213.1) 56(84) bytes of data.
+
+--- 10.254.213.1 ping statistics ---
+1 packets transmitted, 0 received, 100% packet loss, time 0ms
+
+PING 10.254.213.1 (10.254.213.1) 56(84) bytes of data.
+64 bytes from 10.254.213.1: icmp_seq=1 ttl=64 time=986 ms
+
+--- 10.254.213.1 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 986.346/986.346/986.346/0.000 ms
+poignee_de_main_epoch=1794346880

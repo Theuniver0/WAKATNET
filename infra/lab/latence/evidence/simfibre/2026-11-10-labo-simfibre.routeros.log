@@ -1,0 +1,4 @@
+2026-11-10T21:33:01Z epoch=1794346381 src=127.0.0.1 <12>script,warning wakatnet-labo demarrage routeur uptime=00:00:41 ntp=synchronized attente_ntp_s=35
+2026-11-10T21:33:01Z epoch=1794346381 src=127.0.0.1 <14>script,info wakatnet-labo wan iface=ether1 rx=1000000 tx=500000
+2026-11-10T21:34:01Z epoch=1794346441 src=127.0.0.1 <14>script,info wakatnet-labo wan iface=ether1 rx=8500000 tx=2000000
+2026-11-10T21:35:01Z epoch=1794346501 src=127.0.0.1 <14>script,info wakatnet-labo wan iface=ether1 rx=16000000 tx=3500000

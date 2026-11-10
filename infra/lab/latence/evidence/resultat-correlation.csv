@@ -1,0 +1,6 @@
+site,acces,cible_x,cible_y,secondes_communes,panne_x_s,panne_y_s,panne_simultanee_s,p_y_sachant_x_pct,panne_locale_s,non_classables_s,p_y_sachant_x_hors_locale_pct,episodes_x_hors_locale,p_y_sachant_x_episodes_pct,statut
+labo,sim4g,ref-udp,vm-udp,140,0,0,0,,0,0,,0,,indéterminé : 0 épisode(s) < 10
+labo,simcoupure,ref-udp,vm-udp,91,0,14,0,,0,0,,0,,indéterminé : 0 épisode(s) < 10
+labo,simfibre,ref-udp,vm-udp,181,0,0,0,,0,0,,0,,indéterminé : 0 épisode(s) < 10
+labo,simlocale,ref-udp,vm-udp,150,17,18,17,100.0,17,0,,0,,indéterminé : 0 épisode(s) < 10
+labo,simouverture,ref-udp,vm-udp,61,0,18,0,,0,0,,0,,indéterminé : 0 épisode(s) < 10

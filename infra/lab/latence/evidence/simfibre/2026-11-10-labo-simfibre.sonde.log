@@ -1,0 +1,17 @@
+2026-11-10T21:33:00Z epoch=1794346380 demarrage site=labo acces=simfibre intervalle=50ms tranche=60s longueur=0 extra= uptime_s=5490.18 fin_prevue=1794346560 ntp_synchronise=inconnu irtt=0.9.0 hote=vm
+2026-11-10T21:33:00Z epoch=1794346380 cible_lancee cible=vm-udp hote=10.77.0.2:3112 pid=14797
+2026-11-10T21:33:00Z epoch=1794346380 cible_lancee cible=vm-wg hote=10.254.213.1:2112 pid=14802
+2026-11-10T21:33:00Z epoch=1794346380 cible_lancee cible=ref-udp hote=10.77.0.2:2112 pid=14813
+2026-11-10T21:34:00Z epoch=1794346440 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simfibre-ref-udp.T213300Z.json.gz rc=0 send_err=non
+2026-11-10T21:34:01Z epoch=1794346441 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simfibre-vm-udp.T213300Z.json.gz rc=0 send_err=non
+2026-11-10T21:34:01Z epoch=1794346441 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simfibre-vm-wg.T213300Z.json.gz rc=0 send_err=non
+2026-11-10T21:35:00Z epoch=1794346500 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simfibre-vm-udp.T213401Z.json.gz rc=0 send_err=non
+2026-11-10T21:35:00Z epoch=1794346500 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simfibre-vm-wg.T213401Z.json.gz rc=0 send_err=non
+2026-11-10T21:35:00Z epoch=1794346500 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simfibre-ref-udp.T213400Z.json.gz rc=0 send_err=non
+2026-11-10T21:36:00Z epoch=1794346560 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simfibre-ref-udp.T213500Z.json.gz rc=0 send_err=non
+2026-11-10T21:36:00Z epoch=1794346560 fin_programmee cible=ref-udp
+2026-11-10T21:36:01Z epoch=1794346561 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simfibre-vm-udp.T213500Z.json.gz rc=0 send_err=non
+2026-11-10T21:36:01Z epoch=1794346561 fin_programmee cible=vm-udp
+2026-11-10T21:36:01Z epoch=1794346561 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simfibre-vm-wg.T213500Z.json.gz rc=0 send_err=non
+2026-11-10T21:36:01Z epoch=1794346561 fin_programmee cible=vm-wg
+2026-11-10T21:36:01Z epoch=1794346561 arret fin_programmee=oui

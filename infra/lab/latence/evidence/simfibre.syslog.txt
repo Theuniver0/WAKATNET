@@ -1,0 +1,1 @@
+recepteur-syslog fin : 5 reçus, 4 gardés

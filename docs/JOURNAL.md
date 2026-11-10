@@ -149,3 +149,42 @@ Consigné dans `docs/adr/0004-hebergement.md`. Reste au G0 : D9 ; D2 et D3 atten
 3. Visibilité : **masqué + recherche par numéro** ; numéro complet réservé au super-admin, consultation journalisée.
 
 Consigné dans `docs/adr/0005-identite-client-final.md`. Au G0, toutes les décisions qui relèvent de Yacouba sont tranchées sauf D2 et D3 (elles attendent les agrégateurs). La porte reste fermée tant que les preuves de labo manquent.
+
+### Protocole de mesure de latence (ADR 0004 point 4, LABO-17) — 10/11/2026
+
+Produit par un workflow de 4 agents : rédaction et tests, deux relectures adversariales (méthode et statistiques ; réseau, RouterOS et hébergement), puis correction. Fichiers : `docs/PROTOCOLE_LATENCE.md`, `infra/lab/latence/`.
+
+- **Ce qui est prouvé, en simulation dans le conteneur** :
+  - `analyse.py` retrouve les profils injectés (délai, gigue, pertes en rafales, coupure de 15 s, panne locale) ;
+  - `test-analyse.py` : 67/67 contrôles, rejoué par moi ;
+  - `verifier-test.py` : 73/73 au dernier passage de l'agent ;
+  - un vrai défaut corrigé dans `sonde.sh` : dernière tranche perdue sur SIGTERM envoyé au groupe de processus.
+- **Écarts de l'environnement** :
+  - pas de `tc netem` (noyau sans `sch_netem`), remplacé par un dégradeur UDP en espace utilisateur ;
+  - WireGuard en espace utilisateur (wireguard-go, hors dépôt).
+- **Non prouvé** :
+  - toute mesure réelle depuis le Burkina ;
+  - `routeros-sonde.rsc`, jamais exécuté faute de CHR ;
+  - `serveur-vm.sh` sur une vraie Debian avec systemd ;
+  - les noms et offres Hetzner, marqués « à vérifier ».
+- **À valider par Yacouba** :
+  - hypothèse de 300 authentifications par jour et par routeur ;
+  - attente acceptable côté client W = 5 s ;
+  - seuils de choix des datacenters (§7 du protocole).
+- **Donnée la plus importante qui manque** : le nombre de renvois de RouterOS avant bascule (LABO-09 / LABO-16). Un `timeout` plus long ne réduit pas les fausses bascules dues à la perte ; seuls les renvois le font.
+- **Stockage** : environ 750 Mo de captures par sonde pour 72 h. Elles ne vont pas dans le dépôt ; l'archivage reste à décider.
+
+`docs/LABO.md` : LABO-17 ajouté et renvoi depuis LABO-09. `.gitignore` : exception pour `infra/lab/latence/evidence/**/*.log`.
+
+#### Rejeu indépendant du test de latence (règle 9 du §13)
+
+- **Rejeu 1 : 137 PASS, 3 FAIL.**
+  - Cause : la panne injectée tombait sur une frontière de tranche alignée sur l'horloge (22:00:00). La rafale a été coupée en deux : 8,4 s de pertes, mais 13,3 s de silence.
+  - Le « 73/73 » de l'agent dépendait donc de l'heure de démarrage.
+  - Correction : `eviter_frontiere` dans `outils/test-local.sh`, testée à part (attente de 10 s quand il le faut, aucune sinon). Le cas est aussi documenté au §8.1 du protocole.
+- **Rejeu 2 : 139 PASS, 1 FAIL.**
+  - Constat : seuil fixe « perte hors panne locale < 1 % » dans le tunnel, alors que le test tolère jusqu'à 4 s de bords non classés.
+  - Vérifié sur la capture : toutes les pertes du tunnel tombent dans les fenêtres injectées, sans traîne de reprise WireGuard.
+  - Correction : le seuil fixe devient une borne calculée à partir de la panne détectée.
+  - Rejeu 2 revérifié : 0 échec. Les preuves du dépôt passent aussi.
+- **Non prouvé :** un passage complet de bout en bout qui déclenche réellement l'attente de frontière.

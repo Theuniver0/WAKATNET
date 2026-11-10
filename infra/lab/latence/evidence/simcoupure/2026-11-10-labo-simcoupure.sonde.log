@@ -1,0 +1,14 @@
+2026-11-10T21:38:37Z epoch=1794346717 demarrage site=labo acces=simcoupure intervalle=200ms tranche=600s longueur=0 extra= uptime_s=5826.88 fin_prevue=1794346807 ntp_synchronise=inconnu irtt=0.9.0 hote=vm
+2026-11-10T21:38:37Z epoch=1794346717 cible_lancee cible=vm-udp hote=10.77.0.2:3112 pid=16739
+2026-11-10T21:38:37Z epoch=1794346717 cible_lancee cible=vm-wg hote=10.254.213.1:2112 pid=16744
+2026-11-10T21:38:37Z epoch=1794346717 cible_lancee cible=ref-udp hote=10.77.0.2:2112 pid=16753
+2026-11-10T21:40:00Z epoch=1794346800 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simcoupure-ref-udp.T213837Z.json.gz rc=0 send_err=non
+2026-11-10T21:40:00Z epoch=1794346800 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simcoupure-vm-udp.T213837Z.json.gz rc=0 send_err=non
+2026-11-10T21:40:00Z epoch=1794346800 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simcoupure-vm-wg.T213837Z.json.gz rc=0 send_err=non
+2026-11-10T21:40:07Z epoch=1794346807 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simcoupure-ref-udp.T214000Z.json.gz rc=0 send_err=non
+2026-11-10T21:40:07Z epoch=1794346807 fin_programmee cible=ref-udp
+2026-11-10T21:40:07Z epoch=1794346807 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simcoupure-vm-udp.T214000Z.json.gz rc=0 send_err=non
+2026-11-10T21:40:07Z epoch=1794346807 fin_programmee cible=vm-udp
+2026-11-10T21:40:07Z epoch=1794346807 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simcoupure-vm-wg.T214000Z.json.gz rc=0 send_err=non
+2026-11-10T21:40:07Z epoch=1794346807 fin_programmee cible=vm-wg
+2026-11-10T21:40:07Z epoch=1794346807 arret fin_programmee=oui

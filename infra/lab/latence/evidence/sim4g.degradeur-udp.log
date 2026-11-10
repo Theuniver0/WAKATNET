@@ -1,0 +1,2 @@
+degradeur 10.77.0.2:3112 -> 127.0.0.1:2112 delai=150.0ms gigue=40.0ms perte=0.0% ge_p=0.51 ge_r=25.0 coupures=None
+degradeur fin {'aller': 2760, 'perdus_aller': 54, 'coupes': 0}
