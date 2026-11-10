@@ -117,3 +117,13 @@ Séance de questions sur D1, une à la fois :
 3. Propriétaire sans compte marchand : Yacouba a répondu « chaque détenteur de WiFi a le droit de créer un compte, ajouter ses routeurs et gérer le débit à son choix ». C'est consigné comme **accès ouvert**. La vente en ligne s'active au branchement du compte marchand ; c'est une conséquence du mode A, signalée à Yacouba.
 
 Consigné dans `docs/adr/0001-circuit-de-l-argent.md` ; `docs/G0.md` mis à jour. Prochaine décision proposée : **D4** (rendue urgente par l'accès ouvert).
+
+### Décision D4 (10/11/2026)
+
+Séance de questions sur D4 :
+1. Modèle : **un % du prix du forfait avec un plancher**, à l'activation (premier Accounting-Start), débité des crédits.
+2. Valeurs : **10 % et plancher de 10 F** (Yacouba a préféré cette option à ma recommandation, 5 % et 5 F).
+
+J'ai corrigé en séance une erreur de raisonnement que j'avais faite : un % papier plus bas ne pousse pas vers la vente en ligne, puisque la vente en ligne coûte aussi les frais d'agrégateur. Conséquence de conception signalée : un ticket papier existant s'active toujours ; au plafond du découvert, c'est la génération de nouveaux lots qui est bloquée.
+
+Consigné dans `docs/adr/0002-frais-tickets-papier.md` ; `docs/G0.md` mis à jour.
