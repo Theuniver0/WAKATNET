@@ -1,0 +1,25 @@
+# 2026-11-10T16:18:58+00:00 netns=wk-r2 (10.213.1.20/16) -> 10.213.0.1:1812 auth paquet=auth-chap-ma.txt secret=r2
+Sent Access-Request Id 179 from 0.0.0.0:58070 to 10.213.0.1:1812 length 125
+	User-Name = "TICKETLAB1"
+	CHAP-Password = 0xceb9806fd6fc2186c88843e58effac6caf
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Service-Type = Login-User
+	Message-Authenticator = 0x00
+	Cleartext-Password = "mdp-ticket-labo"
+Sent Access-Request Id 179 from 0.0.0.0:58070 to 10.213.0.1:1812 length 125
+	User-Name = "TICKETLAB1"
+	CHAP-Password = 0xceb9806fd6fc2186c88843e58effac6caf
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Service-Type = Login-User
+	Message-Authenticator = 0x00
+	Cleartext-Password = "mdp-ticket-labo"
+(0) No reply from server for ID 179 socket 3
+  (code de sortie radclient = 1)

@@ -1,0 +1,7 @@
+# 2026-11-10T16:18:19+00:00 netns=wk-r2 (10.213.1.20/16) -> 10.213.0.1:1812 radreq.py mode=noma secret=r2
+Sent Access-Request Id 232 to 10.213.0.1:1812 length 87 Message-Authenticator=absent
+  packet hex: 01e8005797b6253f1b6bf17be5317aa96e3d3e73010c5449434b45544c4142310313209110a0de81f20fef9a7087232ce3d6122007776b2d72321f1341412d42422d43432d30302d30302d30311e0a686f7473706f7431
+  (essai 1) pas de réponse après 2.0 s
+  (essai 2) pas de réponse après 2.0 s
+  (essai 3) pas de réponse après 2.0 s
+No reply from server for ID 232

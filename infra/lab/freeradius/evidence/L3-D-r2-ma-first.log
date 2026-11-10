@@ -1,0 +1,7 @@
+# 2026-11-10T16:18:00+00:00 netns=wk-r2 (10.213.1.20/16) -> 10.213.0.1:1812 radreq.py mode=ma secret=r2
+Sent Access-Request Id 219 to 10.213.0.1:1812 length 105 Message-Authenticator=présent
+  packet hex: 01db006902f01b10782e560b6d1b8a9ee4e6c931501272cd9c220b816f99f411c723b72b2ef8010c5449434b45544c41423103135fdd9a4f8da1d74396a5a5b89ef42b7d562007776b2d72321f1341412d42422d43432d30302d30302d30311e0a686f7473706f7431
+Received Access-Accept Id 219 from 10.213.0.1:1812 length 59
+	Message-Authenticator = 0xfaa5c0eb45e1e6308cb40290d7136c35
+	Session-Timeout = 3600
+	Mikrotik-Rate-Limit = "512k/2M"

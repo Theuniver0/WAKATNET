@@ -1,0 +1,66 @@
+--- identité de la session
+ current_user | session_user 
+--------------+--------------
+ wk_radius    | wk_radius
+(1 row)
+
+--- [doit RÉUSSIR] fonction radius.client_lookup
+     secret     | shortname 
+----------------+-----------
+ secret-labo-01 | labo-r1
+(1 row)
+
+--- [doit RÉUSSIR] fonction radius.authorize (jouet)
+      attribute      | op | kind  
+---------------------+----+-------
+ Cleartext-Password  | := | check
+ Session-Timeout     | := | reply
+ Mikrotik-Rate-Limit | := | reply
+(3 rows)
+
+--- [doit ÉCHOUER] lecture directe de app.routers
+ERROR:  permission denied for schema app
+LINE 1: SELECT * FROM app.routers;
+                      ^
+--- [doit ÉCHOUER] lecture directe de app.tickets_lab
+ERROR:  permission denied for schema app
+LINE 1: SELECT * FROM app.tickets_lab;
+                      ^
+--- [doit ÉCHOUER] lecture du grand livre ledger.entries
+ERROR:  permission denied for schema ledger
+LINE 1: SELECT * FROM ledger.entries;
+                      ^
+--- [doit ÉCHOUER] écriture dans app.routers
+ERROR:  permission denied for schema app
+LINE 1: UPDATE app.routers SET active = true;
+               ^
+--- [doit ÉCHOUER] création d objet dans le schéma radius
+ERROR:  permission denied for schema radius
+LINE 1: CREATE TABLE radius.pirate (x int);
+                     ^
+--- [doit ÉCHOUER] création d objet dans le schéma public
+ERROR:  permission denied for schema public
+LINE 1: CREATE TABLE public.pirate (x int);
+                     ^
+--- privilèges effectifs (information_schema)
+ routine_schema | routine_name  | privilege_type 
+----------------+---------------+----------------
+ radius         | authorize     | EXECUTE
+ radius         | client_lookup | EXECUTE
+(2 rows)
+
+ schema | table_name  | can_select | can_update 
+--------+-------------+------------+------------
+ app    | routers     | f          | f
+ app    | tickets_lab | f          | f
+ ledger | entries     | f          | f
+(3 rows)
+
+ schema | usage | create 
+--------+-------+--------
+ app    | f     | f
+ ledger | f     | f
+ public | f     | f
+ radius | t     | f
+(4 rows)
+

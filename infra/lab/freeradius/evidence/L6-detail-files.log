@@ -1,0 +1,27 @@
+total 4
+-rw------- 1 freerad freerad 684 Nov 10 16:18 detail-10.213.1.10-20261110
+Tue Nov 10 16:18:56 2026
+	Acct-Status-Type = Start
+	User-Name = "TICKETLAB1"
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Acct-Session-Id = "81a00001"
+	Timestamp = 1794327536
+
+Tue Nov 10 16:18:57 2026
+	Acct-Status-Type = Interim-Update
+	User-Name = "TICKETLAB1"
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Acct-Session-Id = "81a00001"
+	Acct-Session-Time = 60
+	Acct-Input-Octets = 1000
+	Acct-Output-Octets = 5000
+	Timestamp = 1794327537
+

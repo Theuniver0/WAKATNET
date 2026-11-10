@@ -1,0 +1,17 @@
+# 2026-11-10T16:18:25+00:00 netns=wk-r1 (10.213.1.10/16) -> 10.213.0.1:1812 auth paquet=auth-chap-ma.txt secret=r1-old
+Sent Access-Request Id 217 from 0.0.0.0:56982 to 10.213.0.1:1812 length 125
+	User-Name = "TICKETLAB1"
+	CHAP-Password = 0x012076fc6f184c0538d6234b7d6e89316a
+	NAS-Identifier = "labo-r1"
+	NAS-IP-Address = 10.213.1.10
+	Calling-Station-Id = "AA-BB-CC-00-00-01"
+	Called-Station-Id = "hotspot1"
+	Framed-IP-Address = 192.168.88.10
+	Service-Type = Login-User
+	Message-Authenticator = 0x00
+	Cleartext-Password = "mdp-ticket-labo"
+Received Access-Accept Id 217 from 10.213.0.1:1812 to 10.213.1.10:56982 length 59
+	Message-Authenticator = 0x024e7e2107d3160de5506dfc4d77e86b
+	Session-Timeout = 3600
+	Mikrotik-Rate-Limit = "512k/2M"
+  (code de sortie radclient = 0)

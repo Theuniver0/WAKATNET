@@ -1,0 +1,7 @@
+# 2026-11-10T16:17:54+00:00 netns=wk-r1 (10.213.1.10/16) -> 10.213.0.1:1812 radreq.py mode=noma secret=r1-old
+Sent Access-Request Id 237 to 10.213.0.1:1812 length 87 Message-Authenticator=absent
+  packet hex: 01ed0057cf18d375f7ece3697ae0c1f618a8cd43010c5449434b45544c4142310313be94bcfc01273e8d4cbec7a35237f3fe602007776b2d72311f1341412d42422d43432d30302d30302d30311e0a686f7473706f7431
+  (essai 1) pas de réponse après 2.0 s
+  (essai 2) pas de réponse après 2.0 s
+  (essai 3) pas de réponse après 2.0 s
+No reply from server for ID 237
