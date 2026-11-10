@@ -134,3 +134,10 @@ Consigné dans `docs/adr/0002-frais-tickets-papier.md` ; `docs/G0.md` mis à jou
 2. Support : **toute version ≥ minimum** (contre ma recommandation : versions testées seulement). Conséquence consignée : rejeu de la matrice T sur CHR à chaque nouvelle stable.
 
 Question restée sans réponse : la part du parc en RouterOS 6 / hAP lite. Consigné dans `docs/adr/0003-versions-routeros.md`.
+
+### Décision D6 (10/11/2026)
+
+1. Yacouba a un compte Hetzner. Je lui ai signalé le point de défaillance unique (compte, facturation, réseau) si A et B y sont tous les deux. Choix retenu : **Hetzner pour A et B au lancement et au pilote sur ses sites, puis B migré chez un autre hébergeur avant G-PILOTE** (condition bloquante).
+2. FreeRADIUS : **paquets officiels de l'éditeur**, version épinglée ≥ 3.2.10, compilation en repli.
+
+Consigné dans `docs/adr/0004-hebergement.md`. Reste au G0 : D9 ; D2 et D3 attendent les agrégateurs.
