@@ -149,3 +149,29 @@ Consigné dans `docs/adr/0004-hebergement.md`. Reste au G0 : D9 ; D2 et D3 atten
 3. Visibilité : **masqué + recherche par numéro** ; numéro complet réservé au super-admin, consultation journalisée.
 
 Consigné dans `docs/adr/0005-identite-client-final.md`. Au G0, toutes les décisions qui relèvent de Yacouba sont tranchées sauf D2 et D3 (elles attendent les agrégateurs). La porte reste fermée tant que les preuves de labo manquent.
+
+### Protocole de mesure de latence (ADR 0004 point 4, LABO-17) — 10/11/2026
+
+Produit par un workflow de 4 agents : rédaction et tests, deux relectures adversariales (méthode et statistiques ; réseau, RouterOS et hébergement), puis correction. Fichiers : `docs/PROTOCOLE_LATENCE.md`, `infra/lab/latence/`.
+
+- **Ce qui est prouvé, en simulation dans le conteneur** :
+  - `analyse.py` retrouve les profils injectés (délai, gigue, pertes en rafales, coupure de 15 s, panne locale) ;
+  - `test-analyse.py` : 67/67 contrôles, rejoué par moi ;
+  - `verifier-test.py` : 73/73 au dernier passage de l'agent ;
+  - un vrai défaut corrigé dans `sonde.sh` : dernière tranche perdue sur SIGTERM envoyé au groupe de processus.
+- **Écarts de l'environnement** :
+  - pas de `tc netem` (noyau sans `sch_netem`), remplacé par un dégradeur UDP en espace utilisateur ;
+  - WireGuard en espace utilisateur (wireguard-go, hors dépôt).
+- **Non prouvé** :
+  - toute mesure réelle depuis le Burkina ;
+  - `routeros-sonde.rsc`, jamais exécuté faute de CHR ;
+  - `serveur-vm.sh` sur une vraie Debian avec systemd ;
+  - les noms et offres Hetzner, marqués « à vérifier ».
+- **À valider par Yacouba** :
+  - hypothèse de 300 authentifications par jour et par routeur ;
+  - attente acceptable côté client W = 5 s ;
+  - seuils de choix des datacenters (§7 du protocole).
+- **Donnée la plus importante qui manque** : le nombre de renvois de RouterOS avant bascule (LABO-09 / LABO-16). Un `timeout` plus long ne réduit pas les fausses bascules dues à la perte ; seuls les renvois le font.
+- **Stockage** : environ 750 Mo de captures par sonde pour 72 h. Elles ne vont pas dans le dépôt ; l'archivage reste à décider.
+
+`docs/LABO.md` : LABO-17 ajouté et renvoi depuis LABO-09. `.gitignore` : exception pour `infra/lab/latence/evidence/**/*.log`.

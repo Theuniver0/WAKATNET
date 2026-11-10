@@ -79,6 +79,7 @@ Ces points sont marqués « à valider sur CHR » dans la spec, ou bien la reche
 | LABO-14 | §1.1 Hotspot (walled garden) ; §7.1 | HTTPS par nom d'hôte : `walled-garden` (HTTP) ou `walled-garden ip` + `dst-host` | **OUVERT** | — |
 | LABO-15 | §1.1 Hotspot | Code d'option DHCP réellement envoyé (160 ou 114) ; conditions (nom DNS, certificat) | **OUVERT** (couvert par LABO-13) | — |
 | LABO-16 | T13 ; §10.2 | RouterOS bascule-t-il vers B sur un Reject, ou seulement sur un timeout ? | **OUVERT** (la partie serveur est prouvée : L6e) | — |
+| LABO-17 | ADR 0004 point 4 ; §6.2 `timeout` | Latence et perte réelles depuis le Burkina (fibre, 4G, Starlink) vers les datacenters candidats | **OUVERT** : protocole et scripts prêts, testés en simulation (`infra/lab/latence/evidence/`) | `docs/PROTOCOLE_LATENCE.md` |
 
 ### 2.3 Points côté serveur FreeRADIUS (labo exécuté dans cette session)
 
@@ -803,6 +804,8 @@ tc -s qdisc show dev $IF ; tc -s qdisc show dev ifb0
 | P4 A mort | — | — | 100 % | |
 
 **Calibrage terrain :** sur un vrai site, `/tool ping ADRESSE count=1000 interval=200ms` à plusieurs heures de la journée. Consigner dans `docs/labo/LABO-09_mesures-terrain.txt`.
+
+> **Mesures terrain de latence et de perte, et réglage du `timeout` : voir `docs/PROTOCOLE_LATENCE.md`** (ADR 0004, point 4). Ce protocole remplace le calibrage sommaire ci-dessus : mesure UDP dans et hors tunnel pendant 48 à 72 h, rafales de pertes, pic du soir, formule de `timeout` proposée.
 
 **Charge** (ALP2, 100 logins par combinaison timeout × profil) :
 ```bash

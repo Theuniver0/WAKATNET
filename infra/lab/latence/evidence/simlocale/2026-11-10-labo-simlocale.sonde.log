@@ -1,0 +1,26 @@
+2026-11-10T21:41:20Z epoch=1794346880 demarrage site=labo acces=simlocale intervalle=200ms tranche=600s longueur=0 extra= uptime_s=5990.49 fin_prevue=1794347030 ntp_synchronise=inconnu irtt=0.9.0 hote=vm
+2026-11-10T21:41:20Z epoch=1794346880 cible_lancee cible=vm-udp hote=10.77.0.2:3112 pid=17282
+2026-11-10T21:41:20Z epoch=1794346880 cible_lancee cible=vm-wg hote=10.254.213.1:2112 pid=17288
+2026-11-10T21:41:20Z epoch=1794346880 cible_lancee cible=ref-udp hote=10.77.0.2:2112 pid=17295
+2026-11-10T21:42:55Z epoch=1794346975 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simlocale-ref-udp.T214120Z.json.gz rc=0 send_err=oui
+2026-11-10T21:42:56Z epoch=1794346976 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simlocale-vm-udp.T214120Z.json.gz rc=0 send_err=oui
+2026-11-10T21:42:57Z epoch=1794346977 echec_ouverture cible=ref-udp debut=1794346975 fin=1794346977 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:2112:_connect:_network_is_unreachable
+2026-11-10T21:42:57Z epoch=1794346977 echec_ouverture cible=vm-udp debut=1794346976 fin=1794346977 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:3112:_connect:_network_is_unreachable
+2026-11-10T21:42:58Z epoch=1794346978 echec_ouverture cible=ref-udp debut=1794346977 fin=1794346978 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:2112:_connect:_network_is_unreachable
+2026-11-10T21:42:58Z epoch=1794346978 echec_ouverture cible=vm-udp debut=1794346977 fin=1794346978 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:3112:_connect:_network_is_unreachable
+2026-11-10T21:42:59Z epoch=1794346979 echec_ouverture cible=ref-udp debut=1794346978 fin=1794346979 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:2112:_connect:_network_is_unreachable
+2026-11-10T21:42:59Z epoch=1794346979 echec_ouverture cible=vm-udp debut=1794346978 fin=1794346979 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:3112:_connect:_network_is_unreachable
+2026-11-10T21:43:00Z epoch=1794346980 echec_ouverture cible=ref-udp debut=1794346979 fin=1794346980 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:2112:_connect:_network_is_unreachable
+2026-11-10T21:43:00Z epoch=1794346980 echec_ouverture cible=vm-udp debut=1794346979 fin=1794346980 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:3112:_connect:_network_is_unreachable
+2026-11-10T21:43:01Z epoch=1794346981 echec_ouverture cible=ref-udp debut=1794346980 fin=1794346981 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:2112:_connect:_network_is_unreachable
+2026-11-10T21:43:01Z epoch=1794346981 echec_ouverture cible=vm-udp debut=1794346980 fin=1794346981 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:3112:_connect:_network_is_unreachable
+2026-11-10T21:43:02Z epoch=1794346982 echec_ouverture cible=ref-udp debut=1794346981 fin=1794346982 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:2112:_connect:_network_is_unreachable
+2026-11-10T21:43:02Z epoch=1794346982 echec_ouverture cible=vm-udp debut=1794346981 fin=1794346982 rc=1 erreur=Error:_dial_udp4_:0->10.77.0.2:3112:_connect:_network_is_unreachable
+2026-11-10T21:43:49Z epoch=1794347029 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simlocale-ref-udp.T214302Z.json.gz rc=0 send_err=non
+2026-11-10T21:43:50Z epoch=1794347030 tranche_ok cible=vm-udp fichier=2026-11-10-labo-simlocale-vm-udp.T214302Z.json.gz rc=0 send_err=non
+2026-11-10T21:43:50Z epoch=1794347030 fin_programmee cible=vm-udp
+2026-11-10T21:43:50Z epoch=1794347030 tranche_ok cible=ref-udp fichier=2026-11-10-labo-simlocale-ref-udp.T214349Z.json.gz rc=0 send_err=non
+2026-11-10T21:43:50Z epoch=1794347030 fin_programmee cible=ref-udp
+2026-11-10T21:43:51Z epoch=1794347031 tranche_ok cible=vm-wg fichier=2026-11-10-labo-simlocale-vm-wg.T214120Z.json.gz rc=0 send_err=non
+2026-11-10T21:43:51Z epoch=1794347031 fin_programmee cible=vm-wg
+2026-11-10T21:43:51Z epoch=1794347031 arret fin_programmee=oui

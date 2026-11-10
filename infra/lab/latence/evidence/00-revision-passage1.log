@@ -1,0 +1,162 @@
+test-local.sh  2026-11-10T21:17:29Z  noyau 6.18.44-fc-v338  irtt 0.9.0  wireguard-tools v1.0.20210914 - https://git.zx2c4.com/wireguard-tools/  python Python 3.13.18
+P1 simfibre début 21:17:37
+P1 fin 21:20:37
+P2 sim4g début 21:20:45
+P2 SIGTERM au groupe de processus 11919 (7 processus) 21:21:30
+P2 reprise 21:21:30
+P2 fin 21:23:06
+P3 simcoupure début 21:23:13 (coupure prévue de +40 s à +55 s)
+P3 fin 21:24:44
+P4 simouverture début 21:24:48 (cible coupée de +0 s à +20 s du dégradeur, soit environ 18 s vues par la sonde)
+P4 fin 21:25:49
+P5 simlocale début 21:25:56
+P5 panne amont : début 21:26:36
+P5 panne amont : fin 21:26:48
+P5 interface tombée : début 21:27:31
+P5 interface tombée : fin 21:27:37
+P5 fin 21:28:27
+fin des captures 2026-11-10T21:28:27Z
+écrit : /home/user/WAKATNET/infra/lab/latence/evidence/resultat.md /home/user/WAKATNET/infra/lab/latence/evidence/resultat.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-heures.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-correlation.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-soirees.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-appariement.csv /home/user/WAKATNET/infra/lab/latence/evidence/resultat-rare.csv
+PASS P1 vm-udp pertes = paquets jetés : irtt 19, dégradeur 19
+PASS P1 vm-udp perte % dans [0,2 ; 1,0] : 0.531
+PASS P1 vm-udp p50 dans [88 ; 95] ms : 91.385
+PASS P1 vm-udp p95 dans [102 ; 113] ms (théorie 90 + 1,645 × 10 ≈ 106) : 108.721
+PASS P1 vm-udp gigue dans [9 ; 14] ms (théorie 2σ/√π ≈ 11,3) : 11.351
+PASS P1 vm-udp rafale max ≤ 3 paquets : 1
+FAIL P2 vm-udp pertes = paquets jetés (arrêt par SIGTERM au groupe) : irtt 39, dégradeur 54
+PASS P2 vm-udp perte % dans [1,0 ; 3,5] : 2.099
+PASS P2 vm-udp p50 dans [145 ; 160] ms : 150.835
+PASS P2 vm-udp p95 dans [200 ; 232] ms (théorie ≈ 216) : 214.446
+PASS P2 vm-udp r ajusté dans [12 ; 45] % (injecté 25) : 25.641
+PASS P2 vm-udp rafale max ≥ 3 paquets (pertes groupées) : 11
+FAIL P2 vm-udp une tranche interrompue (SIGTERM) reconnue : 0
+PASS P3 vm-udp rafale max dans [14,8 ; 15,8] s : 15.2
+PASS P3 vm-udp rafale max dans [74 ; 78] paquets (15 s / 200 ms = 75) : 76
+PASS P3 vm-udp une seule rafale ≥ 10 s : 1
+PASS P3 vm-udp toutes les pertes sont dans la coupure : perdus 76, rafale 76
+PASS P3 vm-udp panne locale = 0 s (témoin joignable) : 0
+PASS P3 vm-udp perte HL = perte brute : 16.927 / 16.927
+PASS P3 vm-udp K = 1, T = 1,1 s : % d'expiration = % de perte (aucun RTT > 1,05 s) : 16.9265 / 16.927
+PASS P3 vm-udp K = 3, T = 5 s : la coupure fait encore basculer (2 × 5 s < 15 s) : 5.7906 %, 1 épisode
+PASS P3 vm-udp Gilbert ajusté hors coupure > 10 s : aucune perte (p = 0) : 0.0
+PASS P4 vm-udp indisponibilité d'ouverture dans [70 ; 110] paquets (≈ 18 s / 200 ms) : 90
+PASS P4 vm-udp silence max dans [16 ; 24] s : 18.931
+PASS P4 vm-udp aucune perte réelle : 0.0
+PASS P5 vm-udp panne locale dans [14 ; 24] s (12 s + 6 s, moins les secondes de bord) : 17
+PASS P5 vm-udp brut : au moins une rafale ≥ 10 s : 1
+PASS P5 vm-udp HL : aucune rafale ≥ 3 s : 0
+PASS P5 vm-udp HL : perte < 1 % (brut nettement plus haut) : HL 0.759 / brut 8.403
+PASS P5 vm-udp arrêt d'irtt sur erreur d'envoi reconnu : 1
+PASS P1 vm-wg pertes = paquets jetés : irtt 20, dégradeur 20
+PASS P1 vm-wg perte % dans [0,2 ; 1,0] : 0.56
+PASS P1 vm-wg p50 dans [88 ; 95] ms : 91.957
+PASS P1 vm-wg p95 dans [102 ; 113] ms (théorie 90 + 1,645 × 10 ≈ 106) : 109.23
+PASS P1 vm-wg gigue dans [9 ; 14] ms (théorie 2σ/√π ≈ 11,3) : 11.415
+PASS P1 vm-wg rafale max ≤ 3 paquets : 1
+FAIL P2 vm-wg pertes = paquets jetés (arrêt par SIGTERM au groupe) : irtt 38, dégradeur 54
+PASS P2 vm-wg perte % dans [1,0 ; 3,5] : 2.05
+PASS P2 vm-wg p50 dans [145 ; 160] ms : 151.19
+PASS P2 vm-wg p95 dans [200 ; 232] ms (théorie ≈ 216) : 215.043
+PASS P2 vm-wg r ajusté dans [12 ; 45] % (injecté 25) : 24.324
+PASS P2 vm-wg rafale max ≥ 3 paquets (pertes groupées) : 11
+FAIL P2 vm-wg une tranche interrompue (SIGTERM) reconnue : 0
+PASS P3 vm-wg rafale max dans [14,8 ; 15,8] s : 15.0
+PASS P3 vm-wg rafale max dans [74 ; 78] paquets (15 s / 200 ms = 75) : 75
+PASS P3 vm-wg une seule rafale ≥ 10 s : 1
+FAIL P3 vm-wg toutes les pertes sont dans la coupure : perdus 76, rafale 75
+PASS P3 vm-wg panne locale = 0 s (témoin joignable) : 0
+PASS P3 vm-wg perte HL = perte brute : 16.889 / 16.889
+PASS P3 vm-wg K = 1, T = 1,1 s : % d'expiration = % de perte (aucun RTT > 1,05 s) : 16.8889 / 16.889
+PASS P3 vm-wg K = 3, T = 5 s : la coupure fait encore basculer (2 × 5 s < 15 s) : 5.5556 %, 1 épisode
+FAIL P3 vm-wg Gilbert ajusté hors coupure > 10 s : aucune perte (p = 0) : 0.269
+PASS P4 vm-wg indisponibilité d'ouverture dans [70 ; 110] paquets (≈ 18 s / 200 ms) : 90
+PASS P4 vm-wg silence max dans [16 ; 27] s : 19.013
+PASS P4 vm-wg aucune perte réelle : 0.0
+PASS P5 vm-wg panne locale dans [14 ; 24] s (12 s + 6 s, moins les secondes de bord) : 17
+PASS P5 vm-wg brut : au moins une rafale ≥ 10 s : 1
+PASS P5 vm-wg HL : aucune rafale ≥ 3 s : 0
+PASS P5 vm-wg HL : perte < 1 % (brut nettement plus haut) : HL 0.752 / brut 11.883
+PASS témoin ref-udp simfibre : aucune perte : 0.0 %, 0 virtuels
+PASS témoin ref-udp simcoupure : aucune perte : 0.0 %, 0 virtuels
+PASS témoin ref-udp simouverture : aucune perte : 0.0 %, 0 virtuels
+PASS P5 corrélation ref/vm : trop peu d'épisodes hors locale -> indéterminé : indéterminé : 0 épisode(s) < 10
+FAIL P2 SIGTERM au groupe : tranche écrite pour les 3 cibles : 0 lignes interrompue=oui
+PASS P5 journal : send_err=oui : 2 ligne(s)
+PASS P1 flux clairsemé vm-wg-rare : ≥ 30 pings : 53
+PASS P1 flux clairsemé vm-wg-rare : p50 dans [85 ; 100] ms : 94.0
+PASS P1 flux clairsemé retour-vm : ≥ 30 pings : 53
+PASS P1 flux clairsemé retour-vm : p50 dans [85 ; 100] ms : 90.9
+PASS P1 flux clairsemé : surcoût p50 calculé et |surcoût| < 10 ms (pas de radio ici) : 2.043
+PASS P1 syslog : débit WAN reçu dans [0,9 ; 1,1] Mbit/s : ['1.0']
+PASS P1 syslog : débit WAN émis dans [0,18 ; 0,22] Mbit/s : ['0.2']
+PASS P1 syslog : ligne étrangère ignorée, repère de démarrage gardé : 4 lignes gardées
+RÉSULTAT : ÉCHEC — P2 vm-udp pertes = paquets jetés (arrêt par SIGTERM au groupe), P2 vm-udp une tranche interrompue (SIGTERM) reconnue, P2 vm-wg pertes = paquets jetés (arrêt par SIGTERM au groupe), P2 vm-wg une tranche interrompue (SIGTERM) reconnue, P3 vm-wg toutes les pertes sont dans la coupure, P3 vm-wg Gilbert ajusté hors coupure > 10 s : aucune perte (p = 0), P2 SIGTERM au groupe : tranche écrite pour les 3 cibles
+PASS J0 a perte % brut : obtenu '7.5', attendu 7.5
+PASS J0 a rafale max paquets : obtenu '75', attendu 75
+PASS J0 a rafale max s (pertes mesurées) : obtenu '15.0', attendu 15.0
+PASS J0 a rafale max silence s : obtenu '15.0', attendu 15.0
+PASS J0 a p50 ms : obtenu '100.0', attendu 100.0
+PASS J0 a max ms : obtenu '1500.0', attendu 1500.0
+PASS J0 a perte montante : obtenu '37', attendu 37
+PASS J0 a brut échec K=1 T=1 s % : obtenu '7.6', attendu 7.6
+PASS J0 a brut échec K=1 T=2 s % : obtenu '7.5', attendu 7.5
+PASS J0 a brut échec K=2 T=1 s % : obtenu '7.0', attendu 7.0
+PASS J0 a rafales >= 10 s : obtenu '1', attendu 1
+PASS J0 b rafale max s : obtenu '5.0', attendu 5.0
+PASS J0 b rafales >= 1 s : obtenu '2', attendu 2
+PASS J0 a panne locale s (a, b, c muets : paquets 100-124) : obtenu '5', attendu 5
+PASS J0 a HL envoyés (1000 - 25) : obtenu '975', attendu 975
+PASS J0 a HL perte % (50 / 975) : obtenu '5.128', attendu 5.128
+PASS J0 a HL échec K=1 T=1 s % (51 / 975) : obtenu '5.2308', attendu 5.2308
+PASS J0 a,b panne a s : obtenu '15', attendu 15
+PASS J0 a,b simultanées s : obtenu '5', attendu 5
+PASS J0 a,b P(b|a) brut % : obtenu '33.333', attendu 33.333
+PASS J0 a,b panne locale s : obtenu '5', attendu 5
+PASS J0 a,b P(b|a) HL % (secondes) : obtenu '0.0', attendu 0.0
+PASS J0 a,c P(c|a) HL % (secondes) : obtenu '100.0', attendu 100.0
+PASS J0 a,b 1 épisode < 10 : indéterminé : obtenu '', attendu ''
+PASS J1 p50 : obtenu '500.0', attendu 500
+PASS J1 p95 : obtenu '950.0', attendu 950
+PASS J1 p99 : obtenu '990.0', attendu 990
+PASS J1 p999 : obtenu '999.0', attendu 999
+PASS J2 lent p99 reçus : obtenu '900.0', attendu 900.0
+PASS J2 perd p99 reçus (le survivant paraît meilleur) : obtenu '100.0', attendu 100.0
+PASS J2 perd p99 effectif = perdu : obtenu 'inf', attendu 'inf'
+PASS J2 perd p95 effectif : obtenu '100.0', attendu 100.0
+PASS J2 lent p99 effectif : obtenu '900.0', attendu 900.0
+PASS J3 paquets en vol retirés : obtenu '1', attendu 1
+PASS J3 rafale max paquets : obtenu '59', attendu 59
+PASS J3 rafale max s : obtenu '11.8', attendu 11.8
+PASS J3 fin anticipée inexpliquée signalée : obtenu '1', attendu 1
+PASS J3b cause SIGTERM : obtenu '1', attendu 1
+PASS J3b paquets en vol retirés : obtenu '1', attendu 1
+PASS J3c cause erreur d'envoi : obtenu '1', attendu 1
+PASS J4 sans témoin : P(nbg|fsn) indéterminé : obtenu 'indéterminé : aucun témoin hors Hetzner', attendu 'indéterminé : aucun témoin hors Hetzner'
+PASS J4 sans témoin : HL vide : obtenu '', attendu ''
+PASS J4 sans témoin : perte HL = brut (rien retiré) : obtenu '30.0', attendu 30.0
+PASS J4b panne locale s = 0 : obtenu '0', attendu 0
+PASS J4b P(nbg|fsn) HL % (secondes) = 100 : obtenu '100.0', attendu 100.0
+PASS J4b 1 épisode : indéterminé : obtenu 'indéterminé : 1 épisode(s) < 10', attendu 'indéterminé : 1 épisode(s) < 10'
+PASS J4c panne locale s : obtenu '5', attendu 5
+PASS J4c épisodes de fsn hors locale : obtenu '12', attendu 12
+PASS J4c P(nbg|fsn) HL en épisodes = 6/12 : obtenu '50.0', attendu 50.0
+PASS J4c P(nbg|fsn) HL en secondes = 18/36 : obtenu '50.0', attendu 50.0
+PASS J4c fsn perte HL (180 / 1475) : obtenu '12.203', attendu 12.203
+PASS J5 bascules/jour = % pic x 300 / 100 : obtenu '0.008', attendu 0.008
+PASS J5 bascules/jour < 0,1 malgré des dizaines d'épisodes : obtenu True, attendu True
+PASS J6 strict K=2 T=1 (199/999) : obtenu '19.9199', attendu 19.9199
+PASS J6 tardif K=2 T=1 (99/999) : obtenu '9.9099', attendu 9.9099
+PASS J7 --exclure : perte 0 : obtenu '0.0', attendu 0.0
+PASS J7 --exclure : 925 envoyés : obtenu '925', attendu 925
+PASS J8 série x@200ms : obtenu '500', attendu 500
+PASS J8 série x@500ms : obtenu '200', attendu 200
+PASS J9 saut d'horloge signalé : obtenu '1', attendu 1
+PASS J9 durée = 200 s (horloge monotone) : obtenu '0.056', attendu 0.056
+PASS J9 couverture 100 % : obtenu '100.0', attendu 100.0
+PASS J10 heures comparées : obtenu '8', attendu 8
+PASS J10 verdict apparié : obtenu 'fsn-wg meilleur', attendu 'fsn-wg meilleur'
+PASS J10 p99.9 fsn soirée 1 : obtenu '100.0', attendu 100.0
+PASS J10 p99.9 fsn soirée 2 : obtenu '400.0', attendu 400.0
+PASS J10 IC bootstrap p95e présent : obtenu True, attendu True
+RÉSULTAT : 0 échec(s) sur les contrôles ci-dessus : tout conforme
+fin 2026-11-10T21:29:02Z

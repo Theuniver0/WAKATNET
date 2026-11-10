@@ -1,0 +1,3 @@
+site,acces,nom,envoyes,recus,perte_pct,p50,p95,max,dense_p50,surcout_p50_ms
+labo,simfibre,retour-vm,55,54,1.818,91.5,108.0,119.0,,
+labo,simfibre,vm-wg-rare,54,53,1.852,87.9,106.0,110.0,91.908,-4.008

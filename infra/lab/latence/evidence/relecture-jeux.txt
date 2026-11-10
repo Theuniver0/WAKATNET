@@ -1,0 +1,11 @@
+# Jeux de la relecture adversariale du 10/11/2026 (données produites par le gen/fabrique.py du relecteur, lues telles quelles), rejoués avec analyse.py révisé
+# commande : analyse.py DONNEES/jN --sortie re/jN (options par défaut : S = 50 ms, --groupes-hetzner fsn,nbg,hel)
+j1 (RTT 1..1000 ms) : p50 500.0 p95 950.0 p99 990.0 p99.9 999.0
+j2 lent : p99 reçus 900.0, p99.9 reçus 900.0, p95e 100.0, p99e 900.0, p99.9e 900.0
+j2 perd : p99 reçus 100.0, p99.9 reçus 100.0, p95e 100.0, p99e inf, p99.9e inf
+j3 (coupure réelle de 12 s en fin de tranche, RTT aberrant 4 s) : en vol retirés 1, pertes gardées 59, rafale 59 paquets / 11.8 s, fin inexpliquée 1
+j4 (panne commune fsn/nbg/hel, aucun témoin) fsn-wg/hel-wg : P(Y|X) brut 100.0, HL '', statut « indéterminé : aucun témoin hors Hetzner »
+j4 (panne commune fsn/nbg/hel, aucun témoin) fsn-wg/nbg-wg : P(Y|X) brut 100.0, HL '', statut « indéterminé : aucun témoin hors Hetzner »
+j4 (panne commune fsn/nbg/hel, aucun témoin) hel-wg/nbg-wg : P(Y|X) brut 100.0, HL '', statut « indéterminé : aucun témoin hors Hetzner »
+j5 (24 h, perte indépendante 0,5 %) : perte 0.519 % ; K=2 T=1 s au pic : 0.0028 % des instants, 0.008 fausses bascules attendues par jour (300 auth/j), 18 épisodes sur toute la mesure
+j6 (10 % des RTT à 1,5 s) : K=1 T=1 s 10.0 % ; K=2 T=1 s strict 0.0 % / tardif 0.0 %

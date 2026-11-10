@@ -26,6 +26,7 @@ coverage/
 # Preuves de labo : versionnées (valeurs de labo uniquement)
 !infra/lab/freeradius/evidence/*.log
 !infra/dev/evidence/*.log
+!infra/lab/latence/evidence/**/*.log
 !docs/labo/**/*.log
 __pycache__/
 .venv/
