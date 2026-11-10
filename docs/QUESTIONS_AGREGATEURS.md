@@ -1,6 +1,6 @@
 # Questionnaire aux agrégateurs de paiement
 
-> **Date : 10/11/2026.** Livrable du §12 (phase 0) et du §15 item 3 du SPEC.
+> **Date : 10/11/2026** (mis à jour après les décisions D1, D4, D5, D6, D9 de la porte G0). Livrable du §12 (phase 0) et du §15 item 3 du SPEC.
 > À envoyer par Telecom Universel aux prestataires retenus dans `docs/PAYMENT_PROVIDERS.md` §1.3.
 > Mode d'emploi : copier le **courriel type** (§1), y coller la **partie générale** (§2), puis la **section propre au destinataire** (§3). Les champs entre crochets sont à remplir avant l'envoi.
 > Demander des réponses **écrites**, de préférence avec des liens vers la documentation officielle ou les conditions contractuelles. Une réponse orale ne lève aucun [À CONFIRMER].
@@ -20,7 +20,7 @@ Nous étudions plusieurs prestataires de paiement et souhaitons intégrer le vô
 
 1. **Des micro-paiements.** Le forfait le plus vendu coûte **100 FCFA** ; la grille va de 100 à 1 000 FCFA. Le montant minimum et tout frais fixe par transaction sont donc déterminants.
 2. **Un client sans Internet.** L'acheteur est connecté à un Wi-Fi qui ne lui donne pas encore accès à Internet. Le paiement doit pouvoir se faire **sans redirection** vers une page externe : saisie du code OTP Orange Money sur notre page, ou validation poussée Moov Money, avec un appel de serveur à serveur.
-3. **Plusieurs exploitants.** Chaque exploitant de WiFi Zone vend pour son propre compte. Nous voulons savoir comment votre offre permet de servir plusieurs marchands depuis une même plateforme, et dans quel cadre réglementaire.
+3. **Plusieurs exploitants.** Chaque exploitant de WiFi Zone vend pour son propre compte. Notre modèle de départ : chaque exploitant encaisse sur **son propre compte marchand**, et la plateforme ne détient jamais ses fonds. Notre modèle cible : un **partage automatique** de chaque paiement entre l'exploitant et la plateforme (sous-comptes marchands ou répartition native), chez un prestataire agréé. Nous voulons savoir ce que votre offre permet, et dans quel cadre réglementaire.
 
 Vous trouverez ci-dessous nos questions, numérotées pour faciliter la réponse. Nous vous serions reconnaissants de bien vouloir y répondre par écrit, en joignant si possible les liens vers votre documentation technique et vos conditions tarifaires. Nous souhaiterions également recevoir des **identifiants d'accès à votre environnement de test**.
 
@@ -95,6 +95,12 @@ Telecom Universel, Ouagadougou
 35. Où sont **hébergées** les données des transactions (numéros des payeurs) ? Proposez-vous un accord de traitement des données personnelles ?
 36. Publiez-vous un **engagement de disponibilité** et une page d'état ? Comment sommes-nous informés d'un incident ?
 37. Disposez-vous d'un **support technique au Burkina** ou dans la zone UEMOA, et à quels horaires ?
+
+### H. Questions ajoutées après nos décisions de conception (10/11/2026)
+
+38. **Référence de transaction.** Le payeur reçoit-il de l'opérateur un **SMS de confirmation** contenant une référence de transaction (Orange Money BF, Moov Money BF) ? Cette référence est-elle **identique** à celle que votre API nous transmet (réponse de paiement, notification, vérification de statut) ? Si non, pouvons-nous obtenir la référence de l'opérateur par votre API ? Nous voulons permettre au client de retrouver son achat en saisissant quelques caractères de cette référence.
+39. **Remboursement.** Proposez-vous une **API de remboursement**, totale ou partielle, d'un paiement réussi ? Délai, frais, et statut final notifié ? Sinon, quelle est la procédure ?
+40. **Ordre de priorité de nos questions.** Si vous ne pouvez pas tout traiter rapidement, les réponses qui nous permettent de décider sont, dans l'ordre : 27 et 28 (partage automatique, encaissement pour tiers), 26 (compte marchand de chaque exploitant), 7, 9 et 10 (montant minimum de 100 FCFA, frais, frais fixe), 2 (paiement sans redirection), 20 et 21 (bac à sable avec numéros +226), 15 et 16 (signature des notifications), 30 (agrément BCEAO) et 38 (référence de transaction).
 
 ---
 
