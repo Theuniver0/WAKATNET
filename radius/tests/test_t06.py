@@ -4,6 +4,7 @@ Ticket : .scratch/phase-1-coeur-radius/issues/06-sessions.md
 Décision de Yacouba du 11/11/2026 : post_auth et auth_log sont livrés ici (avancés du ticket 07),
 parce que le compte d'appareils et bind_mac en dépendent (ADR 0006 §9, §10).
 """
+import threading
 import time
 
 from conftest import ROUTEURS, admin, attendre_rejeu, comptabiliser, demander, nouveau_ticket
@@ -27,7 +28,7 @@ def dernier_journal() -> int:
         return c.execute("SELECT coalesce(max(id), 0) FROM radius.auth_log").fetchone()[0]
 
 
-def vieillir_journal(code: str, secondes: int = 600) -> None:
+def vieillir_journal(code: str, secondes: int = 2000) -> None:
     """Forme (d) de l'ADR 0007 : les Accept du ticket sont datés dans le passé (hors fenêtre)."""
     with admin() as c:
         c.execute("""UPDATE radius.auth_log SET at = at - %s * interval '1 second'
@@ -63,6 +64,7 @@ def test_t6_tentative_de_a_sur_un_routeur_de_b_journalisee_sans_ticket():
     lignes = journal(routeur="r7", depuis=j0)
     assert [(l["resultat"], l["cause"], l["voucher_id"], l["tenant_id"]) for l in lignes] == [
         ("Reject", "ticket_inconnu", None, 2)]
+    assert not any(code in str(v) for l in lignes for v in l.values())
 
 
 def test_post_auth_en_echec_l_accept_reste_un_accept():
@@ -111,6 +113,30 @@ def test_t5_deux_appareils_permis_le_troisieme_refuse():
     code = nouveau_ticket(plan_id=8)            # 2 appareils
     assert demander("r1", code=code, calling_station_id=MAC1).nom == "Access-Accept"
     assert demander("r2", code=code, calling_station_id=MAC2).nom == "Access-Accept"
+    _refus(demander("r1", code=code, calling_station_id=MAC3), "trop_d_appareils")
+
+
+def test_t5_course_residuelle_requetes_simultanees_documentee():
+    """ADR 0006, amendement du ticket 06 : deux Access-Request SIMULTANÉS (moins d'un aller-retour)
+    peuvent tous deux être acceptés ; c'est la limite assumée. Ce test fixe les bornes de ce
+    comportement : jamais de silence ni d'erreur, au moins un Accept, au plus deux, et le
+    troisième appareil, arrivé après les réponses, est toujours refusé."""
+    code = nouveau_ticket(plan_id=1)
+    reponses = {}
+    depart = threading.Barrier(2)
+
+    def envoyer(nom, mac):
+        depart.wait()
+        reponses[mac] = demander(nom, code=code, calling_station_id=mac, essais=1, delai=2.0)
+
+    fils = [threading.Thread(target=envoyer, args=a) for a in (("r1", MAC1), ("r2", MAC2))]
+    for f in fils:
+        f.start()
+    for f in fils:
+        f.join()
+    noms = sorted(r.nom for r in reponses.values() if r is not None)
+    assert len(noms) == 2, "silence : aucune requête ne doit rester sans réponse"
+    assert noms.count("Access-Accept") in (1, 2)
     _refus(demander("r1", code=code, calling_station_id=MAC3), "trop_d_appareils")
 
 

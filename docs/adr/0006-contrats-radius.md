@@ -30,7 +30,7 @@ Instances `rlm_sql`, qui portent les connexions, et `rlm_sql_map`, qui portent l
 | `radius.authorize(p_user text, p_src text, p_calling text, p_called text) RETURNS TABLE(cleartext_password text, decision text, reply_message text, session_timeout bigint, rate_limit text, port_limit int, interim int)` | `wk_radius` | **Lecture seule** (`STABLE`). Renvoie **une ligne**, dont les colonnes sont associées aux attributs par `map_auth` (§2) : une seule requête par Access-Request. Ne lève jamais d'exception à cause d'une donnée : tout cas inattendu donne un refus codé. Enveloppe de `radius._authorize_at(…, p_now)` (ADR 0007). |
 | `radius.post_auth(p_user text, p_src inet, p_calling text, p_result text, p_cause text) RETURNS void` | `wk_radius` | Écrit dans `auth_log` : routeur, MAC, résultat, cause, `voucher_id` si le code existe pour ce propriétaire, sinon NULL. **Jamais le code.** Pose la liaison `bind_mac` au premier Accept (§9). |
 | `radius.acct_start / acct_interim / acct_stop(p_src text, p_session_id text, p_user text, p_calling text, p_framed_ip text, p_in_oct text, p_in_giga text, p_out_oct text, p_out_giga text, p_session_time text, p_cause text, p_received_epoch text) RETURNS text` | `wk_acct` | Idempotentes (§8). **Tous les paramètres sont en `text`** et analysés dans la fonction : une conversion impossible (chaîne vide, valeur invalide) envoie la ligne en quarantaine **au lieu** de faire échouer l'appel SQL, ce qui bloquerait le lecteur sans fin. `p_received_epoch` = `%{integer:Packet-Original-Timestamp}`. Renvoient `'ok'` ou `'quarantaine'`. |
-| `radius.acct_on_off(p_src text, p_received_epoch text) RETURNS text` | `wk_acct` | Ferme les sessions de l'**époque courante** du routeur, puis incrémente l'époque (§8). Le critère est l'époque et non l'instant, parce que l'instant est arrondi à la seconde. |
+| `radius.acct_on_off(p_src text, p_received_epoch text) RETURNS text` | `wk_acct` | Ferme les sessions de l'**époque courante** du routeur, puis incrémente l'époque (§8). Le critère est l'époque et non l'instant, parce que l'instant est arrondi à la seconde. **Ticket 06** : en plus, seules les sessions démarrées au plus tard à la réception sont fermées, et un On déjà traité (réception ≤ `dernier_acct_on_le`) est sans effet. |
 | `radius.close_ghost_sessions() RETURNS int` | `wk_maint` | Sessions fantômes (§8). |
 | `radius.purge_auth_log() RETURNS bigint` | `wk_maint` | Suppression au-delà de 90 jours (ADR 0005). Idempotente. |
 | `radius.sessions_to_cut() RETURNS TABLE(…)` et `radius.mark_cut(p_session bigint, p_result text)` | `wk_coa` | Sessions à couper (volume épuisé, suspension, remboursement) (§6). |
@@ -167,15 +167,23 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
   - Un même appareil qui se reconnecte, y compris avec une écriture différente de sa MAC, n'est jamais refusé.
   - Un Accept est « sans Start » s'il n'existe aucune session du ticket et de cette MAC démarrée au plus 5 s avant lui.
   - Une MAC vide ou illisible n'est pas comptée : RouterOS envoie toujours `Calling-Station-Id`.
-- **Fenêtre des Accept** : 60 s + retard du lecteur (`radius.lecteur_battement`, mis à jour par `_acct` à chaque enregistrement), plafonné à 15 min.
+- **Avancement du lecteur** (corrigé après la revue) : le spool est rejoué dans l'ordre de réception. Tout enregistrement reçu avant l'avancement est donc traité.
+  - Avancement = le plus tardif de deux instants : `dernier_recu`, la réception du dernier enregistrement traité, et `spool_vide_le`, l'instant où le timer a vu le spool vide, relevé avant de regarder.
+  - Il ne recule jamais et ne dépasse jamais l'heure de la base.
+  - Retard courant = maintenant − avancement : il grandit aussi quand le lecteur est **bloqué**.
+- **Fenêtre des Accept** : 60 s + retard courant, plafonné à 15 min.
 - **Course résiduelle documentée** : `post_auth` écrit avant la réponse, donc un second Access-Request postérieur à la réponse du premier voit l'Accept. Deux requêtes **simultanées**, à moins d'un aller-retour d'écart, peuvent toutes deux être acceptées. Le Disconnect (ticket 09) n'y remédie pas. C'est une limite assumée.
+  - Un test fixe ses bornes : jamais de silence, un ou deux Accept, et un troisième appareil arrivé ensuite toujours refusé.
+- **`acct_on_off`** verrouille le routeur en `FOR NO KEY UPDATE`, pour ne pas bloquer les clés étrangères de `auth_log` ni de `session`.
 - **`post_auth(p_user, p_src text, p_calling, p_result, p_cause) RETURNS text`** : écart de signature avec le §1 (`p_src inet`, `void`). `p_src` en texte ne lève jamais d'exception, et `rlm_sql_map` exige une ligne.
   - Deux requêtes (`map_post_auth_accept`, `map_post_auth_reject`) dans le pool `sql_auth`, avec `fail = 1` puis `ok`.
   - **Prouvé en exécution** : droit retiré à `wk_radius`, l'Accept reste un Accept et le Reject garde sa cause.
 - **bind_mac** : `app.voucher.mac_liee` est posée par `post_auth` au premier Accept, et par l'accounting si elle manque. Une autre MAC donne `trop_d_appareils`.
 - **Sessions fantômes** :
   - `close_ghost_sessions()` (rôle `wk_maint`) date l'arrêt du dernier événement reçu (cause `Fantome`), donc le temps consommé est conservé ;
-  - le script `infra/maintenance/wakatnet-fantomes.sh` ne ferme **rien** tant que le spool contient `detail-*` ou `detail.work` ;
+  - la fermeture se mesure sur l'**avancement du lecteur**, non sur l'heure courante : `dernier_evenement_le < avancement − 3 × interim_s`. Un Interim encore dans le spool a été reçu après l'avancement, donc ne peut pas faire fermer sa session. La fermeture n'est plus retardée sans fin sous trafic continu ;
+  - le script `infra/maintenance/wakatnet-fantomes.sh` marque le spool vide **seulement** s'il l'est. Si le spool ou son parent est introuvable ou illisible, il échoue sans rien marquer ni fermer. Délai maximal de 60 s dans l'unité ;
+  - **session fermée d'office mais vivante** (Interim reçus ensuite, depuis moins de 3 intervalles) : elle compte encore comme appareil et peut être inscrite « à couper ». Un vrai Stop arrivé ensuite corrige l'arrêt et sa cause, sans rouvrir la session ;
   - unités `infra/systemd/wakatnet-fantomes.{service,timer}`, vérifiées par `systemd-analyze verify`.
 - **Accounting-On / Off** :
   - ferment les sessions ouvertes de l'époque courante démarrées au plus tard à la réception (cause `Accounting-On`), puis incrémentent l'époque ;
@@ -184,7 +192,7 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 
 ## 10. `post_auth` sans effet sur la réponse
 
-- Dans `post-auth` et dans `Post-Auth-Type REJECT` : `sql_auth { fail = 1 }` (appel de `post_auth`), suivi d'un `ok` **inconditionnel** en fin de section. Mécanisme vérifié dans `modcall.c` : la section rend `ok`. **À prouver en exécution au ticket 07.**
+- Dans `post-auth` et dans `Post-Auth-Type REJECT` : `sql_auth { fail = 1 }` (appel de `post_auth`), suivi d'un `ok` **inconditionnel** en fin de section. Mécanisme vérifié dans `modcall.c` : la section rend `ok`. **Prouvé en exécution au ticket 06** (droit retiré à `wk_radius` : l'Accept reste un Accept, le Reject garde sa cause).
 - **Mode dégradé assumé** : l'écriture est synchrone. Sur le nœud B en lecture seule (T13), elle échoue tout de suite sans changer la réponse. Mais `auth_log` et `bind_mac` ne sont alors pas écrits, si bien que l'anti-devinette et le compte d'appareils sont affaiblis tant que B tourne seul. Le retard dû à une base lente est borné par `statement_timeout` (§13).
 - Accept et Reject sont journalisés.
 - `auth_goodpass = no`, `auth_badpass = no`. Aucun code en clair dans `auth_log` ni dans `radius.log`.
@@ -269,7 +277,7 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 ## 17. Planification et déclencheur de coupure (hors processus FreeRADIUS, règle 1)
 
 - **Production** : timers systemd sur le nœud.
-  - `wakatnet-fantomes` (toutes les 60 s) : rôle `wk_maint`. Il n'appelle `close_ghost_sessions()` **que si** le répertoire `detail` ne contient ni fichier en attente ni fichier `.work` modifié il y a plus de 5 s.
+  - `wakatnet-fantomes` (toutes les 60 s) : rôle `wk_maint`. **Remplacé au ticket 06** : la condition « spool vide » retardait sans fin la fermeture sous trafic continu. La fermeture se mesure sur l'**avancement du lecteur** (§9, amendement du ticket 06). Le script marque le spool vide quand il le voit vide, et échoue si le spool est illisible.
   - `wakatnet-purge` (quotidien).
   - `wakatnet-coupure` (toutes les 30 s) : rôle `wk_coa`. Il émet les Disconnect des sessions à couper.
 - **Émetteur** : module TypeScript (Node 22), réutilisable par le futur worker.

@@ -41,13 +41,59 @@ CREATE INDEX auth_log_accept_par_ticket ON radius.auth_log (voucher_id, at) WHER
 -- Anti-devinette (ticket 07) : échecs par routeur et par MAC sur une fenêtre.
 CREATE INDEX auth_log_routeur_mac_at ON radius.auth_log (router_id, mac, at);
 
--- Retard du lecteur detail (ADR 0006 §9) : une ligne, écrite par _acct à chaque enregistrement.
+-- Avancement du lecteur detail (ADR 0006 §9, §17 ; revue du ticket 06). Le spool est rejoué
+-- dans l'ordre de réception, donc tout enregistrement reçu avant l'AVANCEMENT est traité :
+--   avancement = le plus tardif de
+--     * dernier_recu  : réception du dernier enregistrement traité (écrit par _acct, acct_on_off) ;
+--     * spool_vide_le : instant, relevé AVANT de regarder, où le spool a été vu vide
+--                       (écrit par le timer wakatnet-fantomes via marquer_spool_vide).
+-- Retard courant = maintenant − avancement : il grandit aussi quand le lecteur est bloqué.
+-- Le repère ne recule jamais et ne dépasse jamais l'heure de la base (instant de réception
+-- invalide ou futur : jamais pris pour un avancement).
 CREATE TABLE radius.lecteur_battement (
-  une          boolean PRIMARY KEY DEFAULT true CHECK (une),
-  dernier_recu timestamptz NOT NULL,
-  traite_le    timestamptz NOT NULL
+  une           boolean PRIMARY KEY DEFAULT true CHECK (une),
+  dernier_recu  timestamptz NOT NULL,
+  traite_le     timestamptz NOT NULL,
+  spool_vide_le timestamptz NOT NULL
 );
-INSERT INTO radius.lecteur_battement (dernier_recu, traite_le) VALUES (now(), now());
+INSERT INTO radius.lecteur_battement (dernier_recu, traite_le, spool_vide_le) VALUES (now(), now(), now());
+
+CREATE FUNCTION radius._avancement_lecteur()
+RETURNS timestamptz
+LANGUAGE sql STABLE
+SET search_path = radius, pg_temp
+AS $$
+  SELECT greatest(b.dernier_recu, b.spool_vide_le) FROM radius.lecteur_battement b;
+$$;
+
+-- Session encore vivante (revue du ticket 06) : ouverte, ou fermée d'office (Fantome) mais qui
+-- a reparlé depuis, et récemment. Elle compte comme appareil et peut être inscrite « à couper ».
+CREATE FUNCTION radius._vivante(p_arrete timestamptz, p_cause text, p_dernier timestamptz,
+                                p_interim integer, p_now timestamptz)
+RETURNS boolean
+LANGUAGE sql IMMUTABLE
+SET search_path = radius, pg_temp
+AS $$
+  SELECT p_arrete IS NULL
+      OR (p_cause = 'Fantome' AND p_dernier > p_arrete
+          AND p_dernier >= p_now - 3 * p_interim * interval '1 second');
+$$;
+
+-- Appelée par le timer quand il voit le spool vide ; p_epoch = instant relevé AVANT la vérification.
+CREATE FUNCTION radius.marquer_spool_vide(p_epoch text)
+RETURNS text
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = radius, pg_temp
+AS $$
+BEGIN
+  IF p_epoch IS NULL OR p_epoch !~ '^[0-9]{1,11}$' THEN
+    RETURN 'invalide';
+  END IF;
+  UPDATE radius.lecteur_battement
+     SET spool_vide_le = greatest(spool_vide_le, least(to_timestamp(p_epoch::bigint), now()));
+  RETURN 'ok';
+END;
+$$;
 
 -- post_auth (ADR 0006 §1, §10) : appelée par FreeRADIUS en post-auth, Accept comme Reject.
 -- Son échec est sans effet sur la réponse (configuration du site wakatnet). Renvoie 'ok'
@@ -81,9 +127,11 @@ BEGIN
 END;
 $$;
 
--- Sessions fantômes (ADR 0006 §8) : fermées sans Interim REÇU depuis 3 intervalles mémorisés.
+-- Sessions fantômes (ADR 0006 §8) : fermées sans Interim depuis 3 intervalles mémorisés,
+-- mesurés par rapport à l'AVANCEMENT du lecteur, et non à l'heure courante : un Interim encore
+-- dans le spool a été reçu après l'avancement, donc ne peut pas faire fermer sa session
+-- (revue du ticket 06 ; remplace la condition « spool vide » du §17, qui affamait la fermeture).
 -- Arrêt daté du dernier événement : le temps consommé jusqu'au dernier Interim est conservé.
--- Appelée par le timer wakatnet-fantomes SEULEMENT si le spool detail est vide (§17).
 CREATE FUNCTION radius.close_ghost_sessions()
 RETURNS integer
 LANGUAGE sql VOLATILE SECURITY DEFINER
@@ -92,7 +140,7 @@ AS $$
   WITH fermees AS (
     UPDATE radius.session s SET arrete_le = s.dernier_evenement_le, cause_fin = 'Fantome'
      WHERE s.arrete_le IS NULL
-       AND s.dernier_evenement_le < now() - 3 * s.interim_s * interval '1 second'
+       AND s.dernier_evenement_le < radius._avancement_lecteur() - 3 * s.interim_s * interval '1 second'
     RETURNING 1)
   SELECT count(*)::integer FROM fermees;
 $$;
@@ -111,7 +159,9 @@ DECLARE
   v_recu    timestamptz;
 BEGIN
   IF p_src IS NOT NULL AND pg_input_is_valid(p_src, 'inet') THEN
-    SELECT * INTO v_routeur FROM app.router r WHERE r.overlay_ip = p_src::inet FOR UPDATE;
+    -- FOR NO KEY UPDATE : sérialise les On d'un routeur sans bloquer les clés étrangères
+    -- (auth_log, session) qui prennent FOR KEY SHARE sur ce routeur (revue du ticket 06).
+    SELECT * INTO v_routeur FROM app.router r WHERE r.overlay_ip = p_src::inet FOR NO KEY UPDATE;
   END IF;
   IF v_routeur.id IS NULL OR p_received_epoch IS NULL OR p_received_epoch !~ '^[0-9]{1,11}$' THEN
     INSERT INTO radius.acct_quarantaine (fonction, motif, donnees)
@@ -120,6 +170,7 @@ BEGIN
     RETURN 'quarantaine';
   END IF;
   v_recu := to_timestamp(p_received_epoch::bigint);
+  UPDATE radius.lecteur_battement SET dernier_recu = greatest(dernier_recu, least(v_recu, now())), traite_le = now();
   IF v_routeur.dernier_acct_on_le IS NOT NULL AND v_recu <= v_routeur.dernier_acct_on_le THEN
     RETURN 'ok';
   END IF;
@@ -228,12 +279,13 @@ BEGIN
     --   + Accept récents sans Start correspondant, sur 60 s prolongées du retard du lecteur detail
     --     (battement, plafonné à 15 min).
     -- Une MAC vide (Calling-Station-Id absent ou illisible) n'est pas comptée : RouterOS l'envoie toujours.
-    SELECT 60 + least(900, greatest(0, coalesce(extract(epoch FROM b.traite_le - b.dernier_recu), 0)))
-      INTO v_fenetre FROM radius.lecteur_battement b;
-    v_fenetre := coalesce(v_fenetre, 60);
+    -- Retard COURANT = maintenant − avancement du lecteur : grandit aussi quand il est bloqué.
+    v_fenetre := 60 + least(900, greatest(0, coalesce(extract(epoch FROM p_now - radius._avancement_lecteur()), 0)));
     SELECT count(DISTINCT x.mac) INTO v_autres FROM (
       SELECT radius._mac(s.calling_station) AS mac
-        FROM radius.session s WHERE s.voucher_id = v_ticket.id AND s.arrete_le IS NULL
+        FROM radius.session s
+       WHERE s.voucher_id = v_ticket.id
+         AND radius._vivante(s.arrete_le, s.cause_fin, s.dernier_evenement_le, s.interim_s, p_now)
       UNION ALL
       SELECT a.mac FROM radius.auth_log a
        WHERE a.voucher_id = v_ticket.id AND a.resultat = 'Accept'
@@ -335,7 +387,7 @@ BEGIN
 
   -- Battement du lecteur (ADR 0006 §9) : retard = traitement − réception du dernier enregistrement.
   IF v_recu IS NOT NULL THEN
-    UPDATE radius.lecteur_battement SET dernier_recu = v_recu, traite_le = now();
+    UPDATE radius.lecteur_battement SET dernier_recu = greatest(dernier_recu, least(v_recu, now())), traite_le = now();
   END IF;
 
   IF v_motif IS NOT NULL THEN
@@ -391,8 +443,12 @@ BEGIN
     octets_descendants   = greatest(s.octets_descendants, v_descend),
     duree_s              = greatest(s.duree_s, v_duree),
     dernier_evenement_le = greatest(s.dernier_evenement_le, v_recu),
-    arrete_le            = CASE WHEN p_type = 'stop' THEN coalesce(s.arrete_le, v_recu) ELSE s.arrete_le END,
-    cause_fin            = CASE WHEN p_type = 'stop' AND s.arrete_le IS NULL THEN nullif(left(p_cause, 64), '')
+    -- Un vrai Stop après une fermeture d'office (Fantome) corrige l'arrêt et sa cause ; il ne
+    -- rouvre rien (revue du ticket 06).
+    arrete_le            = CASE WHEN p_type = 'stop' AND s.cause_fin = 'Fantome' THEN v_recu
+                                WHEN p_type = 'stop' THEN coalesce(s.arrete_le, v_recu) ELSE s.arrete_le END,
+    cause_fin            = CASE WHEN p_type = 'stop' AND (s.arrete_le IS NULL OR s.cause_fin = 'Fantome')
+                                THEN nullif(left(p_cause, 64), '')
                                 ELSE s.cause_fin END
    WHERE s.id = v_session AND s.started_at = v_debut;
 
@@ -408,7 +464,8 @@ BEGIN
   END;
   IF v_motif_cut IS NOT NULL THEN
     UPDATE radius.session s SET a_couper_le = v_recu, motif_coupure = v_motif_cut
-     WHERE s.voucher_id = v_ticket.id AND s.arrete_le IS NULL AND s.a_couper_le IS NULL;
+     WHERE s.voucher_id = v_ticket.id AND s.a_couper_le IS NULL
+       AND radius._vivante(s.arrete_le, s.cause_fin, s.dernier_evenement_le, s.interim_s, v_recu);
   END IF;
 
   -- bind_mac (ADR 0006 §9) : posée aussi par l'accounting si post_auth n'a pas pu l'écrire.
@@ -437,9 +494,13 @@ RESET ROLE;
 REVOKE ALL ON FUNCTION radius._mac(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION radius.post_auth(text, text, text, text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION radius.close_ghost_sessions() FROM PUBLIC;
+REVOKE ALL ON FUNCTION radius._avancement_lecteur() FROM PUBLIC;
+REVOKE ALL ON FUNCTION radius._vivante(timestamptz, text, timestamptz, integer, timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION radius.marquer_spool_vide(text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION radius.acct_on_off(text, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION radius.post_auth(text, text, text, text, text) TO wk_radius;
 GRANT EXECUTE ON FUNCTION radius.acct_on_off(text, text) TO wk_acct;
 GRANT USAGE ON SCHEMA radius TO wk_maint;
 GRANT EXECUTE ON FUNCTION radius.close_ghost_sessions() TO wk_maint;
+GRANT EXECUTE ON FUNCTION radius.marquer_spool_vide(text) TO wk_maint;
 ALTER ROLE wk_maint SET statement_timeout = '30s';

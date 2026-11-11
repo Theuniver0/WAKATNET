@@ -170,9 +170,10 @@ def test_garde_decision_d_acces_sans_lecture_des_credits():
     # Ticket 06 : auth_log (Accept récents), lecteur_battement (retard du lecteur), _mac (normalisation) :
     # aucune donnée de crédit.
     relations = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius.session", "radius._authorize_at",
-                 "radius.auth_log", "radius.lecteur_battement", "radius._mac"}
+                 "radius.auth_log", "radius.lecteur_battement", "radius._mac", "radius._vivante",
+                 "radius._avancement_lecteur"}
     appels = {"coalesce", "extract", "floor", "isfinite", "least", "upper", "now", "sum", "radius._authorize_at",
-              "count", "greatest", "radius._mac", "exists",
+              "count", "greatest", "radius._mac", "exists", "radius._vivante", "radius._avancement_lecteur",
               "or", "and", "not", "in", "from"}   # mots-clés suivis d'une parenthèse
     with admin() as c:
         sources = c.execute("""SELECT p.proname, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

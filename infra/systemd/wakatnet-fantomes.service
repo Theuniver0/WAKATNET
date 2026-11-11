@@ -5,6 +5,8 @@ After=postgresql.service freeradius.service
 
 [Service]
 Type=oneshot
+# Jamais bloqué indéfiniment (base figée) : le timer relance au tour suivant.
+TimeoutStartSec=60s
 # freerad : seul utilisateur qui lit le spool d'accounting (0700).
 User=freerad
 Group=freerad

@@ -26,6 +26,7 @@ ATTENDU = {
     "radius.post_auth(p_user text, p_src text, p_calling text, p_result text, p_cause text)": {"wk_radius"},
     "radius.acct_on_off(p_src text, p_received_epoch text)": {"wk_acct"},
     "radius.close_ghost_sessions()": {"wk_maint"},
+    "radius.marquer_spool_vide(p_epoch text)": {"wk_maint"},
 }
 
 
@@ -64,6 +65,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_maint", "radius.close_ghost_sessions"),
+                      ("wk_maint", "radius.marquer_spool_vide"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth")]
 
 
