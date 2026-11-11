@@ -1,6 +1,6 @@
 # ADR 0007 — Instant de référence dans les tests
 
-- **Statut** : proposé le 11/11/2026 (ticket 01) ; à accepter par Yacouba.
+- **Statut** : **accepté par Yacouba le 11/11/2026** (ticket 01).
 - **Références** : `docs/SPEC.md` §4 (règle 5), §5.6 (T3, T4), §14.4 ; `CONTRIBUTING.md` C4 ; ADR 0006 §7.
 
 ## Problème

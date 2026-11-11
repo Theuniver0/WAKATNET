@@ -1,6 +1,6 @@
 # ADR 0006 — Contrats du cœur RADIUS (phase 1)
 
-- **Statut** : proposé le 11/11/2026 (ticket 01) ; à accepter par Yacouba. Les points marqués **[à accepter]** sont des écarts avec la spec ou des choix commerciaux.
+- **Statut** : **accepté par Yacouba le 11/11/2026** (ticket 01). Les points marqués **[accepté le 11/11/2026]** sont des écarts avec la spec ou des choix commerciaux, acceptés explicitement.
 - **Références** : `docs/SPEC.md` §1.1, §4, §5, §10.1 ; `CONTRIBUTING.md` C1–C7, S1–S3 ; ADR 0001 à 0005 ; `docs/LABO.md` (E-FR-2, E-FR-4, L1–L9) ; `.scratch/phase-1-coeur-radius/`.
 - **Révision du 11/11/2026** après une vérification adversariale dans le code source : constats 1d, 1e, 2a à 2c, 3c, 3d, 4b, 4c, 5b, 5c, 7b et 9a à 9h intégrés.
 - **Faits vérifiés dans le code de FreeRADIUS 3.2.10** (tag `release_3_2_10`, lu le 11/11/2026) :
@@ -76,7 +76,7 @@ Correspondance avec la matrice T :
 
 | Cause | Quand |
 |---|---|
-| `ticket_inconnu` | Aucun ticket `(propriétaire, code)`, **ou mauvais mot de passe** **[à accepter]** : une seule cause, pour ne pas révéler qu'un code existe. |
+| `ticket_inconnu` | Aucun ticket `(propriétaire, code)`, **ou mauvais mot de passe** **[accepté le 11/11/2026]** : une seule cause, pour ne pas révéler qu'un code existe. |
 | `expire` | Validité écoulée, ou expiration absolue dépassée (même jamais activé). |
 | `epuise` | Temps consommé ≥ limite, ou volume ≥ limite, ou `Session-Timeout` calculé ≤ 0. |
 | `mauvais_site` | Ticket limité à un site, présenté sur un routeur d'un autre site du même propriétaire. |
@@ -97,10 +97,10 @@ Ordre d'évaluation : `trop_de_tentatives` → `ticket_inconnu` → `proprietair
 | `Session-Timeout` | min(temps restant, fin de validité − maintenant, expiration absolue − maintenant), en secondes entières, ≥ 1 ; sinon `epuise` ou `expire`. |
 | `Mikrotik-Rate-Limit` | Copie figée du forfait, si définie. |
 | `Port-Limit` | `devices` du forfait. |
-| `Acct-Interim-Interval` | **120 s** **[à accepter]**. Le dépassement de volume vaut au plus débit × 120 s, par exemple 30 Mo à 2 Mbit/s. Valeur globale réglable. Le script d'enrôlement (ticket 2.3) doit poser `radius-interim-update=received`, ou 2m, de façon cohérente (LABO-19). |
+| `Acct-Interim-Interval` | **120 s** **[accepté le 11/11/2026]**. Le dépassement de volume vaut au plus débit × 120 s, par exemple 30 Mo à 2 Mbit/s. Valeur globale réglable. Le script d'enrôlement (ticket 2.3) doit poser `radius-interim-update=received`, ou 2m, de façon cohérente (LABO-19). |
 | `Idle-Timeout` | **Non envoyé** en v1 : le profil hotspot du routeur garde le sien. Champ du forfait réservé pour plus tard. |
 | `WISPr-Session-Terminate-Time` | **Écarté** : il dépend de l'horloge du routeur (règle 5), et `Session-Timeout` intègre déjà l'expiration absolue. |
-| `Mikrotik-Recv-Limit` / `Mikrotik-Xmit-Limit` (+ Gigawords) | **Non envoyés** en v1 : les forfaits n'ont qu'un volume total. **[à accepter] Écart avec le §5.3**, qui demande d'envoyer les restes de volume : contrôle côté serveur à la place (§6). Ces attributs restent réservés aux forfaits à sens séparés. |
+| `Mikrotik-Recv-Limit` / `Mikrotik-Xmit-Limit` (+ Gigawords) | **Non envoyés** en v1 : les forfaits n'ont qu'un volume total. **[accepté le 11/11/2026] Écart avec le §5.3**, qui demande d'envoyer les restes de volume : contrôle côté serveur à la place (§6). Ces attributs restent réservés aux forfaits à sens séparés. |
 | `Mikrotik-Total-Limit` | Non utilisé ([LABO]). |
 
 ## 6. Volume total
@@ -172,17 +172,17 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 
 - **Mots de passe des rôles PostgreSQL** : lus par `$ENV{}`, depuis un `EnvironmentFile` systemd réservé à root, jamais versionné (S1, S2).
 - **Secret RADIUS de chaque routeur** : stocké **en clair** dans une table lisible seulement par `wakatnet_owner`, exposé uniquement par `client_lookup` et `coa_target`. Protection : séparation des rôles, chiffrement du volume du nœud, sauvegardes chiffrées.
-  - **[à accepter] Écart avec S3 et §10.1.** RADIUS doit utiliser ce secret en clair à chaque paquet. Une clé de chiffrement accessible à la base serait stockée et sauvegardée **avec** les données qu'elle protège : elle n'ajouterait presque rien. Passer la clé dans la requête la ferait apparaître dans les journaux.
+  - **[accepté le 11/11/2026] Écart avec S3 et §10.1.** RADIUS doit utiliser ce secret en clair à chaque paquet. Une clé de chiffrement accessible à la base serait stockée et sauvegardée **avec** les données qu'elle protège : elle n'ajouterait presque rien. Passer la clé dans la requête la ferait apparaître dans les journaux.
   - Les clés API des agrégateurs (phase 3) restent, elles, chiffrées par une clé détenue par l'API.
 
 ## 15. Codes de ticket
 
-- **[à accepter] Alphabet de 31 symboles** : `23456789ABCDEFGHJKMNPQRSTUVWXYZ`. Le §5.5 annonce 32 symboles, mais en retirant 0, O, 1, I et L des chiffres et majuscules, il n'en reste que 31.
+- **[accepté le 11/11/2026] Alphabet de 31 symboles** : `23456789ABCDEFGHJKMNPQRSTUVWXYZ`. Le §5.5 annonce 32 symboles, mais en retirant 0, O, 1, I et L des chiffres et majuscules, il n'en reste que 31.
   - Avec 8 caractères : 31^8 ≈ 8,5 × 10^11 combinaisons, environ 39,6 bits. C'est l'ordre de grandeur visé (10^12).
   - Avec 9 caractères : 2,6 × 10^13. Option possible si Yacouba préfère.
 - **Tirage** : `gen_random_bytes` (pgcrypto), par rejet des octets ≥ 248 (= 31 × 8), puis modulo 31. Aucun biais. `random()` est interdit.
 - **Casse** : les codes sont stockés en majuscules. En CHAP, le serveur ne peut pas normaliser, puisque le hachage est calculé dans le navigateur : `login.html` met donc la saisie en majuscules **avant** le hachage (tickets 2.3 et 3.3). En PAP, le serveur met en majuscules.
-- **Identifiant et mot de passe** : un ticket s'utilise avec le code comme identifiant **et** comme mot de passe, ce qui correspond à l'usage Mikhmon le plus courant **[à accepter]**.
+- **Identifiant et mot de passe** : un ticket s'utilise avec le code comme identifiant **et** comme mot de passe, ce qui correspond à l'usage Mikhmon le plus courant **[accepté le 11/11/2026]**.
 - **Unicité** : `UNIQUE (tenant_id, code)`.
 
 ## 16. Clients dynamiques : `rate_limit` et absence de cache négatif

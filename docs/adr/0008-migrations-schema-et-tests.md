@@ -1,13 +1,13 @@
 # ADR 0008 — Migrations, schéma et cadre de test de la phase 1
 
-- **Statut** : proposé le 11/11/2026 (ticket 01) ; à accepter par Yacouba.
+- **Statut** : **accepté par Yacouba le 11/11/2026** (ticket 01).
 - **Références** : `docs/SPEC.md` §9, §12, §13 (règles 1, 3, 5, 6) ; D10 ; `CONTRIBUTING.md` ; ADR 0006 et 0007 ; `infra/lab/freeradius/` (méthodes du labo).
 
 ## 1. Migrations
 
 - **SQL pur, fichiers numérotés**, appliqués par un petit script idempotent (`infra/sql/migrer.sh`, bash + psql) sous le rôle propriétaire `wakatnet_owner`, avec une table de suivi `public.schema_migrations`. Chaque fichier s'exécute dans une transaction et n'est jamais modifié une fois appliqué.
   - Alternatives écartées : dbmate (binaire tiers à télécharger et à épingler, pour un gain faible) ; Prisma pour tout (la spec réserve `radius` et `ledger` au SQL pur).
-- **[à accepter] Écart avec le §9**, qui confie le schéma `app` à Prisma : en phase 1, ses tables sont créées en SQL, puis reprises par Prisma en phase 2 (voir plus bas). Motif : la phase 1 n'a pas encore de projet Node.
+- **[accepté le 11/11/2026] Écart avec le §9**, qui confie le schéma `app` à Prisma : en phase 1, ses tables sont créées en SQL, puis reprises par Prisma en phase 2 (voir plus bas). Motif : la phase 1 n'a pas encore de projet Node.
 - **Arborescence** :
   - `infra/sql/app/` : tables métier de la phase 1 :
     - `tenant` (avec la suspension administrative) ;

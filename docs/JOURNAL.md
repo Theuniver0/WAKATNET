@@ -246,3 +246,4 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - EXECUTE accordé à PUBLIC ;
   - valeurs NULL ou entre apostrophes inverses interprétées par `rlm_sql`.
 - Points soumis à l'acceptation de Yacouba : 7 dans l'ADR 0006, 1 dans l'ADR 0008 (marqués « [à accepter] »).
+- **11/11/2026 : Yacouba accepte les 7 points « [à accepter] » des ADR 0006 et 0008**, et donc les ADR 0006, 0007 et 0008. C4 de `CONTRIBUTING.md` reçoit la précision sur l'horloge de l'accounting.
