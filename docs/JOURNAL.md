@@ -195,3 +195,16 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - `docs/courriels/2026-11-10-agregateurs.md` : trois courriels (pawaPay, CinetPay, YengaPay). Chaque courriel pose 3 ou 4 questions décisives et joint le questionnaire complet.
 - `docs/courriels/pj/*.docx`, produits par `generer_pj.py` (pandoc). Rendu vérifié en PDF : 4 à 5 pages, 40 questions générales et toutes les questions propres présentes. Deux défauts de mise en page corrigés : questions propres collées en un seul paragraphe, et tiret parasite sur 2a et 2b.
 - Les adresses des destinataires ne sont pas renseignées : aucune adresse officielle n'a pu être vérifiée.
+
+---
+
+## 2026-11-11 — Session 1 (suite) : plan complet et porte G0
+
+- Yacouba a demandé un plan de A à Z, avec une seule série de questions. Plan approuvé : `docs/PLAN.md`.
+- Réponses données en une fois :
+  - **G0 franchie sous réserve** ;
+  - mode de travail : l'agent rédige le PRD et les tickets, Yacouba les valide en bloc, puis l'agent réalise les tickets lui-même, avec une PR par ticket ;
+  - valeurs par défaut validées (`docs/G0.md` §5) ;
+  - **moins de 50 routeurs** à 12 mois au début.
+- `docs/G0.md` mis à jour ; `CONTEXT.md` créé (glossaire initial).
+- Phase 1 ouverte : PRD et tickets dans `.scratch/phase-1-coeur-radius/`, soumis à la validation de Yacouba.
