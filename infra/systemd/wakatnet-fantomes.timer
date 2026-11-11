@@ -1,0 +1,11 @@
+# WAKATNET — toutes les 60 s (ADR 0006 §17).
+[Unit]
+Description=WAKATNET : sessions fantomes toutes les 60 s
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

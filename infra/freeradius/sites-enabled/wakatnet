@@ -83,7 +83,15 @@ server wakatnet {
 		detail_wakatnet
 	}
 
+	# Journal des tentatives (ticket 06, ADR 0006 §10). « fail = 1 » : un échec de l'écriture
+	# ne termine pas la section ; le « ok » final la fait réussir. La réponse ne change donc
+	# jamais à cause de post_auth (auth.c : un fail en post-auth changerait un Accept en Reject).
 	post-auth {
+		map_post_auth_accept {
+			fail = 1
+		}
+		ok
+
 		Post-Auth-Type REJECT {
 			# Mauvais mot de passe : même cause qu'un code inconnu (ADR 0006 §4).
 			if (!&reply:Reply-Message || &reply:Reply-Message == "") {
@@ -91,8 +99,12 @@ server wakatnet {
 					&Reply-Message := "ticket_inconnu"
 				}
 			}
+			map_post_auth_reject {
+				fail = 1
+			}
 			# Retire tout attribut d'Accept d'un Reject.
 			attr_filter.access_reject
+			ok
 		}
 	}
 }

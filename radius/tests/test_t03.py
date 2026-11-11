@@ -158,7 +158,8 @@ def test_garde_decision_d_acces_sans_lecture_des_credits():
 
     Ce que le test vérifie, sur le texte des fonctions (commentaires retirés) :
       * relations qualifiées : seulement app.router, app.tenant, app.voucher, radius.parametre,
-        radius.session (consommation, ticket 05) ;
+        radius.session (consommation, ticket 05), radius.auth_log et radius.lecteur_battement
+        (appareils, ticket 06) ;
       * appels de fonction : seulement une liste fermée de fonctions intégrées ; un appel non
         qualifié (résolu par search_path) ou une nouvelle fonction le fait échouer ;
       * app.tenant : seules les colonnes id et suspendu sont lues ; ni SELECT * ni %ROWTYPE.
@@ -166,9 +167,13 @@ def test_garde_decision_d_acces_sans_lecture_des_credits():
     Toute modification de ces fonctions doit donc revoir cette liste, et non l'élargir par défaut.
     """
     # radius.session (ticket 05) : consommation du ticket (temps, volume), aucune colonne de crédit.
-    relations = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius.session", "radius._authorize_at"}
+    # Ticket 06 : auth_log (Accept récents), lecteur_battement (retard du lecteur), _mac (normalisation) :
+    # aucune donnée de crédit.
+    relations = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius.session", "radius._authorize_at",
+                 "radius.auth_log", "radius.lecteur_battement", "radius._mac"}
     appels = {"coalesce", "extract", "floor", "isfinite", "least", "upper", "now", "sum", "radius._authorize_at",
-              "or", "and", "not", "in"}   # mots-clés suivis d'une parenthèse
+              "count", "greatest", "radius._mac", "exists",
+              "or", "and", "not", "in", "from"}   # mots-clés suivis d'une parenthèse
     with admin() as c:
         sources = c.execute("""SELECT p.proname, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                                 WHERE n.nspname = 'radius' AND p.proname IN ('authorize', '_authorize_at')""").fetchall()

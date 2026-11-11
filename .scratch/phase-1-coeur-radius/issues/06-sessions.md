@@ -2,6 +2,8 @@
 
 **PRD** : `../PRD.md` · **Matrice** : T5, T8 · **Dépend de** : 05
 
+> **11/11/2026, décision de Yacouba** : `post_auth` et `auth_log` (ADR 0006 §10) sont avancés ici depuis le ticket 07, parce que le compte d'appareils et `bind_mac` en dépendent. Les critères correspondants du ticket 07 (`post_auth` en échec, T6 journalisée) sont prouvés ici.
+
 ## À livrer
 - Contrôle côté serveur du nombre d'appareils (ADR 0006, point 9) : sessions ouvertes + Accept récents sans Start. Refus `trop_d_appareils`. `Port-Limit` est envoyé en plus.
 - Sessions fantômes (rôle `wk_maint`) :

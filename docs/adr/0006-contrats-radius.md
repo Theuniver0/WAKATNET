@@ -162,6 +162,26 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - **Compte** = sessions ouvertes du ticket + Accept dans `auth_log` sans Start correspondant, sur une fenêtre de 60 s **prolongée du retard courant du lecteur `detail`**. Ce retard est mesuré par un battement que le lecteur inscrit à chaque enregistrement. La fenêtre de course résiduelle (deux Access-Request à moins d'un aller-retour d'écart) est documentée et testée.
 - **`bind_mac`** (option du forfait) : posé par `post_auth` au premier Accept, et aussi par `acct_start` s'il manque. Une MAC différente donne `trop_d_appareils`. La MAC n'est jamais la seule clé : le code reste exigé. Les MAC aléatoires sont une limite connue (§11 de la spec). La remise à zéro par le propriétaire arrive en phase 4.
 
+**Amendement du 11/11/2026, ticket 06** (décision de Yacouba du même jour : `post_auth` et `auth_log` sont avancés du ticket 07 au ticket 06) :
+- **Appareils distincts** : un appareil est une MAC normalisée (12 chiffres hexadécimaux en majuscules, `radius._mac`). On compte les MAC des sessions ouvertes du ticket et celles des Accept récents sans Start, **autres que celle qui se présente**. Le refus vient quand ce nombre atteint `devices`.
+  - Un même appareil qui se reconnecte, y compris avec une écriture différente de sa MAC, n'est jamais refusé.
+  - Un Accept est « sans Start » s'il n'existe aucune session du ticket et de cette MAC démarrée au plus 5 s avant lui.
+  - Une MAC vide ou illisible n'est pas comptée : RouterOS envoie toujours `Calling-Station-Id`.
+- **Fenêtre des Accept** : 60 s + retard du lecteur (`radius.lecteur_battement`, mis à jour par `_acct` à chaque enregistrement), plafonné à 15 min.
+- **Course résiduelle documentée** : `post_auth` écrit avant la réponse, donc un second Access-Request postérieur à la réponse du premier voit l'Accept. Deux requêtes **simultanées**, à moins d'un aller-retour d'écart, peuvent toutes deux être acceptées. Le Disconnect (ticket 09) n'y remédie pas. C'est une limite assumée.
+- **`post_auth(p_user, p_src text, p_calling, p_result, p_cause) RETURNS text`** : écart de signature avec le §1 (`p_src inet`, `void`). `p_src` en texte ne lève jamais d'exception, et `rlm_sql_map` exige une ligne.
+  - Deux requêtes (`map_post_auth_accept`, `map_post_auth_reject`) dans le pool `sql_auth`, avec `fail = 1` puis `ok`.
+  - **Prouvé en exécution** : droit retiré à `wk_radius`, l'Accept reste un Accept et le Reject garde sa cause.
+- **bind_mac** : `app.voucher.mac_liee` est posée par `post_auth` au premier Accept, et par l'accounting si elle manque. Une autre MAC donne `trop_d_appareils`.
+- **Sessions fantômes** :
+  - `close_ghost_sessions()` (rôle `wk_maint`) date l'arrêt du dernier événement reçu (cause `Fantome`), donc le temps consommé est conservé ;
+  - le script `infra/maintenance/wakatnet-fantomes.sh` ne ferme **rien** tant que le spool contient `detail-*` ou `detail.work` ;
+  - unités `infra/systemd/wakatnet-fantomes.{service,timer}`, vérifiées par `systemd-analyze verify`.
+- **Accounting-On / Off** :
+  - ferment les sessions ouvertes de l'époque courante démarrées au plus tard à la réception (cause `Accounting-On`), puis incrémentent l'époque ;
+  - un On déjà traité (réception ≤ `app.router.dernier_acct_on_le`) est sans effet, donc rejouer le spool ne ferme jamais une session ouverte depuis ;
+  - les autres types d'accounting restent acquittés sans effet.
+
 ## 10. `post_auth` sans effet sur la réponse
 
 - Dans `post-auth` et dans `Post-Auth-Type REJECT` : `sql_auth { fail = 1 }` (appel de `post_auth`), suivi d'un `ok` **inconditionnel** en fin de section. Mécanisme vérifié dans `modcall.c` : la section rend `ok`. **À prouver en exécution au ticket 07.**

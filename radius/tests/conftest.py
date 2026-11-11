@@ -72,6 +72,12 @@ def en_tant_que_acct() -> psycopg.Connection:
                            password=os.environ["WAKATNET_PG_ACCT_PASSWORD"], autocommit=True)
 
 
+def en_tant_que_maint() -> psycopg.Connection:
+    """Rôle wk_maint : tâches planifiées (sessions fantômes, purge) — ADR 0006 §1, §17."""
+    return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_maint",
+                           password=os.environ["WAKATNET_PG_MAINT_PASSWORD"], autocommit=True)
+
+
 def en_tant_que_test() -> psycopg.Connection:
     """Rôle wk_test (ADR 0007) : seul autorisé sur radius._authorize_at (instant injecté)."""
     return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_test",
@@ -127,6 +133,8 @@ def donnees():
               (6, 3, '1 heure (C, tests SQL)', 100, 3600, NULL, NULL, '2M/2M', 2, 'tenant', NULL),
               (7, 1, '1 Go sur 24 heures', 500, 86400, NULL, 1000000000, NULL, 1, 'tenant', NULL),
               (8, 1, '1 heure, 2 appareils', 150, 3600, NULL, NULL, NULL, 2, 'tenant', NULL);
+            INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, devices, bind_mac)
+            OVERRIDING SYSTEM VALUE VALUES (9, 1, '1 heure, lié au premier appareil', 100, 3600, 1, true);
         """)
         # Rôle de test (ADR 0007) : seul autorisé sur la fonction interne à instant injecté.
         c.execute("""

@@ -1,0 +1,17 @@
+# WAKATNET — fermeture des sessions fantômes (ADR 0006 §8, §17 ; ticket 06).
+[Unit]
+Description=WAKATNET : fermeture des sessions fantomes
+After=postgresql.service freeradius.service
+
+[Service]
+Type=oneshot
+# freerad : seul utilisateur qui lit le spool d'accounting (0700).
+User=freerad
+Group=freerad
+# Fichier réservé (0600 root) : WAKATNET_PG_MAINT_PASSWORD, jamais versionné.
+EnvironmentFile=/etc/wakatnet/maint.env
+ExecStart=/usr/local/sbin/wakatnet-fantomes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

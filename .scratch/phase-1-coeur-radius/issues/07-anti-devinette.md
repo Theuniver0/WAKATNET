@@ -2,6 +2,8 @@
 
 **PRD** : `../PRD.md` · **Matrice** : T11 · **Dépend de** : 06
 
+> **11/11/2026** : `post_auth` et `auth_log` livrés au ticket 06 (décision de Yacouba), avec les critères « `post_auth` en échec » et « T6 journalisée ». Il reste ici : la limitation anti-devinette, l'alerte, la purge à 90 jours, et la base en lecture seule de bout en bout.
+
 ## À livrer
 - `post_auth` (ADR 0006, point 10) : journalise Accept et Reject dans `auth_log`. **Aucun code en clair.** L'échec de l'écriture est sans effet sur la réponse.
 - Limitation (point 11) :

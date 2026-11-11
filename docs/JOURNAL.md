@@ -337,3 +337,20 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
     - test d'idempotence complet (motif conservé) ;
     - journal mis à jour.
 - **Écarté après vérification** : la copie figée du volume (déjà couverte par la copie figée des colonnes `f_*`).
+
+### Ticket 06 : sessions, appareils, fantômes, Accounting-On/Off (11/11/2026)
+
+- PR n°11 (ticket 05) fusionnée par Yacouba. Branche repartie de `main`.
+- **Décision de Yacouba** (question posée avant le code) : `post_auth` et `auth_log` sont avancés du ticket 07 au ticket 06, parce que le compte d'appareils et `bind_mac` en dépendent.
+- **Rouge d'abord** : 19 échecs, tests lancés avec le code mis de côté (`git stash`).
+- **Livré** :
+  - migrations `app/0007` (`mac_liee`, `dernier_acct_on_le`) et `radius/0008` :
+    - `_mac`, `auth_log`, `lecteur_battement` ;
+    - `post_auth`, `close_ghost_sessions` (`wk_maint`), `acct_on_off` ;
+    - `trop_d_appareils` et battement dans `_authorize_at` et `_acct` ;
+  - FreeRADIUS : `post-auth` journalisé sans effet sur la réponse, et Accounting-On/Off rejoués ;
+  - script et unités systemd des sessions fantômes.
+- **Faits observés** :
+  - `fail = 1` puis `ok` en `post-auth` : l'Accept reste un Accept quand l'écriture échoue (droit retiré) ;
+  - `systemd-analyze verify` passe sur les unités, seul l'exécutable installé sur le nœud étant absent.
+- **Vert** : `run.sh` depuis une pile neuve, 202 passed, étapes base arrêtée et figée réussies, trace T10, aucun secret.
