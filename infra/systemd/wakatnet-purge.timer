@@ -1,0 +1,11 @@
+# WAKATNET — une fois par jour, rattrapée au démarrage si manquée.
+[Unit]
+Description=WAKATNET : purge quotidienne du journal des tentatives
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

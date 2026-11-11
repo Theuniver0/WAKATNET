@@ -151,6 +151,19 @@ def donnees():
     yield
 
 
+# MAC de l'appareil simulé, PROPRE À CHAQUE TEST (ticket 07) : l'anti-devinette bloque une MAC
+# après 10 échecs en 60 s sur un routeur ; sans cela, les refus volontaires de tests différents
+# s'additionneraient. Dans un même test, la MAC reste la même (compte d'appareils, ticket 06).
+MAC_COURANTE = "02-00-00-00-00-01"
+
+
+@pytest.fixture(autouse=True)
+def mac_du_test():
+    global MAC_COURANTE
+    MAC_COURANTE = "02-" + "-".join(os.urandom(5).hex()[i:i + 2] for i in range(0, 10, 2)).upper()
+    yield
+
+
 def nouveau_ticket(plan_id: int = 1, tenant_id: int = 1) -> str:
     with admin() as c:
         return c.execute("SELECT app.voucher_creer(%s, %s)", (tenant_id, plan_id)).fetchone()[0]
@@ -161,6 +174,7 @@ def demander(nom: str = "r1", *, code: str, mot_de_passe: str | None = None, **k
     Message-Authenticator (RouterOS >= 7.15 refuse sinon le login, SPEC §1.1)."""
     ip = ROUTEURS[nom][0]
     kw.setdefault("essais", 3)
+    kw.setdefault("calling_station_id", MAC_COURANTE)
     r = radlib.access_request(serveur=SERVEUR, secret=secret(nom), source=ip,
                               utilisateur=code, mot_de_passe=mot_de_passe if mot_de_passe is not None else code,
                               **kw)
@@ -179,6 +193,7 @@ def creneau_nouveau_client() -> None:
 def comptabiliser(nom: str = "r1", **kw):
     """Accounting-Request depuis l'IP du routeur `nom` ; renvoie l'Accounting-Response vérifiée."""
     kw.setdefault("essais", 3)
+    kw.setdefault("calling_station_id", MAC_COURANTE)
     return radlib.accounting_request(serveur=SERVEUR, secret=secret(nom), source=ROUTEURS[nom][0], **kw)
 
 
