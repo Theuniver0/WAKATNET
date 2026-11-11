@@ -10,6 +10,7 @@ qu'ici, jamais par les migrations de production (ADR 0007).
 """
 from __future__ import annotations
 
+import glob
 import os
 import subprocess
 import time
@@ -20,6 +21,9 @@ import pytest
 import radlib
 
 SERVEUR = "10.213.0.1"
+# Spool de l'accounting (volume partagé, lecture seule ici) : fichiers detail en attente
+# de rejeu. « detail vidé » = aucun fichier detail-* ni detail.work (ADR 0008 §3).
+SPOOL = "/radacct/wakatnet"
 SERVEUR_HORS = "172.29.214.2"
 PG_HOTE = "172.29.215.5"
 
@@ -32,6 +36,10 @@ ROUTEURS = {
     "r5": ("10.213.1.50", True, "WAKATNET_SECRET_R3", 1, 1),   # réservé à la désactivation en base (L4)
     "r6": ("10.213.1.60", True, "WAKATNET_SECRET_R1", 1, 2),   # propriétaire A, site S2 (scope, ticket 03)
     "r7": ("10.213.1.70", True, "WAKATNET_SECRET_R2", 2, 3),   # propriétaire B (T6, suspension, ticket 03)
+    # Réservés aux étapes « base indisponible » du ticket 04 : leur client dynamique est créé
+    # juste avant l'arrêt (r8) ou le gel (r9) de la base, donc encore en cache pendant l'étape.
+    "r8": ("10.213.1.80", True, "WAKATNET_SECRET_R1", 1, 1),
+    "r9": ("10.213.1.90", True, "WAKATNET_SECRET_R2", 1, 1),
 }
 
 # Routeurs présents en base seulement (aucun paquet RADIUS) : tests SQL de la forme (a)
@@ -58,6 +66,12 @@ def en_tant_que_radius() -> psycopg.Connection:
                            password=os.environ["WAKATNET_PG_RADIUS_PASSWORD"], autocommit=True)
 
 
+def en_tant_que_acct() -> psycopg.Connection:
+    """Rôle wk_acct : celui du lecteur detail (ADR 0006 §12)."""
+    return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_acct",
+                           password=os.environ["WAKATNET_PG_ACCT_PASSWORD"], autocommit=True)
+
+
 def en_tant_que_test() -> psycopg.Connection:
     """Rôle wk_test (ADR 0007) : seul autorisé sur radius._authorize_at (instant injecté)."""
     return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_test",
@@ -74,8 +88,15 @@ def _ip_secondaires() -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def donnees():
-    """Jeu de données déterministe de la phase 1, ticket 02."""
+    """Jeu de données déterministe de la phase 1.
+
+    WAKATNET_SANS_FIXTURES=1 : étapes « base indisponible » orchestrées par run.sh
+    (ADR 0008, amendement du ticket 04). La base peut être arrêtée : on garde les
+    données du passage principal et on ne touche pas à PostgreSQL."""
     _ip_secondaires()
+    if os.environ.get("WAKATNET_SANS_FIXTURES") == "1":
+        yield
+        return
     with admin() as c:
         c.execute("""
             TRUNCATE app.voucher, app.plan, app.router, app.site, app.tenant RESTART IDENTITY CASCADE;
@@ -143,3 +164,28 @@ def creneau_nouveau_client() -> None:
     Avant le premier paquet d'une IP, on attend que le créneau soit libre, pour
     qu'une absence de réponse ne puisse pas venir du débit (faux positif du 11/11/2026)."""
     time.sleep(1.5)
+
+
+def comptabiliser(nom: str = "r1", **kw):
+    """Accounting-Request depuis l'IP du routeur `nom` ; renvoie l'Accounting-Response vérifiée."""
+    kw.setdefault("essais", 3)
+    return radlib.accounting_request(serveur=SERVEUR, secret=secret(nom), source=ROUTEURS[nom][0], **kw)
+
+
+def spool_vide() -> bool:
+    return not (glob.glob(os.path.join(SPOOL, "detail-*")) or glob.glob(os.path.join(SPOOL, "detail.work")))
+
+
+def attendre_rejeu(condition=lambda: True, delai: float = 45.0, message: str = ""):
+    """Primitive « detail vidé » (ADR 0008 §3) : attend que le spool soit vide ET que la
+    condition (lecture en base) soit vraie. Délai maximal explicite, jamais de sleep fixe."""
+    fin = time.monotonic() + delai
+    while time.monotonic() < fin:
+        if spool_vide():
+            try:
+                if condition():
+                    return
+            except psycopg.OperationalError:
+                pass
+        time.sleep(0.25)
+    raise AssertionError(f"rejeu non terminé après {delai} s (spool vide : {spool_vide()}) {message}")

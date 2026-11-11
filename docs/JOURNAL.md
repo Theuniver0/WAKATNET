@@ -292,3 +292,27 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - nom de branche (P6) : imposé par la session ;
   - sous-transaction de l'analyse de `p_src` : coût de quelques microsecondes, sans écriture, déjà présent dans `client_lookup`. Il sera mesuré au ticket 10.
 - **Dernier passage depuis une pile neuve, après les corrections** : 92 passed, trace T10 pour r4 et r1, aucun secret dans les sorties, `SUCCÈS`. La garde « crédits » durcie a été vérifiée sur deux violations injectées (une colonne de `app.tenant` en plus, un appel non qualifié) : elle détecte les deux.
+
+### Ticket 04 : accounting découplé (11/11/2026)
+
+- PR n°9 (ticket 03) fusionnée par Yacouba. Branche repartie de `main`.
+- **Rouge d'abord** : 67 échecs avant le code.
+- **Livré** :
+  - section accounting réduite au spool `detail_wakatnet` ;
+  - lecteur `rejeu_accounting` (pool `sql_acct`, rôle `wk_acct`) ;
+  - migration `radius/0005` : `session`, `acct_cle`, `acct_quarantaine`, `acct_anomalie`, `activation`, fonctions `acct_*` ;
+  - mot de passe de `wk_acct` dans `migrer.sh` et `verifier-env.sh` ;
+  - étapes « base arrêtée » puis « base figée » orchestrées par `run.sh`.
+- **Lu dans le code de FreeRADIUS 3.2.10** : le lecteur rétablit l'adresse source depuis `Packet-Src-IP-Address` (`log_packet_header = yes`), et réessaie un enregistrement resté sans réponse (`detail.c` l. 76).
+- **Limite mesurée** : pendant une panne de la base, un routeur dont le client dynamique a expiré n'obtient plus aucune réponse, accounting compris. C'est consigné dans l'ADR 0006 (§12), et c'est à trancher au ticket 08 ou avec LABO-16.
+- **Revue** (Standards, Spec, robustesse et argent ; un sceptique par constat). Constats retenus et corrigés :
+  - **bloquant** : des gigawords ≥ 2^31 faisaient déborder le `bigint`. Le lecteur restait bloqué sans fin. Ils sont maintenant bornés, avec une propriété Hypothesis sur du texte arbitraire dans les 12 paramètres ;
+  - **important** : l'assertion « rejeu tardif » était tautologique. Elle mesure désormais l'instant réel du rejeu en base (`activation.inscrit_le`) ;
+  - **mineurs** :
+    - enregistrement empoisonné vérifié au milieu d'un fichier du spool (étape base arrêtée) ;
+    - `Acct-Session-Id` réutilisé pour un autre ticket, journalisé (`acct_anomalie`) ;
+    - conséquences de l'activation par un Interim ou un Stop écrites dans l'ADR.
+- **Écartés après vérification** :
+  - époque et Accounting-On/Off : relèvent du ticket 06, et le scénario n'est pas atteignable avant ;
+  - USAGE des schémas : aucun droit sur les données sans droit sur un objet, déjà testé.
+- **Dernier passage depuis une pile neuve, après les corrections** : 167 passed, cinq étapes base arrêtée et figée réussies, trace T10, aucun secret, `SUCCÈS`.

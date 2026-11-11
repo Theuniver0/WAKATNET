@@ -1,0 +1,39 @@
+# WAKATNET — lecteur du spool d'accounting (ADR 0006 §12 ; ticket 04 ; L9).
+# Relit les fichiers écrits par detail_wakatnet et appelle radius.acct_* (rôle wk_acct).
+# Jamais sur le chemin de l'authentification (règle 2). FreeRADIUS >= 3.2.10 exigé :
+# le lecteur de la 3.2.9 ne lit plus les fichiers (#5870).
+#
+# Un seul enregistrement en cours à la fois (detail.c). Pas de réponse = base indisponible :
+# le même enregistrement est réessayé après retry_interval, sans perte ni saut.
+server rejeu_accounting {
+	listen {
+		type = detail
+		filename = "${radacctdir}/wakatnet/detail-*"
+		# Part du temps consacrée au rejeu (1 à 100) : 50 vide un arriéré vite sans saturer
+		# la base, l'authentification ayant son propre pool.
+		load_factor = 50
+		poll_interval = 1
+		# Délai avant de réessayer un enregistrement resté sans réponse (minimum 4 s).
+		retry_interval = 5
+		# Marque chaque enregistrement traité (Donestamp) : un redémarrage ne rejoue pas
+		# tout le fichier. Le rejeu reste de toute façon sans effet (fonctions idempotentes).
+		track = yes
+	}
+
+	accounting {
+		if (&Acct-Status-Type == Start) {
+			map_acct_start
+		}
+		elsif (&Acct-Status-Type == Interim-Update) {
+			map_acct_interim
+		}
+		elsif (&Acct-Status-Type == Stop) {
+			map_acct_stop
+		}
+		else {
+			# Accounting-On / Off : traités au ticket 06 (acct_on_off). D'ici là, acquittés
+			# sans effet, pour ne pas bloquer la file.
+			ok
+		}
+	}
+}

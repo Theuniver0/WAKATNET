@@ -1,0 +1,19 @@
+# WAKATNET — spool de l'accounting (ADR 0006 §12, règle 2, C3).
+# La section accounting n'écrit QUE ce fichier, puis répond au routeur : aucune base
+# sur ce chemin. Le serveur virtuel rejeu_accounting relit le spool vers PostgreSQL.
+#
+# Contenu : les attributs reçus, dont User-Name (le code du ticket) — nécessaire au
+# rapprochement. Fichiers 0600, propriété de freerad, supprimés une fois rejoués.
+
+detail detail_wakatnet {
+	# Un fichier par heure ; le lecteur prend detail-* (jamais detail.work, son fichier de travail).
+	filename = ${radacctdir}/wakatnet/detail-%Y%m%d:%H
+	escape_filenames = no
+	permissions = 0600
+	header = "%t"
+	# Verrou partagé avec le lecteur.
+	locking = yes
+	# Écrit Packet-Src-IP-Address : le lecteur s'en sert comme adresse source du paquet
+	# rejoué (detail.c), donc pour retrouver le routeur.
+	log_packet_header = yes
+}

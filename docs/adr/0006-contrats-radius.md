@@ -177,6 +177,26 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - Erreur de donnée : ligne copiée dans `radius.acct_quarantaine`, retour `ok`, la file continue. Seule l'indisponibilité de la base renvoie `fail`, et le lecteur réessaie.
 - Garde de version : FreeRADIUS ≥ 3.2.10, jamais 3.2.9 (#5870).
 
+**Amendement du 11/11/2026, ticket 04** (réalisation et limites mesurées ; à valider par Yacouba avec la PR du ticket 04) :
+- **Lecture du code 3.2.10** (`detail.c`, `rlm_detail.c`) :
+  - le lecteur rétablit l'adresse source du paquet depuis `Packet-Src-IP-Address` du fichier, que seul `log_packet_header = yes` écrit. Le module `detail_wakatnet` l'active, et les fonctions retrouvent ainsi le routeur ;
+  - `Packet-Original-Timestamp` vient de la ligne `Timestamp`, qui est l'instant de réception (§7) ;
+  - un enregistrement **sans réponse** est réessayé après `retry_interval` (`detail.c` l. 76), un seul à la fois.
+- **Réglages du lecteur** : `load_factor = 50`, `poll_interval = 1`, `retry_interval = 5`, `track = yes`. `sql_acct` : `query_timeout = 5`, et `statement_timeout = 5s` pour `wk_acct`, hors chemin critique.
+- **Activation au premier événement traité du ticket**, normalement le Start. Si le Start est perdu, un Interim ou un Stop crée la session et active le ticket, toujours à l'instant de réception. Sinon un Start perdu laisserait la validité ne jamais commencer.
+  - **Conséquences** : avec un Start perdu, l'activation est en retard d'au plus un intervalle d'Interim (120 s), ou de toute la session si aucun Interim n'arrive. Le retard est au bénéfice du client : la validité commence plus tard.
+  - **Avec deux spools** (nœuds A et B, phase 5), l'ordre de rejeu peut faire retenir un événement plus récent. L'activation n'est pas corrigée ensuite, parce que l'événement d'activation est un fait comptable posé une fois (ADR 0002). À revoir avec T13.
+- **Gigawords bornés à 2^31 − 1** : 2147483647 × 2^32 + (2^32 − 1) = 2^63 − 1 tient dans un `bigint`. Au-delà, `donnee_invalide`, jamais une exception qui bloquerait le lecteur. Une propriété Hypothesis passe du texte arbitraire dans les 12 paramètres et vérifie que la fonction rend toujours `ok` ou `quarantaine`.
+- **Anomalie journalisée** (§8) : un même `Acct-Session-Id` pour un autre ticket, sur le même routeur et à la même époque, ouvre une session distincte et inscrit `session_reutilisee` dans `radius.acct_anomalie` (indice pour LABO-18).
+- **Accounting-On / Off** : acquittés sans effet jusqu'au ticket 06 (`acct_on_off`), pour ne pas bloquer la file.
+- **Quarantaine** : motifs `routeur_inconnu`, `session_invalide`, `utilisateur_invalide`, `donnee_invalide`, `ticket_inconnu`. Les paramètres sont conservés tels que reçus (`jsonb`). Il n'y a **aucune sous-transaction** : la validation se fait par motifs (`pg_input_is_valid`, expressions régulières). Seule une erreur de la base fait échouer l'appel, et l'enregistrement est alors réessayé.
+- **Routeur désactivé** : son accounting reste compté. Il est identifié par son IP, actif ou non, pour ne pas perdre la consommation d'une session ouverte avant la désactivation.
+- **Sens des octets** : `radius.parametre.acct_input_octets_sens = 'montant'` (RFC 2866 : Input = reçu par le routeur sur le port du client). **Non vérifié** sur RouterOS (piste B).
+- **Limite mesurée : le spool ne dépend pas de la base, mais la création d'un client dynamique, si.** Pendant une panne de PostgreSQL, un routeur dont le client a expiré (`lifetime`, 300 s en production) n'obtient plus **aucune** réponse, authentification comme accounting. Le paquet est ignoré, ou la création du client reste bloquée si la base est figée, et le routeur bascule sur le nœud B (T13). Observé au ticket 04 : avec la base figée, r1 sorti du cache ne recevait plus de réponse.
+  - Conséquence : « Accounting-Response toujours envoyée » ne vaut que pour un client en cache.
+  - **À trancher au ticket 08 ou avec LABO-16** : par exemple, une liste statique des clients régénérée depuis la base, ou un `lifetime` plus long.
+- **Le spool contient les codes de ticket** (`User-Name`), nécessaires au rapprochement. Les fichiers sont en 0600, propriété de `freerad`, et supprimés une fois rejoués. Le disque du nœud est chiffré (§14).
+
 ## 13. Base indisponible
 
 - `authorize` est encadré par `map_auth { fail = 1 }` suivi de `if (fail) { do_not_respond }` (mécanisme vérifié dans `modcall.c` et `auth.c`). Pour `client_lookup`, un `fail` de `map_clients` donne déjà « pas de client, donc paquet ignoré » (`listen.c` l. 338–353), sans autre configuration.

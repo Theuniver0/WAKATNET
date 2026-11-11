@@ -16,6 +16,7 @@ esac
 [ -n "${WAKATNET_RADIUS_LISTEN:-}" ] || dire "WAKATNET_RADIUS_LISTEN absente"
 [ -n "${WAKATNET_PG_HOST:-}" ] || dire "WAKATNET_PG_HOST absente"
 [ -n "${WAKATNET_PG_RADIUS_PASSWORD:-}" ] || dire "WAKATNET_PG_RADIUS_PASSWORD absente"
+[ -n "${WAKATNET_PG_ACCT_PASSWORD:-}" ] || dire "WAKATNET_PG_ACCT_PASSWORD absente"
 
 [ "$erreur" = 0 ] && echo "verifier-env : environnement complet"
 exit "$erreur"

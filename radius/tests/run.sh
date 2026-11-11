@@ -40,12 +40,13 @@ alea() { head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 {
   echo "POSTGRES_PASSWORD=$(alea)"
   echo "WAKATNET_PG_RADIUS_PASSWORD=$(alea)"
+  echo "WAKATNET_PG_ACCT_PASSWORD=$(alea)"
   echo "WAKATNET_PG_TEST_PASSWORD=$(alea)"
   echo "WAKATNET_SECRET_R1=$(alea)"
   echo "WAKATNET_SECRET_R2=$(alea)"
   echo "WAKATNET_SECRET_R3=$(alea)"
 } > jeu.secrets
-grep '^WAKATNET_PG_RADIUS_PASSWORD=' jeu.secrets > jeu-radius.secrets
+grep -E '^WAKATNET_PG_(RADIUS|ACCT)_PASSWORD=' jeu.secrets > jeu-radius.secrets
 umask 022
 
 etape "Construction du conteneur de test"
@@ -97,7 +98,7 @@ echo "configuration valide"
 # FreeRADIUS accepte un lifetime vide (= 0 : cache sans fin, désactivation en base
 # sans effet ; constaté le 11/11/2026). La garde verifier-env.sh doit donc le refuser.
 $C exec -T freeradius sh /opt/wakatnet/verifier-env.sh >/dev/null || echec "garde : environnement de test refusé"
-for v in WAKATNET_CLIENT_LIFETIME WAKATNET_PG_RADIUS_PASSWORD; do
+for v in WAKATNET_CLIENT_LIFETIME WAKATNET_PG_RADIUS_PASSWORD WAKATNET_PG_ACCT_PASSWORD; do
   if $C exec -T freeradius env -u "$v" sh /opt/wakatnet/verifier-env.sh >/dev/null 2>&1; then
     echec "la garde accepte un environnement sans $v"
   fi
@@ -139,6 +140,46 @@ if [ "$#" = 0 ]; then
   fi
 fi
 
+INDISPO=0
+if [ "$#" = 0 ]; then
+  etape "Base indisponible : accounting découplé (ticket 04)"
+  # Le conteneur de test ne pilote pas Docker : run.sh arrête, fige et relance la base
+  # entre deux étapes de test_t04_indispo.py (ADR 0008, amendement du ticket 04).
+  # Chaque étape doit compter exactement « 1 passed » : une étape ignorée est un échec.
+  pas() {
+    local sortie
+    sortie="$($C exec -T -e WAKATNET_ETAPE="$1" -e WAKATNET_SANS_FIXTURES=1 testeur \
+              pytest -p no:cacheprovider -q test_t04_indispo.py 2>&1)" || true
+    printf '%s\n' "$sortie" | tail -3
+    if ! grep -q "1 passed" <<<"$sortie" || grep -qE "[0-9]+ (failed|errors?)" <<<"$sortie"; then
+      printf '%s\n' "$sortie" | grep -E '^E |Error|assert' | head -20
+      echo "étape $1 : ÉCHEC"
+      INDISPO=1
+    fi
+  }
+  pret_pg() {
+    for _ in $(seq 1 60); do
+      $C exec -T postgres pg_isready -h 127.0.0.1 -U wakatnet_admin -d wakatnet >/dev/null 2>&1 && return 0
+      sleep 1
+    done
+    echo "PostgreSQL ne redémarre pas"; INDISPO=1
+  }
+  pas a
+  echo "--- base ARRÊTÉE"
+  $C stop postgres >/dev/null 2>&1
+  pas b
+  sleep 10   # ATTENTE_S de test_t04_indispo.py : l'activation doit valoir la réception, pas le rejeu
+  $C start postgres >/dev/null 2>&1 && pret_pg
+  pas c
+  echo "--- base FIGÉE (docker compose pause)"
+  $C pause postgres >/dev/null 2>&1
+  pas d
+  sleep 10
+  $C unpause postgres >/dev/null 2>&1 && pret_pg
+  pas e
+  [ "$INDISPO" = 0 ] && echo "accounting : réponse immédiate base arrêtée et figée ; rejeu complet, sans perte ni doublon"
+fi
+
 etape "Recherche de secrets dans les sorties (ADR 0008 §6)"
 TROUVE=0
 SORTIES="$(mktemp)"
@@ -159,8 +200,8 @@ done < jeu.secrets
 rm -f "$SORTIES"
 [ "$TROUVE" = 0 ] && echo "aucun secret dans les sorties (script, pytest, journaux, lignes de commande)"
 
-if [ "$CODE" != 0 ] || [ "$TROUVE" != 0 ] || [ "$T10" != 0 ]; then
-  etape "ÉCHEC (pytest=$CODE, secrets=$TROUVE, t10_journal=$T10)"
+if [ "$CODE" != 0 ] || [ "$TROUVE" != 0 ] || [ "$T10" != 0 ] || [ "$INDISPO" != 0 ]; then
+  etape "ÉCHEC (pytest=$CODE, secrets=$TROUVE, t10_journal=$T10, base_indisponible=$INDISPO)"
   $C logs --no-color --tail 60 freeradius || true
   exit 1
 fi
