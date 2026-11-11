@@ -227,3 +227,22 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - déclencheur de coupure absent ;
   - mesures de performance non mesurables telles qu'écrites.
 - Le ticket 01 regroupe désormais toutes les décisions d'architecture de la phase. T6 revient en phase 1. Ajout de LABO-18 et LABO-19.
+
+### Ticket 01 : ADR 0006, 0007 et 0008 (11/11/2026)
+
+- PR n°7 fusionnée par Yacouba : validation du PRD et des tickets de la phase 1, comme annoncé.
+- Faits vérifiés dans le code de FreeRADIUS 3.2.10 avant d'écrire :
+  - le champ `Timestamp` du `detail` est l'instant de réception ;
+  - un `fail` en `post-auth` donne un Reject ;
+  - `rlm_sql` n'a pas de `map` ;
+  - `query_timeout` est en secondes.
+- Vérification adversariale par un agent indépendant (dans le code source) : 8 points bloquants corrigés, dont :
+  - Message-Authenticator non exigé si `FreeRADIUS-Client-Require-MA` est absent ;
+  - `reject_delay = 1` par défaut, supérieur au `timeout` de RouterOS ;
+  - délais réfutés (reconnexion et rejeu) ;
+  - `-X` incompatible avec la recherche de secrets ;
+  - clé d'idempotence et partitionnement ;
+  - valeur vide qui bloque le lecteur `detail` ;
+  - EXECUTE accordé à PUBLIC ;
+  - valeurs NULL ou entre apostrophes inverses interprétées par `rlm_sql`.
+- Points soumis à l'acceptation de Yacouba : 7 dans l'ADR 0006, 1 dans l'ADR 0008 (marqués « [à accepter] »).

@@ -2,25 +2,35 @@
 
 - **Statut** : proposé le 11/11/2026 (ticket 01) ; à accepter par Yacouba. Les points marqués **[à accepter]** sont des écarts avec la spec ou des choix commerciaux.
 - **Références** : `docs/SPEC.md` §1.1, §4, §5, §10.1 ; `CONTRIBUTING.md` C1–C7, S1–S3 ; ADR 0001 à 0005 ; `docs/LABO.md` (E-FR-2, E-FR-4, L1–L9) ; `.scratch/phase-1-coeur-radius/`.
+- **Révision du 11/11/2026** après une vérification adversariale dans le code source : constats 1d, 1e, 2a à 2c, 3c, 3d, 4b, 4c, 5b, 5c, 7b et 9a à 9h intégrés.
 - **Faits vérifiés dans le code de FreeRADIUS 3.2.10** (tag `release_3_2_10`, lu le 11/11/2026) :
   - `rlm_detail.c` l. 347 écrit `Timestamp = request->timestamp`, l'instant de **réception** par radiusd. Le lecteur (`detail.c` l. 667) l'expose sous `Packet-Original-Timestamp`, mais pour son calcul interne il **préfère l'`Event-Timestamp` du routeur** (l. 891).
   - `auth.c`, `rad_postauth()` : un résultat `fail` en `post-auth` **transforme l'Accept en Reject**.
   - `rlm_sql` n'enregistre **aucun** processeur `map`, et `sql.c` l. 153 crée les attributs sans qualificatif de liste : une requête n'alimente qu'**une** liste.
-  - `rlm_sql_postgresql.c` : `query_timeout` est un entier en **secondes**, appliqué aussi comme `connect_timeout`.
+  - `rlm_sql_postgresql.c` : `query_timeout` est un entier en **secondes**, appliqué aussi comme `connect_timeout`. Un dépassement provoque une **reconnexion puis un rejeu** de la requête (`sql.c`, `connection.c`).
+  - `client.c` l. 1594 : pour un client dynamique, `require_ma` est **écrasé** par `FreeRADIUS-Client-Require-MA`. Si l'attribut est absent, la valeur est 0 : **le Message-Authenticator n'est pas exigé**.
+  - `radiusd.conf` : `reject_delay = 1` par défaut. Le délai se règle par pas de 0,5 s, et 0 est accepté.
+  - `sql.c` l. 80–168 : une ligne avec un attribut vide, une valeur NULL ou un attribut inconnu fait échouer **toute** la requête. Une valeur entièrement entourée d'apostrophes inverses est **évaluée** comme une expansion.
+  - `listen.c` l. 276–286 : `rate_limit` vaut un nouveau client par seconde pour tout le bloc ; les autres paquets de la même seconde sont jetés. Le défaut est désactivé.
 
 ---
 
 ## 1. Signatures
 
-Toutes les fonctions sont `SECURITY DEFINER`, avec `SET search_path = radius, pg_temp`. Leur propriétaire est `wakatnet_owner`. Chaque rôle reçoit EXECUTE sur ses seules fonctions (C7).
+Toutes les fonctions sont `SECURITY DEFINER`, avec `SET search_path = radius, pg_temp`. Leur propriétaire est `wakatnet_owner`. **EXECUTE est retiré à PUBLIC** sur chaque fonction (`REVOKE ALL … FROM PUBLIC`, et `ALTER DEFAULT PRIVILEGES` qui retire EXECUTE à PUBLIC), puis accordé à chaque rôle sur ses seules fonctions (C7). Les rôles n'ont que `USAGE` sur le schéma `radius`.
+
+Instances `rlm_sql` :
+- `sql_clients` (`wk_radius`) : `client_lookup` ;
+- `sql_auth` (`wk_radius`) : `authorize` et `post_auth` ;
+- `sql_acct` (`wk_acct`) : `acct_*`, avec un pool à elle.
 
 | Fonction | Rôle | Contrat |
 |---|---|---|
-| `radius.client_lookup(p_src inet) RETURNS TABLE(secret text, shortname text, require_ma text)` | `wk_radius` | Routeur **actif** dont l'IP overlay est `p_src`, sinon aucune ligne. `require_ma` vaut `'yes'` par défaut, `'no'` seulement par exception tracée (colonne `router.require_ma_exception` + journal d'audit, ADR 0003). |
+| `radius.client_lookup(p_src text) RETURNS TABLE(id int, username text, attribute text, value text, op text)` | `wk_radius` | Appelée par l'instance `sql_clients` (`authorize_check_query`) du serveur `dynamic_clients` : **une seule requête**, et `fail` en cas d'erreur. Pour le routeur **actif** dont l'IP overlay est `p_src`, elle renvoie des lignes `:=` : `FreeRADIUS-Client-IP-Address`, `-Secret`, `-Shortname`, `-Virtual-Server` et **`-Require-MA`, toujours présent et jamais NULL** (`yes` par défaut ; `no` seulement par exception tracée dans `router.require_ma_exception` et le journal d'audit, ADR 0003). Routeur inconnu ou inactif : aucune ligne, donc aucun client et aucune réponse. |
 | `radius.authorize(p_user text, p_src inet, p_calling text, p_called text) RETURNS TABLE(id int, username text, attribute text, value text, op text)` | `wk_radius` | **Lecture seule** (`STABLE`), au format des lignes « check » de `rlm_sql`. Une seule requête par Access-Request (§2). Ne lève jamais d'exception à cause d'une donnée : tout cas inattendu donne un refus codé. Enveloppe de `radius._authorize_at(…, p_now)` (ADR 0007). |
 | `radius.post_auth(p_user text, p_src inet, p_calling text, p_result text, p_cause text) RETURNS void` | `wk_radius` | Écrit dans `auth_log` : routeur, MAC, résultat, cause, `voucher_id` si le code existe pour ce propriétaire, sinon NULL. **Jamais le code.** Pose la liaison `bind_mac` au premier Accept (§9). |
-| `radius.acct_start / acct_interim / acct_stop(p_src inet, p_session_id text, p_user text, p_calling text, p_framed_ip inet, p_in_oct bigint, p_in_giga bigint, p_out_oct bigint, p_out_giga bigint, p_session_time bigint, p_cause text, p_received_at timestamptz) RETURNS text` | `wk_acct` | Idempotentes (§8). Renvoient `'ok'` ou `'quarantaine'`. Ne lèvent jamais d'exception à cause d'une donnée. |
-| `radius.acct_on_off(p_src inet, p_received_at timestamptz) RETURNS text` | `wk_acct` | Ferme les sessions du routeur démarrées **avant** `p_received_at`, puis incrémente l'époque du routeur (§8). |
+| `radius.acct_start / acct_interim / acct_stop(p_src text, p_session_id text, p_user text, p_calling text, p_framed_ip text, p_in_oct text, p_in_giga text, p_out_oct text, p_out_giga text, p_session_time text, p_cause text, p_received_epoch text) RETURNS text` | `wk_acct` | Idempotentes (§8). **Tous les paramètres sont en `text`** et analysés dans la fonction : une conversion impossible (chaîne vide, valeur invalide) envoie la ligne en quarantaine **au lieu** de faire échouer l'appel SQL, ce qui bloquerait le lecteur sans fin. `p_received_epoch` = `%{integer:Packet-Original-Timestamp}`. Renvoient `'ok'` ou `'quarantaine'`. |
+| `radius.acct_on_off(p_src text, p_received_epoch text) RETURNS text` | `wk_acct` | Ferme les sessions de l'**époque courante** du routeur, puis incrémente l'époque (§8). Le critère est l'époque et non l'instant, parce que l'instant est arrondi à la seconde. |
 | `radius.close_ghost_sessions() RETURNS int` | `wk_maint` | Sessions fantômes (§8). |
 | `radius.purge_auth_log() RETURNS bigint` | `wk_maint` | Suppression au-delà de 90 jours (ADR 0005). Idempotente. |
 | `radius.sessions_to_cut() RETURNS TABLE(…)` et `radius.mark_cut(p_session bigint, p_result text)` | `wk_coa` | Sessions à couper (volume épuisé, suspension, remboursement) (§6). |
@@ -42,14 +52,19 @@ Correspondance avec la matrice T :
 
 ## 2. Un seul appel SQL par Access-Request
 
-- `authorize_check_query` appelle `radius.authorize` **une fois**. `authorize_reply_query` et les groupes sont **désactivés** (`read_groups = no`, requête de réponse vide).
+- `authorize_check_query` appelle `radius.authorize` **une fois**. `authorize_reply_query` est **commentée** (une valeur vide provoque un avertissement), avec `read_groups = no` et `read_profiles = no`.
 - `authorize` renvoie **toutes** ses lignes avec l'opérateur `:=` dans la liste `control` :
   - `Cleartext-Password` ;
   - en cas de refus, `Auth-Type := Reject` ;
   - les attributs de réponse, placés provisoirement en `control` : `Session-Timeout`, `Mikrotik-Rate-Limit`, `Port-Limit`, `Acct-Interim-Interval`, et `Reply-Message` en cas de refus.
 - Une politique `unlang` fixe, sans logique d'accès (C2), **recopie** ces attributs de `control` vers `reply`.
 - La décision et les valeurs viennent ainsi du **même instantané**.
-- **À prouver au ticket 02** : `rlm_sql` accepte des attributs de réponse dans `control`, et la recopie est complète. Si ce n'est pas le cas, repli : deux requêtes, avec un `reply` calculé **uniquement** à partir de la copie figée et de l'instant passé par le `check` dans `control:Tmp-Integer-0`.
+- **Contrat de forme des lignes**, vérifié par un test de propriétés : `rlm_sql` fait échouer toute la requête sur une ligne malformée, et évalue une valeur entre apostrophes inverses comme une expansion.
+  - aucune valeur NULL : un attribut sans valeur n'est pas émis ;
+  - attributs pris dans une **liste fermée** ;
+  - aucune valeur entourée de `'`, de `"` ou d'apostrophes inverses ;
+  - contrainte `CHECK` en base sur `rate_limit` (`^[0-9A-Za-z/ .:-]+$`), saisi par les propriétaires.
+- Confirmé dans le code (`pair.c` l. 517–519, `rlm_sql.c` l. 1215–1232) : les lignes `:=` vont dans `control` sans comparaison, et `Auth-Type := Reject` produit un Reject. **À prouver en exécution au ticket 02.** Si ce n'est pas le cas, repli : deux requêtes, avec un `reply` calculé **uniquement** à partir de la copie figée et de l'instant passé par le `check` dans `control:Tmp-Integer-0`.
 
 ## 3. Clé de recherche
 
@@ -71,6 +86,10 @@ Correspondance avec la matrice T :
 
 Ordre d'évaluation : `trop_de_tentatives` → `ticket_inconnu` → `proprietaire_suspendu` → `mauvais_site` → `expire` → `epuise` → `trop_d_appareils`.
 
+- **Mauvais mot de passe.** `authorize` ne peut pas le voir, puisque PAP ou CHAP décident ensuite. Dans `Post-Auth-Type REJECT` : si `reply:Reply-Message` est absent, il prend la valeur `ticket_inconnu`. On garde `attr_filter.access_reject`, qui retire les attributs d'Accept déjà recopiés.
+- **PAP** : `User-Name` et `User-Password` passent en majuscules (`%{toupper:…}`) avant `pap`. **CHAP** : la mise en majuscules se fait dans `login.html` (§15).
+- **`reject_delay = 0`** : le défaut de 1 s dépasse le `timeout` de RouterOS (1100 ms). Le routeur basculerait sur B et afficherait « serveur injoignable » au lieu de la cause. L'anti-devinette est assurée par `trop_de_tentatives` (§11). Testé au ticket 02.
+
 ## 5. Attributs de réponse
 
 | Attribut | Décision |
@@ -81,7 +100,7 @@ Ordre d'évaluation : `trop_de_tentatives` → `ticket_inconnu` → `proprietair
 | `Acct-Interim-Interval` | **120 s** **[à accepter]**. Le dépassement de volume vaut au plus débit × 120 s, par exemple 30 Mo à 2 Mbit/s. Valeur globale réglable. Le script d'enrôlement (ticket 2.3) doit poser `radius-interim-update=received`, ou 2m, de façon cohérente (LABO-19). |
 | `Idle-Timeout` | **Non envoyé** en v1 : le profil hotspot du routeur garde le sien. Champ du forfait réservé pour plus tard. |
 | `WISPr-Session-Terminate-Time` | **Écarté** : il dépend de l'horloge du routeur (règle 5), et `Session-Timeout` intègre déjà l'expiration absolue. |
-| `Mikrotik-Recv-Limit` / `Mikrotik-Xmit-Limit` (+ Gigawords) | **Non envoyés** en v1 : les forfaits n'ont qu'un volume total (§5.3). Réservés aux forfaits à sens séparés. |
+| `Mikrotik-Recv-Limit` / `Mikrotik-Xmit-Limit` (+ Gigawords) | **Non envoyés** en v1 : les forfaits n'ont qu'un volume total. **[à accepter] Écart avec le §5.3**, qui demande d'envoyer les restes de volume : contrôle côté serveur à la place (§6). Ces attributs restent réservés aux forfaits à sens séparés. |
 | `Mikrotik-Total-Limit` | Non utilisé ([LABO]). |
 
 ## 6. Volume total
@@ -92,14 +111,13 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 
 - **Décision d'accès** : `now()` de PostgreSQL (règle 5).
 - **Événements d'accounting** : `Packet-Original-Timestamp`, c'est-à-dire l'instant de **réception** par radiusd. En production, radiusd et PostgreSQL tournent sur le même nœud, synchronisé par NTP. Le serveur virtuel de rejeu passe **explicitement** cet attribut en `p_received_at`. On n'utilise jamais l'heure du rejeu, ni l'`Event-Timestamp` du routeur.
-- **Précision proposée pour C4** : « L'heure du routeur n'est jamais utilisée pour décider. Les décisions d'accès utilisent `now()` de la base ; les événements d'accounting sont datés à leur réception par le nœud. »
+- Passage à SQL : `%{integer:Packet-Original-Timestamp}` (époque en secondes), converti par `to_timestamp` dans la fonction. Précision : une seconde.
+- **Précision proposée pour C4 et pour la règle 5 du §4** : « L'heure du routeur n'est jamais utilisée pour décider. Les décisions d'accès utilisent `now()` de la base ; les événements d'accounting sont datés à leur réception par le nœud, qui partage l'horloge de la base. »
 
 ## 8. Accounting : idempotence, compteurs, fantômes
 
-- **Clé** : `(router_id, router_epoch, acct_session_id)`, dans une table de clés **non partitionnée** (ADR 0008). L'époque est incrémentée à chaque Accounting-On / Off, ce qui protège contre la réutilisation de `Acct-Session-Id` après redémarrage (LABO-18).
-- **Start sur une clé existante** :
-  - même `User-Name` : rejeu, sans effet ;
-  - autre `User-Name` : anomalie journalisée, et ouverture d'une nouvelle session.
+- **Clé** : `(router_id, router_epoch, acct_session_id, username)`, dans une table de clés **non partitionnée** (ADR 0008). L'époque est incrémentée à chaque Accounting-On / Off, ce qui protège contre la réutilisation de `Acct-Session-Id` après redémarrage (LABO-18). Le `username` dans la clé fait qu'un même identifiant réutilisé pour un autre ticket ouvre une session distincte. L'anomalie est journalisée.
+- **Start sur une clé existante** : rejeu, sans effet.
 - **Compteurs** : total = max(total déjà vu, giga × 2^32 + octets), en BIGINT, pour chaque sens. Le temps est le max de `Acct-Session-Time`. Le sens entrée / sortie est réglé dans `radius.parametre` (C2), avec une valeur par défaut non vérifiée.
 - **Activation** au premier Start, à `p_received_at`.
 - **Interim ou Stop après une fermeture d'office** : compteurs mis à jour, session non rouverte.
@@ -108,12 +126,13 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 
 ## 9. Appareils simultanés et `bind_mac`
 
-- **Compte** = sessions ouvertes du ticket + Accept des 60 dernières secondes, dans `auth_log`, sans Start correspondant. La fenêtre de course résiduelle (deux Access-Request à moins d'un aller-retour d'écart) est documentée et testée.
+- **Compte** = sessions ouvertes du ticket + Accept dans `auth_log` sans Start correspondant, sur une fenêtre de 60 s **prolongée du retard courant du lecteur `detail`**. Ce retard est mesuré par un battement que le lecteur inscrit à chaque enregistrement. La fenêtre de course résiduelle (deux Access-Request à moins d'un aller-retour d'écart) est documentée et testée.
 - **`bind_mac`** (option du forfait) : posé par `post_auth` au premier Accept, et aussi par `acct_start` s'il manque. Une MAC différente donne `trop_d_appareils`. La MAC n'est jamais la seule clé : le code reste exigé. Les MAC aléatoires sont une limite connue (§11 de la spec). La remise à zéro par le propriétaire arrive en phase 4.
 
 ## 10. `post_auth` sans effet sur la réponse
 
-- Dans `post-auth` et dans `Post-Auth-Type REJECT` : `sql_postauth { fail = 1 }`, suivi de `if (fail) { ok }`. Comme `fail` a une priorité plus basse que `ok`, la section rend `ok`. **À prouver au ticket 07**, notamment sur une base en lecture seule.
+- Dans `post-auth` et dans `Post-Auth-Type REJECT` : `sql_auth { fail = 1 }` (appel de `post_auth`), suivi d'un `ok` **inconditionnel** en fin de section. Mécanisme vérifié dans `modcall.c` : la section rend `ok`. **À prouver en exécution au ticket 07.**
+- **Mode dégradé assumé** : l'écriture est synchrone. Sur le nœud B en lecture seule (T13), elle échoue tout de suite sans changer la réponse. Mais `auth_log` et `bind_mac` ne sont alors pas écrits, si bien que l'anti-devinette et le compte d'appareils sont affaiblis tant que B tourne seul. Le retard dû à une base lente est borné par `statement_timeout` (§13).
 - Accept et Reject sont journalisés.
 - `auth_goodpass = no`, `auth_badpass = no`. Aucun code en clair dans `auth_log` ni dans `radius.log`.
 
@@ -124,23 +143,28 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - **Par routeur** : 100 échecs en 60 s donnent une **alerte seule**, sans blocage, pour éviter de couper tout un hotspot.
 - Les refus `trop_de_tentatives` ne comptent pas comme échecs.
 - Index `auth_log(router_id, calling_station, at)`. Seuils réglables.
+- **Ordre de grandeur de l'attaque restante**, en changeant de MAC à chaque essai, bornée par le seul débit :
+  - à 10 essais par seconde contre un propriétaire qui a 10 000 tickets valides, l'espérance avant de tomber sur un ticket valide est de 31^8 / 10 000 ≈ 8,5 × 10^7 essais, soit environ 98 jours ;
+  - l'alerte par routeur (100 échecs par minute) se déclenche dès la première minute ;
+  - le super-admin peut alors bloquer le routeur.
 
 ## 12. Lecteur `detail`
 
 - Serveur virtuel `rejeu_accounting` (`listen { type = detail }`).
-- Instance `sql` dédiée, `sql_acct` : rôle `wk_acct`, pool à elle, distinct de l'authentification.
+- Instance `sql_acct` : rôle `wk_acct`, pool à elle, distinct de l'authentification. Paramètres passés en texte (§1).
 - Module `detail` avec `locking = yes`.
 - Erreur de donnée : ligne copiée dans `radius.acct_quarantaine`, retour `ok`, la file continue. Seule l'indisponibilité de la base renvoie `fail`, et le lecteur réessaie.
 - Garde de version : FreeRADIUS ≥ 3.2.10, jamais 3.2.9 (#5870).
 
 ## 13. Base indisponible
 
-- `authorize` est encadré par `sql { fail = 1 }` suivi de `if (fail) { do_not_respond }`. Même chose pour `client_lookup` : aucun client n'est créé, donc aucune réponse.
+- `authorize` est encadré par `sql_auth { fail = 1 }` suivi de `if (fail) { do_not_respond }` (mécanisme vérifié dans `modcall.c` et `auth.c`). Pour `client_lookup`, un `fail` de `sql_clients` donne déjà « pas de client, donc paquet ignoré » (`listen.c` l. 338–353), sans autre configuration.
 - Puisque `authorize` et `client_lookup` ne lèvent jamais d'exception à cause d'une donnée, un `fail` ne vient que d'une indisponibilité, d'un délai dépassé ou d'un **défaut de déploiement**. Ce dernier cas est intercepté par le test de fumée exécuté après chaque migration (ticket 08).
-- **Délais** :
-  - `query_timeout = 1` (minimum du pilote, en secondes) ;
-  - `ALTER ROLE wk_radius SET statement_timeout = '500ms'` ;
-  - les deux restent inférieurs au `timeout` de RouterOS (au moins 1100 ms ; réglé par LABO-09).
+- **Délais**, énoncés honnêtement :
+  - **Borne principale** : `ALTER ROLE wk_radius SET statement_timeout = '500ms'`. Un dépassement donne le code 57014, classé **sans reconnexion**, donc un `fail` immédiat. Les connexions déjà ouvertes gardent l'ancienne valeur jusqu'au redémarrage de radiusd.
+  - `query_timeout = 1` (minimum du pilote, en secondes). Son dépassement (base qui ne répond plus du tout) provoque une reconnexion et un rejeu. Avec libpq, qui arrondit `connect_timeout` à au moins 2 s (d'après sa documentation, non vérifié dans le code), le **pire cas dépasse le `timeout` de RouterOS**.
+  - Le pool est réglé pour le limiter (`max_retries` bas). Le pire cas réel est **mesuré** au ticket 08 et comparé au `timeout` retenu par LABO-09.
+- **Risque assumé** : `client_lookup` s'exécute dans le fil de **réception** de FreeRADIUS. Une base lente bloque donc la réception de tous les paquets pendant la création d'un nouveau client. Le risque est mesuré au ticket 10.
 - Compteur des `do_not_respond` (module `linelog` local), lu par la supervision (§10.3).
 - **Provisoire jusqu'à LABO-16.**
 
@@ -148,7 +172,7 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 
 - **Mots de passe des rôles PostgreSQL** : lus par `$ENV{}`, depuis un `EnvironmentFile` systemd réservé à root, jamais versionné (S1, S2).
 - **Secret RADIUS de chaque routeur** : stocké **en clair** dans une table lisible seulement par `wakatnet_owner`, exposé uniquement par `client_lookup` et `coa_target`. Protection : séparation des rôles, chiffrement du volume du nœud, sauvegardes chiffrées.
-  - **[à accepter] Écart avec S3 et §10.1.** RADIUS doit utiliser ce secret en clair à chaque paquet. Une clé de chiffrement lisible par la même base ne protégerait rien de plus (tout rôle peut lire un réglage personnalisé), et passer la clé dans la requête la ferait apparaître dans les journaux.
+  - **[à accepter] Écart avec S3 et §10.1.** RADIUS doit utiliser ce secret en clair à chaque paquet. Une clé de chiffrement accessible à la base serait stockée et sauvegardée **avec** les données qu'elle protège : elle n'ajouterait presque rien. Passer la clé dans la requête la ferait apparaître dans les journaux.
   - Les clés API des agrégateurs (phase 3) restent, elles, chiffrées par une clé détenue par l'API.
 
 ## 15. Codes de ticket
@@ -163,7 +187,10 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 
 ## 16. Clients dynamiques : `rate_limit` et absence de cache négatif
 
-- `rate_limit` des clients dynamiques **conservé** (protection contre le déni de service). Conséquence : après un redémarrage du nœud, environ 1 nouveau client par seconde ; avec moins de 50 routeurs, la reprise prend au plus environ 50 s, et les routeurs basculent sur B entre-temps. À mesurer au ticket 10 (L8).
+- **`rate_limit = yes` écrit explicitement** dans le bloc client de l'overlay (il est désactivé par défaut). C'est une protection contre le déni de service. Conséquences :
+  - après un redémarrage du nœud, un seul nouveau client est créé par seconde ; avec moins de 50 routeurs, la reprise prend environ 50 s, et les routeurs basculent sur B entre-temps ;
+  - pendant la reprise, les paquets des routeurs pas encore recréés sont **jetés**, Accounting compris. RouterOS devrait les réémettre, mais c'est à vérifier.
+  - À mesurer au ticket 10 (L8).
 - Pas de cache négatif. Le risque est faible : seule une IP autorisée par un pair WireGuard (`AllowedIPs`) peut émettre dans l'overlay.
 
 ## 17. Planification et déclencheur de coupure (hors processus FreeRADIUS, règle 1)
