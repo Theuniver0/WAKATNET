@@ -14,11 +14,18 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'wk_radius') THEN
     CREATE ROLE wk_radius LOGIN;
   END IF;
+  -- Lecteur detail de l'accounting (ADR 0006 §12). Aucun droit avant le ticket 04.
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'wk_acct') THEN
+    CREATE ROLE wk_acct LOGIN;
+  END IF;
 END $$;
 
 -- Rien pour PUBLIC : ni connexion implicite aux schémas, ni EXECUTE par défaut (ADR 0008 §3 bis).
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT CREATE ON DATABASE wakatnet TO wakatnet_owner;
+DO $$ BEGIN
+  EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database());
+  EXECUTE format('GRANT CREATE ON DATABASE %I TO wakatnet_owner', current_database());
+END $$;
 ALTER DEFAULT PRIVILEGES FOR ROLE wakatnet_owner REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
@@ -76,6 +83,10 @@ CREATE TABLE app.plan (
   scope            text    NOT NULL DEFAULT 'tenant' CHECK (scope IN ('tenant', 'site')),
   site_id          bigint,
   CHECK ((scope = 'site') = (site_id IS NOT NULL)),
+  -- Un forfait limite toujours la durée (ADR 0006 §5 : Session-Timeout >= 1, jamais illimité).
+  CHECK (uptime_limit_s IS NOT NULL OR validity_s IS NOT NULL),
+  -- Le site d'un forfait appartient au même propriétaire (cloisonnement).
+  FOREIGN KEY (tenant_id, site_id) REFERENCES app.site (tenant_id, id),
   UNIQUE (tenant_id, id)
 );
 
@@ -98,12 +109,15 @@ CREATE TABLE app.voucher (
   activated_at       timestamptz,                  -- posé au premier Start (ticket 04)
   cree_le            timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, code),
-  FOREIGN KEY (tenant_id, plan_id) REFERENCES app.plan (tenant_id, id)
+  CHECK ((f_scope = 'site') = (f_site_id IS NOT NULL)),
+  FOREIGN KEY (tenant_id, plan_id) REFERENCES app.plan (tenant_id, id),
+  FOREIGN KEY (tenant_id, f_site_id) REFERENCES app.site (tenant_id, id)
 );
 
--- Journal d'audit minimal (SPEC §10.1) ; enrichi en phase 2.
+-- Journal d'audit minimal (SPEC §10.1) ; enrichi en phase 2 (RLS, I1 : phase 2, PRD §3).
 CREATE TABLE app.audit_log (
   id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id bigint REFERENCES app.tenant (id),   -- NULL : action de plateforme
   le      timestamptz NOT NULL DEFAULT now(),
   acteur  text NOT NULL,
   action  text NOT NULL,
@@ -146,9 +160,10 @@ END;
 $$;
 
 -- Crée un ticket avec la copie figée de son forfait ; renvoie le code.
+-- SECURITY INVOKER : aucun rôle de connexion ne l'appelle avant la phase 2 (API).
 CREATE FUNCTION app.voucher_creer(p_tenant bigint, p_plan bigint, p_expires_at timestamptz DEFAULT NULL)
 RETURNS text
-LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+LANGUAGE plpgsql VOLATILE SECURITY INVOKER
 SET search_path = app, public, pg_temp
 AS $$
 DECLARE

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 
 import psycopg
 import pytest
@@ -63,8 +64,9 @@ def donnees():
     with admin() as c:
         c.execute("""
             TRUNCATE app.voucher, app.plan, app.router, app.site, app.tenant RESTART IDENTITY CASCADE;
-            INSERT INTO app.tenant (id, nom) OVERRIDING SYSTEM VALUE VALUES (1, 'Proprietaire A');
-            INSERT INTO app.site (id, tenant_id, nom) OVERRIDING SYSTEM VALUE VALUES (1, 1, 'Site S1'), (2, 1, 'Site S2');
+            INSERT INTO app.tenant (id, nom) OVERRIDING SYSTEM VALUE VALUES (1, 'Proprietaire A'), (2, 'Proprietaire B');
+            INSERT INTO app.site (id, tenant_id, nom) OVERRIDING SYSTEM VALUE
+              VALUES (1, 1, 'Site S1'), (2, 1, 'Site S2'), (3, 2, 'Site B1');
         """)
         for i, (nom, (ip, actif, var)) in enumerate(ROUTEURS.items(), start=1):
             c.execute(
@@ -74,7 +76,9 @@ def donnees():
                       (i, os.environ[var]))
         c.execute("""
             INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, rate_limit, devices)
-            OVERRIDING SYSTEM VALUE VALUES (1, 1, '1 heure', 100, 3600, '512k/2M', 1);
+            OVERRIDING SYSTEM VALUE VALUES (1, 1, '1 heure', 100, 3600, '512k/2M', 1),
+                                           (2, 1, '1 heure sans débit', 100, 3600, NULL, 1),
+                                           (3, 2, '1 heure (B)', 100, 3600, '1M/1M', 1);
         """)
         # Rôle de test (ADR 0007) : seul autorisé sur la fonction interne à instant injecté.
         c.execute("""
@@ -97,8 +101,20 @@ def nouveau_ticket(plan_id: int = 1, tenant_id: int = 1) -> str:
 
 
 def demander(nom: str = "r1", *, code: str, mot_de_passe: str | None = None, **kw):
+    """Access-Request depuis l'IP du routeur `nom`. TOUTE réponse doit porter un
+    Message-Authenticator (RouterOS >= 7.15 refuse sinon le login, SPEC §1.1)."""
     ip = ROUTEURS[nom][0]
     kw.setdefault("essais", 3)
-    return radlib.access_request(serveur=SERVEUR, secret=secret(nom), source=ip,
-                                 utilisateur=code, mot_de_passe=mot_de_passe if mot_de_passe is not None else code,
-                                 **kw)
+    r = radlib.access_request(serveur=SERVEUR, secret=secret(nom), source=ip,
+                              utilisateur=code, mot_de_passe=mot_de_passe if mot_de_passe is not None else code,
+                              **kw)
+    if r is not None:
+        assert r.un("Message-Authenticator") is not None, f"{r.nom} sans Message-Authenticator"
+    return r
+
+
+def creneau_nouveau_client() -> None:
+    """rate_limit = yes : un seul NOUVEAU client par seconde pour tout l'overlay.
+    Avant le premier paquet d'une IP, on attend que le créneau soit libre, pour
+    qu'une absence de réponse ne puisse pas venir du débit (faux positif du 11/11/2026)."""
+    time.sleep(1.5)

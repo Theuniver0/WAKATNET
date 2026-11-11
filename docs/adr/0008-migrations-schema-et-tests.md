@@ -78,3 +78,22 @@
   - la sortie de l'émetteur de CoA ;
   - `/proc/*/cmdline` des conteneurs.
 - Une seule trouvaille fait échouer le passage.
+
+---
+
+## Amendement du 11/11/2026 — écarts constatés au ticket 02 (relecture en deux axes)
+
+Ces écarts sont des choix techniques, motivés par des faits observés en exécution. Ils ne touchent aucun des points acceptés par Yacouba.
+
+| § | Prévu | Réalisé | Motif |
+|---|---|---|---|
+| §1 | Migrations « sous le rôle propriétaire » | Lancées par le **superutilisateur**. Chaque fichier passe en `SET ROLE wakatnet_owner` pour créer ses objets. | Seul le superutilisateur peut créer les rôles. `migrer.sh` contrôle l'empreinte SHA-256 de chaque fichier appliqué, prend un verrou consultatif, et coupe la journalisation avant de poser le mot de passe. |
+| §3 | Conteneur de test `python:3.12-slim` | Image **FreeRADIUS 3.2.10** épinglée, plus Python de la distribution (Ubuntu 26.04), avec pytest, Hypothesis et psycopg épinglés. | `radclient` dans la **même version** que le serveur, avec le même dictionnaire, pour la contre-vérification. La version de Python dépend de l'image de base, épinglée par digest, et de l'état du dépôt `apt` au moment de la construction. |
+| §3 | `radreq.py` | `radlib.py`, qui en dérive : PAP en plus, IP source au choix, défi CHAP distinct, réponse vérifiée (authentificateur et Message-Authenticator). | Les tests ont besoin de choisir l'IP source et d'omettre le Message-Authenticator. |
+| §3 | Ordre des étapes de `run.sh` | Migrations, puis garde-fou ADR 0007 sur le catalogue, garde de version, `radiusd -C`, garde `verifier-env.sh`, tests, preuve T10 dans le journal, recherche de secrets **dans toute la sortie**. Le test de fumée tourne en premier dans pytest. | La garde de version et `radiusd -C` exigent un serveur démarré, donc des migrations faites. |
+| §4 | Un conteneur éphémère par routeur, « ni netns ni `NET_ADMIN` » | **Un** conteneur `testeur` avec `NET_ADMIN`, qui porte une IP de l'overlay par routeur simulé. | Plus simple et plus rapide, et l'IP source est choisie par `radlib.py`. Le fonctionnement sous Docker Desktop / WSL2 reste à confirmer par Yacouba au premier rejeu. |
+| §5 | Lancement `radiusd -f -l stdout`, sans debug | **`-x`** (debug niveau 1) en test seulement. | Le rejet d'un paquet sans Message-Authenticator n'est journalisé qu'en debug (`radius.c` l. 2891, `listen.c` `if (DEBUG_ENABLED)`). Or T10 exige cette preuve. Le serveur reste multi-fil, et la recherche de secrets couvre ce journal. **Conséquence observée** : en `-x`, le journal affiche le `User-Name`, donc le code du ticket (codes jetables du test). En **production**, aucune option de debug (`-x` ou `-X`) n'est permise ; l'ADR 0006 §10 (aucun code en clair dans le journal) y reste respectée. |
+| §5 | Surcharges : lifetime, base, mode, chemins `detail` | Plus **`WAKATNET_RADIUS_LISTEN=*`**. | Pour envoyer depuis une IP hors overlay et prouver qu'elle est ignorée. En production, l'écoute se fait sur l'IP du nœud dans l'overlay. |
+| — | — | **Garde de démarrage `infra/freeradius/verifier-env.sh`** (`ExecStartPre` en production, et commande du conteneur en test). | FreeRADIUS accepte un `lifetime` vide, qui vaut alors un cache sans fin (constaté). `run.sh` vérifie que la garde refuse une variable absente ou un lifetime nul. |
+
+**Hors périmètre de la phase 1, confirmé** : la RLS (I1) arrive en phase 2 (PRD §3, « cloisonnement applicatif complet »). En phase 1, le cloisonnement repose sur la clé `(propriétaire, code)` et sur les clés étrangères composites (`tenant_id`, …), testées par T6 au ticket 03.

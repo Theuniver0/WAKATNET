@@ -35,3 +35,10 @@ def test_unicite_par_proprietaire():
         with pytest.raises(psycopg.errors.UniqueViolation):
             c.execute("""INSERT INTO app.voucher (tenant_id, plan_id, code, f_prix_xof, f_devices, f_scope)
                          VALUES (1, 1, %s, 100, 1, 'tenant')""", (code,))
+
+
+def test_meme_code_accepte_chez_un_autre_proprietaire():
+    with admin() as c:
+        code = c.execute("SELECT app.voucher_creer(1, 1)").fetchone()[0]
+        c.execute("""INSERT INTO app.voucher (tenant_id, plan_id, code, f_prix_xof, f_devices, f_scope)
+                     VALUES (2, 3, %s, 100, 1, 'tenant')""", (code,))

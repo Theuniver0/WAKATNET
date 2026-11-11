@@ -27,5 +27,17 @@ def test_chaque_surcharge_est_lue_par_la_configuration_de_production():
 
 def test_aucune_valeur_de_test_en_dur_dans_la_production():
     texte = "\n".join(p.read_text() for p in FREERADIUS.rglob("*") if p.is_file())
+    texte = "\n".join(p.read_text() for p in FREERADIUS.rglob("*") if p.is_file() and p.name != "production.env")
     for valeur in ("172.29.215.5", "172.29.214", "lifetime = 20"):
         assert valeur not in texte
+
+
+def test_fichier_de_production_versionne_memes_cles_et_lifetime_300():
+    prod = {}
+    for l in (FREERADIUS / "production.env").read_text().splitlines():
+        if l.strip() and not l.startswith("#"):
+            k, v = l.split("=", 1)
+            prod[k] = v
+    assert set(prod) == _cles_env()
+    assert prod["WAKATNET_CLIENT_LIFETIME"] == "300"
+    assert prod["WAKATNET_RADIUS_LISTEN"] == "10.213.0.1"

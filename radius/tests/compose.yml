@@ -22,12 +22,15 @@ services:
     environment:
       POSTGRES_USER: wakatnet_admin
       POSTGRES_DB: wakatnet
+    # track_functions : compter les appels de radius.authorize (preuve « un seul appel SQL »).
+    command: ["postgres", "-c", "track_functions=all"]
     volumes:
       - ../../infra/sql:/depot/infra/sql:ro
     networks:
       arriere: { ipv4_address: 172.29.215.5 }
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wakatnet_admin -d wakatnet"]
+      # -h 127.0.0.1 : le serveur temporaire d'initialisation de l'image n'écoute pas en TCP.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wakatnet_admin -d wakatnet"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -38,9 +41,11 @@ services:
     # -x (debug niveau 1, multi-fil conservé) : seul moyen de journaliser le rejet
     # d'un paquet sans Message-Authenticator (radius.c l. 2891, listen.c, DEBUG_ENABLED).
     # Surcharge de test listée dans surcharges/LISTE.md ; la recherche de secrets la couvre.
-    command: ["freeradius", "-x", "-l", "stdout"]
+    # La garde verifier-env.sh précède le démarrage, comme ExecStartPre en production.
+    entrypoint: ["sh", "-c", "/opt/wakatnet/verifier-env.sh && exec freeradius -f -x -l stdout"]
+    # Seulement ce dont FreeRADIUS a besoin : son mot de passe et les surcharges.
     env_file:
-      - path: ./jeu.secrets
+      - path: ./jeu-radius.secrets
         required: true
       - path: ./surcharges/test.env
         required: true
@@ -49,6 +54,7 @@ services:
       - ../../infra/freeradius/clients.conf:/etc/freeradius/clients.conf:ro
       - ../../infra/freeradius/sites-enabled:/etc/freeradius/sites-enabled:ro
       - ../../infra/freeradius/mods-enabled:/etc/freeradius/mods-enabled:ro
+      - ../../infra/freeradius/verifier-env.sh:/opt/wakatnet/verifier-env.sh:ro
     depends_on:
       postgres: { condition: service_healthy }
     networks:
@@ -63,7 +69,8 @@ services:
     cap_add: [NET_ADMIN]   # pour porter plusieurs IP de l'overlay (un routeur simulé par IP)
     working_dir: /depot/radius/tests
     volumes:
-      - ../..:/depot:ro
+      - ../../infra:/depot/infra:ro
+      - ../../radius:/depot/radius:ro
     networks:
       overlay: { ipv4_address: 10.213.1.10 }
       hors: { ipv4_address: 172.29.214.10 }

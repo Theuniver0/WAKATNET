@@ -22,11 +22,60 @@ ATTENDU = {
 }
 
 
-@pytest.mark.parametrize("table", ["app.voucher", "app.router", "app.tenant", "radius.router_secret", "radius.parametre"])
-def test_wk_radius_ne_lit_aucune_table(table):
+def test_wk_radius_et_wk_acct_ne_touchent_aucune_table_ni_sequence():
+    with admin() as c:
+        lignes = c.execute("""
+            SELECT r.rolname, n.nspname || '.' || cl.relname
+              FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace
+              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct')) r(rolname)
+             WHERE cl.relkind IN ('r', 'p', 'v', 'm', 'S')
+               AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
+               AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE')
+                    OR (cl.relkind = 'S' AND has_sequence_privilege(r.rolname, cl.oid, 'USAGE, SELECT, UPDATE')))
+        """).fetchall()
+        schemas = c.execute("""
+            SELECT r, s FROM (VALUES ('wk_radius'), ('wk_acct')) a(r), (VALUES ('app'), ('radius'), ('public')) b(s)
+             WHERE has_schema_privilege(r, s, 'CREATE')
+        """).fetchall()
+    assert lignes == [], f"droits inattendus : {lignes}"
+    assert schemas == [], f"CREATE inattendu : {schemas}"
+
+
+def test_lecture_directe_refusee_en_pratique():
     with en_tant_que_radius() as c:
         with pytest.raises(psycopg.errors.InsufficientPrivilege):
-            c.execute(f"SELECT * FROM {table} LIMIT 1")
+            c.execute("SELECT secret FROM radius.router_secret LIMIT 1")
+
+
+def test_wk_acct_n_a_encore_aucune_fonction():
+    with admin() as c:
+        n = c.execute("""SELECT count(*) FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+                          WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege('wk_acct', p.oid, 'EXECUTE')""").fetchone()[0]
+    assert n == 0
+
+
+def test_toute_fonction_security_definer_fixe_son_search_path():
+    with admin() as c:
+        fautives = c.execute("""
+            SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname IN ('app', 'radius') AND p.prosecdef
+               AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) x WHERE x LIKE 'search_path=%')
+        """).fetchall()
+    assert fautives == []
+
+
+def test_exception_message_authenticator_tracee_par_routeur():
+    """ADR 0003 : require_ma vaut 'yes' par défaut, 'no' seulement par exception en base."""
+    with en_tant_que_radius() as c:
+        assert c.execute("SELECT require_ma FROM radius.client_lookup('10.213.1.20')").fetchone() == ("yes",)
+    with admin() as c:
+        c.execute("UPDATE app.router SET require_ma_exception = true WHERE shortname = 'r2'")
+    try:
+        with en_tant_que_radius() as c:
+            assert c.execute("SELECT require_ma FROM radius.client_lookup('10.213.1.20')").fetchone() == ("no",)
+    finally:
+        with admin() as c:
+            c.execute("UPDATE app.router SET require_ma_exception = false WHERE shortname = 'r2'")
 
 
 def test_execute_jamais_accorde_a_public_et_droits_exacts():

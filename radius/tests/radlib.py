@@ -79,7 +79,7 @@ def _decoder(attrs: bytes) -> dict[str, list]:
     i = 0
     while i + 2 <= len(attrs):
         t, longueur = attrs[i], attrs[i + 1]
-        if longueur < 2:
+        if longueur < 2 or i + longueur > len(attrs):
             raise ReponseInvalide("longueur d'attribut invalide")
         v = attrs[i + 2:i + longueur]
         if t == 26 and len(v) >= 6:
@@ -100,6 +100,8 @@ def _decoder(attrs: bytes) -> dict[str, list]:
 
 def _valeur(v: bytes, typ: str):
     if typ == "int":
+        if len(v) != 4:
+            raise ReponseInvalide("entier de longueur invalide")
         return struct.unpack("!I", v)[0]
     if typ == "str":
         return v.decode(errors="replace")
@@ -128,8 +130,11 @@ def access_request(
     corps = [_attr(1, utilisateur.encode())]
     if methode == "chap":
         chap_id = os.urandom(1)
-        corps.append(_attr(3, chap_id + hashlib.md5(chap_id + mot_de_passe.encode() + auth_req).digest()))
-        corps.append(_attr(60, auth_req))  # CHAP-Challenge explicite, comme le hotspot MikroTik
+        # CHAP-Challenge DISTINCT de l'authentificateur, comme le hotspot MikroTik :
+        # un serveur qui utiliserait à tort l'authentificateur échouerait.
+        defi = os.urandom(16)
+        corps.append(_attr(3, chap_id + hashlib.md5(chap_id + mot_de_passe.encode() + defi).digest()))
+        corps.append(_attr(60, defi))
     elif methode == "pap":
         corps.append(_attr(2, _pap(mot_de_passe.encode(), secret, auth_req)))
     else:
@@ -168,6 +173,8 @@ def _verifier(data: bytes, auth_req: bytes, secret: bytes, ident: int) -> Repons
     if len(data) < 20:
         raise ReponseInvalide("réponse trop courte")
     code, rid, longueur = struct.unpack("!BBH", data[:4])
+    if not 20 <= longueur <= len(data):
+        raise ReponseInvalide("champ Length invalide")
     data = data[:longueur]
     if rid != ident:
         raise ReponseInvalide("identifiant inattendu")

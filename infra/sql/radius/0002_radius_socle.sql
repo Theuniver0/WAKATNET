@@ -18,7 +18,8 @@ CREATE TABLE radius.router_secret (
 -- Paramètres globaux (C2 : les réglages vivent en SQL, pas en unlang).
 CREATE TABLE radius.parametre (
   cle    text PRIMARY KEY,
-  valeur text NOT NULL
+  valeur text NOT NULL,
+  CHECK (cle <> 'acct_interim_interval_s' OR valeur ~ '^[1-9][0-9]{0,4}$')
 );
 INSERT INTO radius.parametre (cle, valeur) VALUES
   ('acct_interim_interval_s', '120');   -- accepté le 11/11/2026 (ADR 0006 §5)
@@ -124,6 +125,19 @@ BEGIN
   END IF;
   SELECT min(x) INTO v_timeout FROM unnest(v_restes) AS x;
 
+  -- Jamais d'Accept sans durée bornée (ADR 0006 §5). Les refus détaillés et la
+  -- consommation (activated_at, compteurs) arrivent aux tickets 03 à 05.
+  IF v_ticket.expires_at IS NOT NULL AND v_ticket.expires_at <= p_now THEN
+    RETURN QUERY SELECT NULL::text, 'Reject'::text, 'expire'::text,
+                        NULL::bigint, NULL::text, NULL::integer, NULL::integer;
+    RETURN;
+  END IF;
+  IF v_timeout IS NULL OR v_timeout < 1 THEN
+    RETURN QUERY SELECT NULL::text, 'Reject'::text, 'epuise'::text,
+                        NULL::bigint, NULL::text, NULL::integer, NULL::integer;
+    RETURN;
+  END IF;
+
   RETURN QUERY SELECT
     v_ticket.code,
     'Accept'::text,
@@ -131,7 +145,8 @@ BEGIN
     v_timeout,
     v_ticket.f_rate_limit,
     v_ticket.f_devices,
-    (SELECT valeur::integer FROM radius.parametre WHERE cle = 'acct_interim_interval_s');
+    -- CHECK de radius.parametre : la conversion ne peut pas échouer.
+    coalesce((SELECT valeur::integer FROM radius.parametre WHERE cle = 'acct_interim_interval_s'), 120);
 END;
 $$;
 
@@ -154,6 +169,7 @@ REVOKE ALL ON FUNCTION radius.authorize(text, text, text, text) FROM PUBLIC;
 GRANT USAGE ON SCHEMA radius TO wk_radius;
 GRANT EXECUTE ON FUNCTION radius.client_lookup(text) TO wk_radius;
 GRANT EXECUTE ON FUNCTION radius.authorize(text, text, text, text) TO wk_radius;
+GRANT USAGE ON SCHEMA radius TO wk_acct;   -- fonctions acct_* au ticket 04
 
 -- Délai maximal d'une requête de FreeRADIUS : borne principale (ADR 0006 §13).
 ALTER ROLE wk_radius SET statement_timeout = '500ms';

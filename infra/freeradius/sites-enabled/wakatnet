@@ -35,18 +35,20 @@ server wakatnet {
 
 		# Adaptation de transport, sans logique d'accès (C2) : la décision est
 		# prise par radius.authorize et transmise telle quelle.
-		if (&control:Tmp-String-1 == "Reject") {
-			update control {
-				&Auth-Type := Reject
-			}
-			update reply {
-				&Reply-Message := &control:Tmp-String-2
-			}
+		# Seul un « Accept » explicite laisse passer. En unlang, toute comparaison
+		# sur un attribut ABSENT est fausse (y compris « != ») : le refus est donc
+		# la branche par défaut, et non une branche conditionnelle.
+		if (&control:Tmp-String-1 == "Accept") {
+			noop
 		}
-		elsif (&control:Tmp-String-1 != "Accept") {
-			# Ni Accept ni Reject (ligne absente) : refus par défaut.
+		else {
 			update control {
 				&Auth-Type := Reject
+			}
+			if (&control:Tmp-String-2 && &control:Tmp-String-2 != "") {
+				update reply {
+					&Reply-Message := &control:Tmp-String-2
+				}
 			}
 		}
 		# Chaînes vides (NULL côté SQL) : jamais envoyées au routeur.
@@ -71,7 +73,7 @@ server wakatnet {
 	post-auth {
 		Post-Auth-Type REJECT {
 			# Mauvais mot de passe : même cause qu'un code inconnu (ADR 0006 §4).
-			if (!&reply:Reply-Message) {
+			if (!&reply:Reply-Message || &reply:Reply-Message == "") {
 				update reply {
 					&Reply-Message := "ticket_inconnu"
 				}

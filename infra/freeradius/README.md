@@ -25,7 +25,12 @@ Phase 1, ticket 02. Contrats : `docs/adr/0006-contrats-radius.md`. Cette configu
 
 ## Points d'attention
 
-- **Jamais `-X` en production** : ce mode affiche le mot de passe PostgreSQL et les secrets des clients (observé), et passe le serveur en mono-fil.
+- **Aucune option de debug en production**, ni `-X` ni `-x` :
+  - `-X` affiche le mot de passe PostgreSQL et les secrets des clients (observé), et passe le serveur en mono-fil ;
+  - `-x` affiche les codes de ticket (`User-Name`, observé).
+
+  La pile de test utilise `-x` (ADR 0008, amendement), avec des codes jetables.
+- **Démarrage** : `ExecStartPre=/etc/freeradius/verifier-env.sh`. Sans cette garde, un `WAKATNET_CLIENT_LIFETIME` absent donnerait un cache des clients sans fin.
 - `proxy.conf` est celui de la distribution (exemples inactifs, aucun royaume) ; à réduire en phase 5.
 - Sur Debian, avec les paquets officiels de l'éditeur, les chemins sont `/etc/freeradius/3.0/` : l'adaptation est faite en phase 5 (ADR 0004).
 - Version exigée : ≥ 3.2.10, jamais 3.2.9 (E-FR-1). `radius/tests/run.sh` le vérifie.
