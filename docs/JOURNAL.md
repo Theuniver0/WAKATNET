@@ -195,3 +195,35 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - `docs/courriels/2026-11-10-agregateurs.md` : trois courriels (pawaPay, CinetPay, YengaPay). Chaque courriel pose 3 ou 4 questions décisives et joint le questionnaire complet.
 - `docs/courriels/pj/*.docx`, produits par `generer_pj.py` (pandoc). Rendu vérifié en PDF : 4 à 5 pages, 40 questions générales et toutes les questions propres présentes. Deux défauts de mise en page corrigés : questions propres collées en un seul paragraphe, et tiret parasite sur 2a et 2b.
 - Les adresses des destinataires ne sont pas renseignées : aucune adresse officielle n'a pu être vérifiée.
+
+---
+
+## 2026-11-11 — Session 1 (suite) : plan complet et porte G0
+
+- Yacouba a demandé un plan de A à Z, avec une seule série de questions. Plan approuvé : `docs/PLAN.md`.
+- Réponses données en une fois :
+  - **G0 franchie sous réserve** ;
+  - mode de travail : l'agent rédige le PRD et les tickets, Yacouba les valide en bloc, puis l'agent réalise les tickets lui-même, avec une PR par ticket ;
+  - valeurs par défaut validées (`docs/G0.md` §5) ;
+  - **moins de 50 routeurs** à 12 mois au début.
+- `docs/G0.md` mis à jour ; `CONTEXT.md` créé (glossaire initial).
+- Phase 1 ouverte : PRD et tickets dans `.scratch/phase-1-coeur-radius/`, soumis à la validation de Yacouba.
+
+### PRD et tickets de la phase 1 : relecture adversariale (11/11/2026)
+
+- Deux relecteurs indépendants (conformité à la spec ; testabilité et sécurité) ont conclu « à corriger » : 3 points bloquants, une vingtaine d'importants.
+- Points bloquants :
+  - un échec d'écriture de `post_auth` transformait un Accept en Reject, ce qui rendait T13 impossible sur une réplique en lecture seule ;
+  - l'heure du rejeu de l'accounting décalait l'activation et fermait des sessions vivantes ;
+  - `scope` / `mauvais_site` absents, et T6 reporté sans justification.
+- Autres points corrigés :
+  - réutilisation possible de `Acct-Session-Id` (LABO-18) ;
+  - silence sur une erreur SQL quelconque ;
+  - fuite possible de l'horloge de test (`SECURITY DEFINER`) ;
+  - codes de ticket en clair dans les journaux ;
+  - générateur de codes non cryptographique ;
+  - double appel de `authorize` ;
+  - secrets et rôles (`wk_coa`, `wk_maint`) ;
+  - déclencheur de coupure absent ;
+  - mesures de performance non mesurables telles qu'écrites.
+- Le ticket 01 regroupe désormais toutes les décisions d'architecture de la phase. T6 revient en phase 1. Ajout de LABO-18 et LABO-19.

@@ -80,6 +80,8 @@ Ces points sont marqués « à valider sur CHR » dans la spec, ou bien la reche
 | LABO-15 | §1.1 Hotspot | Code d'option DHCP réellement envoyé (160 ou 114) ; conditions (nom DNS, certificat) | **OUVERT** (couvert par LABO-13) | — |
 | LABO-16 | T13 ; §10.2 | RouterOS bascule-t-il vers B sur un Reject, ou seulement sur un timeout ? | **OUVERT** (la partie serveur est prouvée : L6e) | — |
 | LABO-17 | ADR 0004 point 4 ; §6.2 `timeout` | Latence et perte réelles depuis le Burkina (fibre, 4G, Starlink) vers les datacenters candidats | **OUVERT** : protocole et scripts prêts, testés en simulation (`infra/lab/latence/evidence/`) | `docs/PROTOCOLE_LATENCE.md` |
+| LABO-18 | §5.2 (idempotence de l'accounting) ; T8 | RouterOS réutilise-t-il `Acct-Session-Id` après un redémarrage (coupure de courant) ? Redémarrer le CHR pendant des sessions, comparer les identifiants avant et après | **OUVERT** | — |
+| LABO-19 | §1.1 (`Acct-Interim-Interval`) ; §5.4 sessions fantômes | `Acct-Interim-Interval` envoyé dans l'Accept est-il appliqué (avec `radius-interim-update=received`) ? Mesurer l'écart réel entre deux Interim | **OUVERT** | — |
 
 ### 2.3 Points côté serveur FreeRADIUS (labo exécuté dans cette session)
 
