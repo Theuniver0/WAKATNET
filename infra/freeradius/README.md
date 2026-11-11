@@ -26,6 +26,8 @@ Phase 1, ticket 02. Contrats : `docs/adr/0006-contrats-radius.md`. Cette configu
 | `WAKATNET_PG_RADIUS_PASSWORD` | mot de passe de `wk_radius` | **oui** (fichier réservé à root, jamais versionné) |
 | `WAKATNET_PG_ACCT_PASSWORD` | mot de passe de `wk_acct` (lecteur `detail`) | **oui** (même fichier) |
 
+Tâche planifiée `wakatnet-fantomes` (`infra/maintenance/`, `infra/systemd/`, ticket 06) : son propre fichier `/etc/wakatnet/maint.env`, réservé, avec `WAKATNET_PG_MAINT_PASSWORD` (rôle `wk_maint`).
+
 ## Points d'attention
 
 - **Aucune option de debug en production**, ni `-X` ni `-x` :

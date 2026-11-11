@@ -337,3 +337,32 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
     - test d'idempotence complet (motif conservé) ;
     - journal mis à jour.
 - **Écarté après vérification** : la copie figée du volume (déjà couverte par la copie figée des colonnes `f_*`).
+
+### Ticket 06 : sessions, appareils, fantômes, Accounting-On/Off (11/11/2026)
+
+- PR n°11 (ticket 05) fusionnée par Yacouba. Branche repartie de `main`.
+- **Décision de Yacouba** (question posée avant le code) : `post_auth` et `auth_log` sont avancés du ticket 07 au ticket 06, parce que le compte d'appareils et `bind_mac` en dépendent.
+- **Rouge d'abord** : 19 échecs, tests lancés avec le code mis de côté (`git stash`).
+- **Livré** :
+  - migrations `app/0007` (`mac_liee`, `dernier_acct_on_le`) et `radius/0008` :
+    - `_mac`, `auth_log`, `lecteur_battement` ;
+    - `post_auth`, `close_ghost_sessions` (`wk_maint`), `acct_on_off` ;
+    - `trop_d_appareils` et battement dans `_authorize_at` et `_acct` ;
+  - FreeRADIUS : `post-auth` journalisé sans effet sur la réponse, et Accounting-On/Off rejoués ;
+  - script et unités systemd des sessions fantômes.
+- **Faits observés** :
+  - `fail = 1` puis `ok` en `post-auth` : l'Accept reste un Accept quand l'écriture échoue (droit retiré) ;
+  - `systemd-analyze verify` passe sur les unités, seul l'exécutable installé sur le nœud étant absent.
+- **Vert** : `run.sh` depuis une pile neuve, 202 passed, étapes base arrêtée et figée réussies, trace T10, aucun secret.
+- **Revue du ticket 06** (Standards, Spec, robustesse et argent ; un sceptique par constat). Constats retenus et corrigés :
+  - **avancement du lecteur** : la fenêtre des Accept et la fermeture des fantômes se mesurent désormais sur l'avancement réel du lecteur. C'est le plus tardif de la réception du dernier enregistrement traité et de l'instant où le spool a été vu vide.
+    - Avant, un lecteur bloqué laissait la fenêtre à 60 s : un appareil en trop pouvait passer.
+    - La condition « spool vide » retardait la fermeture des fantômes sous trafic continu.
+    - Le repère est plafonné à l'heure de la base : des événements datés de 2030, dans les tests du ticket 04, avaient fait paraître toutes les sessions fantômes.
+  - **session fermée d'office mais vivante** : elle compte encore comme appareil et peut être inscrite « à couper ». Un vrai Stop corrige ensuite l'arrêt.
+  - **script des fantômes** : il échoue sans rien faire si le spool est illisible ou introuvable, et l'unité a un délai maximal ;
+  - **`acct_on_off`** verrouille en `FOR NO KEY UPDATE` et met à jour le battement ;
+  - **tests ajoutés** : clause « Accept sans Start », `bind_mac` posée par l'accounting, bornes de la course concurrente, absence de code sur la ligne T6, idempotence réelle ;
+  - **ADR 0006** mis en cohérence (§1, §10, §17), ticket 07 élagué.
+- **Écarté** : « MAC vide = appareils illimités ». Le vérificateur l'a réfuté ; c'est une limite documentée, puisque RouterOS envoie toujours `Calling-Station-Id`.
+- **Dernier passage depuis une pile neuve, après les corrections** : 208 passed, étapes base arrêtée et figée réussies, trace T10, aucun secret, `SUCCÈS`.

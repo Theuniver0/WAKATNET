@@ -8,6 +8,7 @@
 #   POSTGRES_USER / POSTGRES_DB   superutilisateur et base (défauts de l'image postgres)
 #   WAKATNET_PG_RADIUS_PASSWORD   mot de passe du rôle wk_radius (posé après les migrations)
 #   WAKATNET_PG_ACCT_PASSWORD     mot de passe du rôle wk_acct (lecteur detail, ticket 04)
+#   WAKATNET_PG_MAINT_PASSWORD    mot de passe du rôle wk_maint (tâches planifiées, ticket 06)
 #
 # Garanties :
 #   - chaque fichier NNNN_*.sql de app/ et radius/ est appliqué une seule fois,
@@ -72,4 +73,5 @@ SQL
 }
 poser_mot_de_passe wk_radius WAKATNET_PG_RADIUS_PASSWORD
 poser_mot_de_passe wk_acct WAKATNET_PG_ACCT_PASSWORD
+poser_mot_de_passe wk_maint WAKATNET_PG_MAINT_PASSWORD
 echo "migrations à jour"

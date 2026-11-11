@@ -59,3 +59,31 @@ sql_map map_acct_stop {
 		control:Tmp-String-0	:= 0
 	}
 }
+
+# Journal des tentatives (ticket 06, ADR 0006 §10) : une écriture par Access-Request, Accept
+# comme Reject, jamais le code (la fonction ne garde que voucher_id). Rôle wk_radius, pool sql_auth.
+# Son échec (base en lecture seule, délai) est SANS EFFET sur la réponse : voir le site wakatnet.
+sql_map map_post_auth_accept {
+	sql_module_instance = "sql_auth"
+	query = "SELECT radius.post_auth('%{User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', 'Accept', '')"
+	update {
+		control:Tmp-String-3	:= 0
+	}
+}
+
+sql_map map_post_auth_reject {
+	sql_module_instance = "sql_auth"
+	query = "SELECT radius.post_auth('%{User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', 'Reject', '%{reply:Reply-Message}')"
+	update {
+		control:Tmp-String-3	:= 0
+	}
+}
+
+# Accounting-On / Off (ticket 06, ADR 0006 §8) : fermeture des sessions et changement d'époque.
+sql_map map_acct_on_off {
+	sql_module_instance = "sql_acct"
+	query = "SELECT radius.acct_on_off('%{Packet-Src-IP-Address}', '%{integer:Packet-Original-Timestamp}')"
+	update {
+		control:Tmp-String-0	:= 0
+	}
+}

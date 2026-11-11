@@ -30,9 +30,12 @@ server rejeu_accounting {
 		elsif (&Acct-Status-Type == Stop) {
 			map_acct_stop
 		}
+		elsif (&Acct-Status-Type == Accounting-On || &Acct-Status-Type == Accounting-Off) {
+			# Redémarrage ou arrêt du routeur : sessions fermées, époque incrémentée (ticket 06).
+			map_acct_on_off
+		}
 		else {
-			# Accounting-On / Off : traités au ticket 06 (acct_on_off). D'ici là, acquittés
-			# sans effet, pour ne pas bloquer la file.
+			# Autres types (Failed…) : acquittés sans effet, pour ne pas bloquer la file.
 			ok
 		}
 	}
