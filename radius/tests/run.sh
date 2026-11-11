@@ -181,6 +181,15 @@ if [ "$#" = 0 ]; then
   [ "$INDISPO" = 0 ] && echo "accounting : réponse immédiate base arrêtée et figée ; rejeu complet, sans perte ni doublon"
 fi
 
+etape "Journal du serveur sans ligne d'authentification (ticket 07)"
+# auth = no dans radiusd.conf : aucune ligne « Login OK / incorrect », qui porterait le code.
+if $C logs --no-color freeradius 2>&1 | grep -qE "Login (OK|incorrect)"; then
+  echo "ÉCHEC : lignes Login OK / incorrect dans le journal du serveur"
+  INDISPO=1
+else
+  echo "aucune ligne Login OK / incorrect"
+fi
+
 etape "Recherche de secrets dans les sorties (ADR 0008 §6)"
 TROUVE=0
 SORTIES="$(mktemp)"

@@ -6,8 +6,8 @@ After=postgresql.service
 [Service]
 Type=oneshot
 TimeoutStartSec=10min
-User=freerad
-Group=freerad
+# Aucun fichier à lire : utilisateur éphémère, sans accès à FreeRADIUS (moindre privilège).
+DynamicUser=yes
 # Même fichier réservé que wakatnet-fantomes (WAKATNET_PG_MAINT_PASSWORD).
 EnvironmentFile=/etc/wakatnet/maint.env
 ExecStart=/usr/local/sbin/wakatnet-purge

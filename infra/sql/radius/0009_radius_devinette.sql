@@ -34,22 +34,38 @@ CREATE TABLE radius.alerte (
   traitee_le timestamptz
 );
 CREATE INDEX alerte_a_traiter ON radius.alerte (at) WHERE traitee_le IS NULL;
--- Échecs récents d'un routeur (alerte) : complète auth_log_routeur_mac_at (0008).
-CREATE INDEX auth_log_echecs_routeur ON radius.auth_log (router_id, at) WHERE resultat = 'Reject';
+-- Échecs comptés par l'anti-devinette (revue du ticket 07 : l'index filtre aussi la cause).
+CREATE INDEX auth_log_echecs_mac ON radius.auth_log (router_id, mac, at)
+  WHERE resultat = 'Reject' AND cause = 'ticket_inconnu';
+CREATE INDEX auth_log_echecs_routeur ON radius.auth_log (router_id, at)
+  WHERE resultat = 'Reject' AND cause = 'ticket_inconnu';
+-- Purge par instant (revue du ticket 07) : sans cet index, chaque purge lirait toute la table.
+CREATE INDEX auth_log_at ON radius.auth_log (at);
 
--- Purge du journal à 90 jours (ADR 0005), rôle wk_maint ; idempotente ; journalisée dans app.audit_log.
-CREATE FUNCTION radius.purge_auth_log()
+-- Purge du journal à 90 jours (ADR 0005), rôle wk_maint. PAR LOTS (revue du ticket 07) : chaque
+-- appel supprime au plus p_lot lignes, par l'index sur at, et tient sous le statement_timeout
+-- de wk_maint (30 s) ; le script rappelle la fonction tant qu'un lot est plein, donc un retard
+-- se rattrape. Idempotente. Chaque appel est journalisé dans app.audit_log, avec le rôle
+-- réellement connecté (session_user). Purge aussi les alertes de plus de 90 jours (elles portent la MAC).
+CREATE FUNCTION radius.purge_auth_log(p_lot integer DEFAULT 50000)
 RETURNS bigint
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = radius, pg_temp
 AS $$
 DECLARE
-  v_n bigint;
+  v_seuil timestamptz := now() - interval '90 days';
+  v_n     bigint;
+  v_al    bigint;
 BEGIN
-  DELETE FROM radius.auth_log a WHERE a.at < now() - interval '90 days';
+  DELETE FROM radius.auth_log a
+   WHERE a.id IN (SELECT x.id FROM radius.auth_log x WHERE x.at < v_seuil
+                  ORDER BY x.at LIMIT greatest(1, least(coalesce(p_lot, 50000), 500000)));
   GET DIAGNOSTICS v_n = ROW_COUNT;
+  DELETE FROM radius.alerte l WHERE l.at < v_seuil;
+  GET DIAGNOSTICS v_al = ROW_COUNT;
   INSERT INTO app.audit_log (acteur, action, objet, details)
-  VALUES ('wk_maint', 'purge_auth_log', 'radius.auth_log', jsonb_build_object('supprimees', v_n, 'avant', now() - interval '90 days'));
+  VALUES (session_user, 'purge_auth_log', 'radius.auth_log',
+          jsonb_build_object('supprimees', v_n, 'alertes_supprimees', v_al, 'avant', v_seuil, 'lot', p_lot));
   RETURN v_n;
 END;
 $$;
@@ -270,5 +286,5 @@ $$;
 RESET ROLE;
 
 REVOKE ALL ON FUNCTION radius._param_entier(text, integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION radius.purge_auth_log() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION radius.purge_auth_log() TO wk_maint;
+REVOKE ALL ON FUNCTION radius.purge_auth_log(integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION radius.purge_auth_log(integer) TO wk_maint;

@@ -27,7 +27,7 @@ ATTENDU = {
     "radius.acct_on_off(p_src text, p_received_epoch text)": {"wk_acct"},
     "radius.close_ghost_sessions()": {"wk_maint"},
     "radius.marquer_spool_vide(p_epoch text)": {"wk_maint"},
-    "radius.purge_auth_log()": {"wk_maint"},
+    "radius.purge_auth_log(p_lot integer)": {"wk_maint"},
 }
 
 

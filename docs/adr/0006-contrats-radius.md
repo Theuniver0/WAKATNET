@@ -216,7 +216,16 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - **Seuls les échecs `ticket_inconnu` comptent** (code ou mot de passe faux). Un client qui insiste avec un ticket expiré ou épuisé n'est pas bloqué, et les refus `trop_de_tentatives` ne comptent pas.
 - **Alertes** dans `radius.alerte` (`blocage_mac`, `echecs_routeur`), inscrites par `post_auth`, sans effet sur la réponse. Une seule alerte par sujet et par période. Elles sont lues par le futur worker, sans code de ticket.
 - **Seuils réglables** dans `radius.parametre` (`devinette_*`), sous contrainte d'entiers.
-- **Purge** : `radius.purge_auth_log()` (rôle `wk_maint`) supprime au-delà de 90 jours. Elle est idempotente et journalisée dans `app.audit_log`. Le timer `wakatnet-purge` est quotidien et rattrapé au démarrage.
+- **Purge** : `radius.purge_auth_log(p_lot)` (rôle `wk_maint`) supprime au-delà de 90 jours, **par lots** (50 000 lignes par appel, par l'index sur `at`).
+  - Le script rappelle la fonction tant qu'un lot est plein. Chaque appel tient sous le `statement_timeout` de `wk_maint` (30 s), et un retard se rattrape.
+  - Elle purge aussi les alertes de plus de 90 jours, qui portent la MAC.
+  - Elle est idempotente et journalisée dans `app.audit_log`, avec le rôle réellement connecté (`session_user`).
+  - Le timer `wakatnet-purge` est quotidien et rattrapé au démarrage, sous un utilisateur éphémère (`DynamicUser`).
+- **Courses connues** (revue du ticket 07) :
+  - `authorize` lit `auth_log` avant que `post_auth` n'écrive. Des requêtes **simultanées** d'une même MAC peuvent donc dépasser le seuil de quelques essais par rafale ;
+  - deux alertes identiques peuvent être inscrites sous une rafale concurrente. Le worker les dédoublonne.
+  - Ni l'une ni l'autre ne change l'ordre de grandeur de l'§11.
+- **Journaux de FreeRADIUS** : `auth = no`, `auth_badpass = no` et `auth_goodpass = no` sont vérifiés dans la configuration. `run.sh` vérifie en plus, à l'exécution, l'absence de toute ligne « Login OK / incorrect ». Le debug `-x` du test affiche le `User-Name` ; il est interdit en production (ADR 0008).
 - **Base en lecture seule prouvée** (préparation de T13) : `authorize` répond, `post_auth` échoue sans changer la réponse, et rien n'est écrit. Conséquence assumée (§10) : sur B seul, ni anti-devinette ni compte d'appareils par les Accept récents.
 
 ## 12. Lecteur `detail`

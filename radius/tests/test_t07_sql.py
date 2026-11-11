@@ -73,6 +73,12 @@ def test_blocage_par_routeur_la_meme_mac_ailleurs_passe():
     assert decider(code, mac, src=R1) == ("Accept", None)
 
 
+def test_mac_illisible_jamais_bloquee():
+    code = nouveau_ticket()
+    echecs("", [10] * 12)
+    assert decider(code, "pas-une-mac") == ("Accept", None)
+
+
 def test_ordre_trop_de_tentatives_avant_ticket_inconnu():
     mac = _mac()
     echecs(mac, [10] * 10)
@@ -106,10 +112,16 @@ def test_cent_echecs_par_routeur_en_60_s_alerte_unique_sans_blocage():
     with admin() as c:
         c.execute("""DELETE FROM radius.alerte WHERE type = 'echecs_routeur'
                        AND router_id = (SELECT id FROM app.router WHERE shortname = 'r5')""")
-    with en_tant_que_radius() as c:
-        for i in range(120):
-            c.execute("SELECT radius.post_auth('ZZZZZZZZ', %s, %s, 'Reject', 'ticket_inconnu')",
-                      (ROUTEURS["r5"][0], f"02-00-00-00-{i // 256:02X}-{i % 256:02X}"))
+    def echecs_r5(debut, fin):
+        with en_tant_que_radius() as c:
+            for i in range(debut, fin):
+                c.execute("SELECT radius.post_auth('ZZZZZZZZ', %s, %s, 'Reject', 'ticket_inconnu')",
+                          (ROUTEURS["r5"][0], f"02-00-00-00-{i // 256:02X}-{i % 256:02X}"))
+    echecs_r5(0, 99)
+    assert _alertes("echecs_routeur", "r5") == 0           # 99 échecs : sous le seuil
+    echecs_r5(99, 100)
+    assert _alertes("echecs_routeur", "r5") == 1           # le 100e déclenche
+    echecs_r5(100, 120)
     assert _alertes("echecs_routeur", "r5") == 1           # une seule, malgré 20 échecs de plus
     # Aucun blocage : un appareil neuf du même routeur, avec un code valide, est accepté.
     assert decider(code, _mac(), src=ROUTEURS["r5"][0]) == ("Accept", None)
@@ -134,11 +146,22 @@ def test_purge_90_jours_idempotente_et_journalisee():
     assert journal[0][1]["supprimees"] == 0 and journal[1][1]["supprimees"] == supprimees
 
 
+def test_purge_par_lots_rattrape_un_retard():
+    mac = _mac()
+    echecs(mac, [95 * 86400] * 7)
+    with en_tant_que_maint() as c:
+        assert c.execute("SELECT radius.purge_auth_log(3)").fetchone()[0] == 3
+        assert c.execute("SELECT radius.purge_auth_log(3)").fetchone()[0] == 3
+        assert c.execute("SELECT radius.purge_auth_log(3)").fetchone()[0] >= 1
+    with admin() as c:
+        assert c.execute("SELECT count(*) FROM radius.auth_log WHERE mac = %s", (mac,)).fetchone()[0] == 0
+
+
 def test_script_et_unites_de_purge():
     env = {**os.environ, "WAKATNET_PG_HOST": "172.29.215.5"}
     r = subprocess.run(["sh", "/depot/infra/maintenance/wakatnet-purge.sh"], capture_output=True, text=True,
                        env=env, timeout=60)
-    assert r.returncode == 0 and "ligne(s) supprimée(s)" in r.stdout, r
+    assert r.returncode == 0 and "ligne(s) supprimée(s) en" in r.stdout, r
     assert os.environ["WAKATNET_PG_MAINT_PASSWORD"] not in r.stdout + r.stderr
     v = subprocess.run(["systemd-analyze", "verify", "--man=no", "/depot/infra/systemd/wakatnet-purge.service",
                         "/depot/infra/systemd/wakatnet-purge.timer"], capture_output=True, text=True, timeout=60)

@@ -46,6 +46,15 @@ def test_t11_dix_echecs_en_une_minute_bloquent_la_mac_puis_liberation():
     assert demander("r1", code=code, calling_station_id=MAC_ATTAQUANT).nom == "Access-Accept"
 
 
+def test_mot_de_passe_faux_compte_comme_echec():
+    """Un code existant avec un mot de passe faux (CHAP) donne ticket_inconnu (ADR 0006 §4) : il
+    compte comme échec de devinette, puisque post_auth le journalise ainsi."""
+    code = nouveau_ticket()
+    for _ in range(10):
+        _refus(demander("r1", code=code, mot_de_passe="ZZZZZZZZ"), "ticket_inconnu")
+    _refus(demander("r1", code=code), "trop_de_tentatives")
+
+
 def test_refus_d_un_vrai_ticket_ne_compte_pas_comme_tentative_de_devinette():
     """Seuls les échecs `ticket_inconnu` (code ou mot de passe faux) comptent : un client qui insiste
     avec un ticket expiré n'est pas bloqué."""
@@ -63,11 +72,12 @@ def test_base_en_lecture_seule_l_authentification_fonctionne():
 
     def basculer(lecture_seule: bool):
         with admin() as c:
-            c.execute(f"ALTER ROLE wk_radius SET default_transaction_read_only = {'on' if lecture_seule else 'off'}")
+            c.execute("ALTER ROLE wk_radius SET default_transaction_read_only = on" if lecture_seule
+                      else "ALTER ROLE wk_radius RESET default_transaction_read_only")
             c.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'wk_radius'")
 
-    basculer(True)
     try:
+        basculer(True)
         r = demander("r1", code=code)
         assert r is not None and r.nom == "Access-Accept" and r.un("Session-Timeout") == 3600
         _refus(demander("r1", code="ZZZZZZZZ"), "ticket_inconnu")
@@ -89,7 +99,9 @@ def test_aucun_code_en_clair_dans_auth_log_ni_les_alertes():
 
 def test_journalisation_de_freeradius_sans_mot_de_passe_ni_code():
     """Production : radiusd.conf ne journalise ni les authentifications ni les mots de passe
-    (ADR 0006 §10). Le debug -x, qui affiche le User-Name, est réservé au test (ADR 0008)."""
+    (ADR 0006 §10). Le debug -x, qui affiche le User-Name, est réservé au test (ADR 0008).
+    Preuve à l'exécution complémentaire dans run.sh : aucune ligne « Login OK / incorrect »
+    dans le journal du serveur (ces lignes porteraient le code)."""
     conf = pathlib.Path("/depot/infra/freeradius/radiusd.conf").read_text()
     for reglage in ("auth = no", "auth_badpass = no", "auth_goodpass = no"):
         assert any(l.strip() == reglage for l in conf.splitlines()), reglage

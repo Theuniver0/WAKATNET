@@ -378,3 +378,24 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Prouvé en exécution** : base en lecture seule pour `wk_radius` → l'authentification fonctionne et rien n'est écrit ; T11 de bout en bout (10 échecs → blocage, même un code valide ; une autre MAC passe ; libéré après la fenêtre).
 - **Trouvé pendant le vert** : mon test T11 vérifiait « un autre appareil passe » sur le même ticket à un appareil, ce qui occupait sa place. Le contrôle a désormais son propre ticket.
 - **Vert** : `run.sh` depuis une pile neuve, 224 passed, étapes base arrêtée et figée réussies, trace T10, aucun secret.
+- **Revue du ticket 07** (Standards, Spec, robustesse et sécurité ; un sceptique par constat). Constats retenus et corrigés :
+  - **important** : la purge supprimait tout en un seul `DELETE`, sans index sur `at`, sous les 30 s de `wk_maint` : à volume réel, elle échouait chaque jour sans rattraper. Elle passe désormais par un index sur `at` et des lots de 50 000, que le script rappelle tant qu'un lot est plein ;
+  - **important** : preuves ajoutées :
+    - seuil de 100 échecs par routeur (99 → aucune alerte, 100 → une, 120 → toujours une) ;
+    - aucune ligne « Login OK / incorrect » à l'exécution (`run.sh`) ;
+    - mot de passe faux compté ;
+    - MAC illisible jamais bloquée ;
+    - purge par lots ;
+  - **mineurs** :
+    - acteur d'audit = `session_user` ;
+    - unité de purge en `DynamicUser` ;
+    - index des échecs filtré par cause ;
+    - alertes purgées à 90 jours ;
+    - test de lecture seule rétabli par `RESET` dans le `try` ;
+    - courses connues documentées dans l'ADR.
+- **Écartés après vérification** :
+  - MAC aléatoire par test : l'aléa porte sur des données de test sans effet sur l'oracle ;
+  - alerte par routeur sur B seul : déjà couverte par la conséquence assumée de l'§10 ;
+  - usurpation de MAC pour bloquer un client : limite connue des MAC, §11 de la spec ;
+  - coût de `post_auth` sous attaque : borné par l'index, et seule l'écriture du journal est en jeu.
+- **Dernier passage depuis une pile neuve, après les corrections** : 227 passed, étapes base arrêtée et figée réussies, aucune ligne Login, trace T10, aucun secret, `SUCCÈS`.
