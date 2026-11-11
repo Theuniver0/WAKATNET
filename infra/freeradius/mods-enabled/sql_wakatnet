@@ -17,7 +17,11 @@ sql sql_clients {
 	read_groups = no
 	read_profiles = no
 	# Secondes entières (minimum du pilote). Borne principale : statement_timeout
-	# du rôle wk_radius (500 ms, migration 0002). ADR 0006 §13.
+	# du rôle wk_radius (500 ms, migration 0002). ADR 0006 §13, ADR 0009.
+	# query_timeout sert AUSSI de délai de connexion : le pilote le passe à libpq en
+	# « connect_timeout » (rlm_sql_postgresql.c l. 152). libpq 18 ne l'arrondit plus à 2 s.
+	# Le pool n'a PAS d'option connect_timeout en 3.2.10 (connection.c, connection_config) :
+	# une telle ligne serait ignorée sans erreur.
 	query_timeout = 1
 	postgresql {
 		send_application_name = yes
@@ -32,7 +36,6 @@ sql sql_clients {
 		retry_delay = 5
 		lifetime = 0
 		idle_timeout = 60
-		connect_timeout = 2.0
 		max_retries = 1
 	}
 }
@@ -62,7 +65,6 @@ sql sql_auth {
 		retry_delay = 5
 		lifetime = 0
 		idle_timeout = 60
-		connect_timeout = 2.0
 		max_retries = 1
 	}
 }
@@ -96,7 +98,6 @@ sql sql_acct {
 		retry_delay = 5
 		lifetime = 0
 		idle_timeout = 60
-		connect_timeout = 2.0
 		max_retries = 1
 	}
 }

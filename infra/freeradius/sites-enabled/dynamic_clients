@@ -2,10 +2,20 @@
 # Appelé une fois par IP source inconnue de l'overlay. Une seule requête SQL
 # (map_clients -> radius.client_lookup). Routeur inconnu ou inactif, ou base
 # indisponible : aucun client n'est créé, le paquet est ignoré (listen.c l. 338–353).
+# Seul l'échec de la base est compté (ADR 0009) : un routeur inconnu n'est pas un silence
+# de la base.
 server dynamic_clients {
 	authorize {
-		map_clients
-		if (updated && &control:FreeRADIUS-Client-Secret && &control:FreeRADIUS-Client-Require-MA) {
+		map_clients {
+			fail = 1
+		}
+		if (fail) {
+			silence_client {
+				fail = 1
+			}
+			fail
+		}
+		elsif (updated && &control:FreeRADIUS-Client-Secret && &control:FreeRADIUS-Client-Require-MA) {
 			ok
 		}
 		else {

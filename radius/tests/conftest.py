@@ -40,6 +40,11 @@ ROUTEURS = {
     # juste avant l'arrêt (r8) ou le gel (r9) de la base, donc encore en cache pendant l'étape.
     "r8": ("10.213.1.80", True, "WAKATNET_SECRET_R1", 1, 1),
     "r9": ("10.213.1.90", True, "WAKATNET_SECRET_R2", 1, 1),
+    # Réservés aux étapes « base indisponible » du ticket 08 (ADR 0009) : r10 base arrêtée
+    # et redémarrage de radiusd sans base, r11 base figée, r12 création de client impossible.
+    "r10": ("10.213.1.100", True, "WAKATNET_SECRET_R3", 1, 1),
+    "r11": ("10.213.1.110", True, "WAKATNET_SECRET_R1", 1, 1),
+    "r12": ("10.213.1.120", True, "WAKATNET_SECRET_R2", 1, 1),
 }
 
 # Routeurs présents en base seulement (aucun paquet RADIUS) : tests SQL de la forme (a)
@@ -195,6 +200,18 @@ def comptabiliser(nom: str = "r1", **kw):
     kw.setdefault("essais", 3)
     kw.setdefault("calling_station_id", MAC_COURANTE)
     return radlib.accounting_request(serveur=SERVEUR, secret=secret(nom), source=ROUTEURS[nom][0], **kw)
+
+
+SUPERVISION = "/supervision"   # compteurs de silence (ADR 0009), volume en lecture seule
+
+
+def silences(nature: str) -> list[str]:
+    """Lignes du compteur de silence `nature` ('auth' ou 'client') : « date heure IP »."""
+    try:
+        with open(os.path.join(SUPERVISION, f"silence-{nature}.log")) as f:
+            return f.read().splitlines()
+    except FileNotFoundError:
+        return []
 
 
 def spool_vide() -> bool:

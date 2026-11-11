@@ -31,12 +31,17 @@ server wakatnet {
 		chap
 
 		# UN appel SQL : décision + attributs de réponse (ADR 0006 §2).
-		# Base indisponible ou délai dépassé : silence, pour que RouterOS bascule
-		# vers le nœud B (ADR 0006 §13, provisoire jusqu'à LABO-16).
+		# Base indisponible, délai dépassé ou défaut de déploiement : silence, pour que
+		# RouterOS bascule vers le nœud B (ADR 0009, provisoire jusqu'à LABO-16).
+		# Le silence est compté ; « fail = 1 » : un échec du compteur (disque plein) ne
+		# doit pas terminer la section, ce qui transformerait le silence en Reject.
 		map_auth {
 			fail = 1
 		}
 		if (fail) {
+			silence_auth {
+				fail = 1
+			}
 			do_not_respond
 		}
 

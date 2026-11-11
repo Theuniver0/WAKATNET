@@ -75,3 +75,7 @@ poser_mot_de_passe wk_radius WAKATNET_PG_RADIUS_PASSWORD
 poser_mot_de_passe wk_acct WAKATNET_PG_ACCT_PASSWORD
 poser_mot_de_passe wk_maint WAKATNET_PG_MAINT_PASSWORD
 echo "migrations à jour"
+
+# Test de fumée du chemin critique (ADR 0009 §3) : une migration qui casse un droit ou une
+# fonction rendrait tout le parc muet. Le script échoue alors, et le déploiement s'arrête.
+bash "$ICI/fumee.sh"
