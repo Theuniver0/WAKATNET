@@ -1,0 +1,17 @@
+# WAKATNET — purge du journal des tentatives à 90 jours (ADR 0005 ; ticket 07).
+[Unit]
+Description=WAKATNET : purge du journal des tentatives
+After=postgresql.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=10min
+User=freerad
+Group=freerad
+# Même fichier réservé que wakatnet-fantomes (WAKATNET_PG_MAINT_PASSWORD).
+EnvironmentFile=/etc/wakatnet/maint.env
+ExecStart=/usr/local/sbin/wakatnet-purge
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

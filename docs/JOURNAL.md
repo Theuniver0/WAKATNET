@@ -366,3 +366,15 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - **ADR 0006** mis en cohérence (§1, §10, §17), ticket 07 élagué.
 - **Écarté** : « MAC vide = appareils illimités ». Le vérificateur l'a réfuté ; c'est une limite documentée, puisque RouterOS envoie toujours `Calling-Station-Id`.
 - **Dernier passage depuis une pile neuve, après les corrections** : 208 passed, étapes base arrêtée et figée réussies, trace T10, aucun secret, `SUCCÈS`.
+
+### Ticket 07 : anti-devinette, alertes, purge (11/11/2026)
+
+- PR n°12 (ticket 06) fusionnée par Yacouba. Branche repartie de `main`.
+- **Rouge d'abord** : 10 échecs, tests lancés avec le code mis de côté.
+- **Livré** :
+  - migration `radius/0009` : `trop_de_tentatives` en tête de `_authorize_at`, alertes dans `post_auth`, `radius.alerte`, seuils `devinette_*`, `purge_auth_log` (`wk_maint`, journalisée) ;
+  - script et unités de purge ;
+  - MAC d'appareil simulé propre à chaque test.
+- **Prouvé en exécution** : base en lecture seule pour `wk_radius` → l'authentification fonctionne et rien n'est écrit ; T11 de bout en bout (10 échecs → blocage, même un code valide ; une autre MAC passe ; libéré après la fenêtre).
+- **Trouvé pendant le vert** : mon test T11 vérifiait « un autre appareil passe » sur le même ticket à un appareil, ce qui occupait sa place. Le contrôle a désormais son propre ticket.
+- **Vert** : `run.sh` depuis une pile neuve, 224 passed, étapes base arrêtée et figée réussies, trace T10, aucun secret.

@@ -209,6 +209,16 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
   - l'alerte par routeur (100 échecs par minute) se déclenche dès la première minute ;
   - le super-admin peut alors bloquer le routeur.
 
+**Amendement du 11/11/2026, ticket 07** (réalisation ; à valider par Yacouba avec la PR du ticket 07) :
+- **Blocage par (routeur, MAC)**, et non par MAC seule : l'index de l'§11 porte sur le routeur, et une même MAC sur un autre hotspot n'est pas bloquée.
+  - Le blocage dure `devinette_blocage_s` (300 s) **après la fin de la rafale**, c'est-à-dire après le dernier échec qui complète `devinette_echecs_par_mac` (10) échecs en `devinette_fenetre_s` (60 s). La rafale est détectée par une fonction de fenêtre sur `auth_log`.
+  - Une MAC illisible n'est pas bloquée ; l'alerte par routeur reste.
+- **Seuls les échecs `ticket_inconnu` comptent** (code ou mot de passe faux). Un client qui insiste avec un ticket expiré ou épuisé n'est pas bloqué, et les refus `trop_de_tentatives` ne comptent pas.
+- **Alertes** dans `radius.alerte` (`blocage_mac`, `echecs_routeur`), inscrites par `post_auth`, sans effet sur la réponse. Une seule alerte par sujet et par période. Elles sont lues par le futur worker, sans code de ticket.
+- **Seuils réglables** dans `radius.parametre` (`devinette_*`), sous contrainte d'entiers.
+- **Purge** : `radius.purge_auth_log()` (rôle `wk_maint`) supprime au-delà de 90 jours. Elle est idempotente et journalisée dans `app.audit_log`. Le timer `wakatnet-purge` est quotidien et rattrapé au démarrage.
+- **Base en lecture seule prouvée** (préparation de T13) : `authorize` répond, `post_auth` échoue sans changer la réponse, et rien n'est écrit. Conséquence assumée (§10) : sur B seul, ni anti-devinette ni compte d'appareils par les Accept récents.
+
 ## 12. Lecteur `detail`
 
 - Serveur virtuel `rejeu_accounting` (`listen { type = detail }`).

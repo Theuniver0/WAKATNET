@@ -106,3 +106,7 @@ Ces écarts sont des choix techniques, motivés par des faits observés en exéc
 | §3 | Primitive « detail vidé » | Volume `radacct` partagé : en écriture pour FreeRADIUS, en **lecture seule** pour le testeur (`conftest.attendre_rejeu`). | Observer le spool sans pouvoir le modifier. |
 | §5 | Aucune différence de lancement hors `-x` | `install -d -o freerad … /var/log/freeradius/radacct` avant le démarrage, en test seulement. | Le volume partagé est créé vide par Docker. En production, le paquet crée ce répertoire pour `freerad`. |
 | §6 | Secrets générés | `WAKATNET_PG_ACCT_PASSWORD` en plus (rôle `wk_acct`). `migrer.sh` pose les deux mots de passe par une même fonction, avec la journalisation coupée. `verifier-env.sh` exige la variable. | Le lecteur `detail` a son propre rôle (ADR 0006 §12). |
+
+## Amendement du 11/11/2026 — ticket 07
+
+- **Une MAC d'appareil simulé propre à chaque test** (`conftest.mac_du_test`). L'anti-devinette bloque une MAC après 10 échecs en 60 s sur un routeur. Sans cela, les refus volontaires de tests différents s'additionneraient et bloqueraient les tests suivants. Dans un même test, la MAC reste la même : le compte d'appareils du ticket 06 en dépend.
