@@ -150,8 +150,8 @@ if [ "$#" = 0 ]; then
   pas() {
     local sortie
     sortie="$($C exec -T -e WAKATNET_ETAPE="$1" -e WAKATNET_SANS_FIXTURES=1 testeur \
-              pytest -p no:cacheprovider -q test_t04_indispo.py 2>&1)" || true
-    printf '%s\n' "$sortie" | tail -3
+              pytest -p no:cacheprovider -q -s "${2:-test_t04_indispo.py}" 2>&1)" || true
+    printf '%s\n' "$sortie" | grep -vE '^\s*$' | tail -4
     if ! grep -q "1 passed" <<<"$sortie" || grep -qE "[0-9]+ (failed|errors?)" <<<"$sortie"; then
       printf '%s\n' "$sortie" | grep -E '^E |Error|assert' | head -20
       echo "étape $1 : ÉCHEC"
@@ -179,6 +179,40 @@ if [ "$#" = 0 ]; then
   $C unpause postgres >/dev/null 2>&1 && pret_pg
   pas e
   [ "$INDISPO" = 0 ] && echo "accounting : réponse immédiate base arrêtée et figée ; rejeu complet, sans perte ni doublon"
+
+  etape "Base indisponible : silence, compteurs, démarrage sans base, retour (ticket 08)"
+  # ADR 0009. Même mécanique que ci-dessus ; l'orchestration est décrite dans test_t08_indispo.py.
+  INDISPO_AVANT="$INDISPO"
+  T8=test_t08_indispo.py
+  pas f "$T8"
+  echo "--- base ARRÊTÉE"
+  $C stop postgres >/dev/null 2>&1
+  pas g "$T8"
+  echo "--- radiusd REDÉMARRÉ, base toujours arrêtée"
+  DEPUIS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  $C restart freeradius >/dev/null 2>&1
+  PRET=0
+  for _ in $(seq 1 30); do
+    if $C logs --since "$DEPUIS" freeradius 2>&1 | grep -q "Ready to process requests"; then PRET=1; break; fi
+    sleep 1
+  done
+  if [ "$PRET" = 1 ]; then echo "radiusd prêt sans base"; else echo "radiusd ne démarre pas sans base"; INDISPO=1; fi
+  pas h "$T8"
+  echo "--- base relancée pendant l'étape i (3 s après son début)"
+  ( sleep 3; $C start postgres >/dev/null 2>&1 ) &
+  pas i "$T8"
+  wait
+  pret_pg
+  pas j "$T8"
+  echo "--- base FIGÉE"
+  $C pause postgres >/dev/null 2>&1
+  pas k "$T8"
+  echo "--- base reprise pendant l'étape l (3 s après son début)"
+  ( sleep 3; $C unpause postgres >/dev/null 2>&1 ) &
+  pas l "$T8"
+  wait
+  pret_pg
+  [ "$INDISPO" = "$INDISPO_AVANT" ] && echo "base indisponible : silence compté, accounting immédiat, démarrage sans base, retour < retry_delay + 1 s"
 fi
 
 etape "Journal du serveur sans ligne d'authentification (ticket 07)"

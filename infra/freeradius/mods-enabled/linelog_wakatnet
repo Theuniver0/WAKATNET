@@ -1,0 +1,22 @@
+# WAKATNET — compteurs des silences (ADR 0009, SPEC §10.3).
+# Une ligne par paquet laissé SANS réponse parce que la base n'a pas répondu
+# (connexion, délai, droit, exception : rlm_sql_map ne distingue pas). La supervision
+# compte les lignes ; un silence qui dure signale une base indisponible.
+#
+# Jamais le code du ticket : seulement l'heure de réception et l'adresse du routeur.
+# Deux fichiers, deux instances : une instance par fichier (rlm_linelog sérialise ses
+# propres écritures ; deux instances sur un même fichier ne le feraient pas).
+
+linelog silence_auth {
+	filename = ${logdir}/wakatnet/silence-auth.log
+	permissions = 0640
+	format = "%S %{Packet-Src-IP-Address}"
+}
+
+# Création d'un client dynamique impossible (radius.client_lookup en échec) : le paquet
+# est ignoré, accounting compris (ADR 0006, amendement du ticket 04 ; ADR 0009 §5).
+linelog silence_client {
+	filename = ${logdir}/wakatnet/silence-client.log
+	permissions = 0640
+	format = "%S %{Packet-Src-IP-Address}"
+}
