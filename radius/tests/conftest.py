@@ -23,13 +23,22 @@ SERVEUR = "10.213.0.1"
 SERVEUR_HORS = "172.29.214.2"
 PG_HOTE = "172.29.215.5"
 
-# Routeurs simulés : nom -> (IP source, actif, variable du secret)
+# Routeurs simulés : nom -> (IP source, actif, variable du secret, propriétaire, site)
 ROUTEURS = {
-    "r1": ("10.213.1.10", True, "WAKATNET_SECRET_R1"),   # IP principale du testeur
-    "r2": ("10.213.1.20", True, "WAKATNET_SECRET_R2"),
-    "r3": ("10.213.1.30", False, "WAKATNET_SECRET_R3"),  # routeur désactivé
-    "r4": ("10.213.1.40", True, "WAKATNET_SECRET_R2"),   # réservé au premier paquet sans Message-Authenticator (T10)
-    "r5": ("10.213.1.50", True, "WAKATNET_SECRET_R3"),   # réservé à la désactivation en base (L4)
+    "r1": ("10.213.1.10", True, "WAKATNET_SECRET_R1", 1, 1),   # IP principale du testeur
+    "r2": ("10.213.1.20", True, "WAKATNET_SECRET_R2", 1, 1),
+    "r3": ("10.213.1.30", False, "WAKATNET_SECRET_R3", 1, 1),  # routeur désactivé
+    "r4": ("10.213.1.40", True, "WAKATNET_SECRET_R2", 1, 1),   # réservé au premier paquet sans Message-Authenticator (T10)
+    "r5": ("10.213.1.50", True, "WAKATNET_SECRET_R3", 1, 1),   # réservé à la désactivation en base (L4)
+    "r6": ("10.213.1.60", True, "WAKATNET_SECRET_R1", 1, 2),   # propriétaire A, site S2 (scope, ticket 03)
+    "r7": ("10.213.1.70", True, "WAKATNET_SECRET_R2", 2, 3),   # propriétaire B (T6, suspension, ticket 03)
+}
+
+# Routeurs présents en base seulement (aucun paquet RADIUS) : tests SQL de la forme (a)
+# de l'ADR 0007, sur le propriétaire C, que ces tests suspendent et rétablissent.
+ROUTEURS_SQL = {
+    "c4": ("10.213.2.4", 3, 4),
+    "c5": ("10.213.2.5", 3, 5),
 }
 IP_INCONNUE = "10.213.9.99"   # dans l'overlay, aucun routeur
 IP_HORS = "172.29.214.10"     # hors overlay
@@ -49,6 +58,12 @@ def en_tant_que_radius() -> psycopg.Connection:
                            password=os.environ["WAKATNET_PG_RADIUS_PASSWORD"], autocommit=True)
 
 
+def en_tant_que_test() -> psycopg.Connection:
+    """Rôle wk_test (ADR 0007) : seul autorisé sur radius._authorize_at (instant injecté)."""
+    return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_test",
+                           password=os.environ["WAKATNET_PG_TEST_PASSWORD"], autocommit=True)
+
+
 def _ip_secondaires() -> None:
     sortie = subprocess.run(["ip", "-o", "-4", "addr"], capture_output=True, text=True, check=True).stdout
     iface = next(l.split()[1] for l in sortie.splitlines() if "10.213.1.10/" in l)
@@ -64,21 +79,31 @@ def donnees():
     with admin() as c:
         c.execute("""
             TRUNCATE app.voucher, app.plan, app.router, app.site, app.tenant RESTART IDENTITY CASCADE;
-            INSERT INTO app.tenant (id, nom) OVERRIDING SYSTEM VALUE VALUES (1, 'Proprietaire A'), (2, 'Proprietaire B');
+            INSERT INTO app.tenant (id, nom) OVERRIDING SYSTEM VALUE
+              VALUES (1, 'Proprietaire A'), (2, 'Proprietaire B'), (3, 'Proprietaire C (SQL)');
             INSERT INTO app.site (id, tenant_id, nom) OVERRIDING SYSTEM VALUE
-              VALUES (1, 1, 'Site S1'), (2, 1, 'Site S2'), (3, 2, 'Site B1');
+              VALUES (1, 1, 'Site S1'), (2, 1, 'Site S2'), (3, 2, 'Site B1'), (4, 3, 'Site C1'), (5, 3, 'Site C2');
         """)
-        for i, (nom, (ip, actif, var)) in enumerate(ROUTEURS.items(), start=1):
+        for i, (nom, (ip, actif, var, tenant, site)) in enumerate(ROUTEURS.items(), start=1):
             c.execute(
                 "INSERT INTO app.router (id, tenant_id, site_id, overlay_ip, shortname, actif)"
-                " OVERRIDING SYSTEM VALUE VALUES (%s, 1, 1, %s, %s, %s)", (i, ip, nom, actif))
+                " OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, %s, %s)", (i, tenant, site, ip, nom, actif))
             c.execute("INSERT INTO radius.router_secret (router_id, secret) VALUES (%s, %s)",
                       (i, os.environ[var]))
+        for i, (nom, (ip, tenant, site)) in enumerate(ROUTEURS_SQL.items(), start=len(ROUTEURS) + 1):
+            c.execute(
+                "INSERT INTO app.router (id, tenant_id, site_id, overlay_ip, shortname)"
+                " OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, %s)", (i, tenant, site, ip, nom))
         c.execute("""
-            INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, rate_limit, devices)
-            OVERRIDING SYSTEM VALUE VALUES (1, 1, '1 heure', 100, 3600, '512k/2M', 1),
-                                           (2, 1, '1 heure sans débit', 100, 3600, NULL, 1),
-                                           (3, 2, '1 heure (B)', 100, 3600, '1M/1M', 1);
+            INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, validity_s, rate_limit, devices,
+                                  scope, site_id)
+            OVERRIDING SYSTEM VALUE VALUES
+              (1, 1, '1 heure', 100, 3600, NULL, '512k/2M', 1, 'tenant', NULL),
+              (2, 1, '1 heure sans débit', 100, 3600, NULL, NULL, 1, 'tenant', NULL),
+              (3, 2, '1 heure (B)', 100, 3600, NULL, '1M/1M', 1, 'tenant', NULL),
+              (4, 1, 'Validité 5 heures', 200, NULL, 18000, NULL, 1, 'tenant', NULL),
+              (5, 1, '1 heure, site S2 seulement', 100, 3600, NULL, NULL, 1, 'site', 2),
+              (6, 3, '1 heure (C, tests SQL)', 100, 3600, NULL, '2M/2M', 2, 'tenant', NULL);
         """)
         # Rôle de test (ADR 0007) : seul autorisé sur la fonction interne à instant injecté.
         c.execute("""
