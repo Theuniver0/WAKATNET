@@ -18,3 +18,4 @@
 - **`post_auth` en échec** (`REVOKE` temporaire, ou base en `default_transaction_read_only`) : l'Accept reste un Accept.
 - **Base en lecture seule** : l'authentification fonctionne (préparation de T13).
 - `auth_log` et les journaux de FreeRADIUS ne contiennent aucun code de ticket en clair (recherche automatique).
+- **T6, partie « tentative journalisée »** (reportée du ticket 03) : un code du propriétaire A présenté sur r7 (propriétaire B) → une ligne `auth_log` avec le `router_id` de r7, le résultat Reject, la cause `ticket_inconnu`, **`voucher_id` NULL** (jamais le ticket de A), et aucun code en clair.

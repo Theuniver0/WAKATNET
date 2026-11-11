@@ -99,7 +99,7 @@ Fichiers principaux : `infra/sql/radius/` (migrations SQL versionnées), `infra/
 | 3.1 Grand livre | `packages/ledger` : ajout seul, BIGINT, idempotence, tests de propriétés ; relecture par un second agent (règle 4) | Invariants du §8.4 |
 | 3.2 `MockProvider` | Scénarios scriptables | P1–P9 |
 | 3.3 Portail captif | Rendu serveur, < 100 Ko, sans dépendance externe ; récupération par jeton + référence (ADR 0005) | P6 ; mesure du poids |
-| 3.4 Crédits et frais | Mode A : crédits prépayés, découvert plafonné, suspension (ADR 0001) ; frais papier (ADR 0002) | Tests de propriétés |
+| 3.4 Crédits et frais | Mode A : crédits prépayés, découvert plafonné, suspension (ADR 0001) ; frais papier (ADR 0002) | Tests de propriétés ; **test de bout en bout dû depuis le ticket 1.2 (ticket 03)** : un propriétaire au plafond de découvert voit ses tickets acceptés (`radius/tests/test_t03.py` n'en est qu'une garde partielle) |
 | 3.5 Adaptateur réel | Celui de D2, en bac à sable | P1–P9 sur le bac à sable — **attend les clés** |
 | 3.6 Achat de bout en bout | Navigateur sans interface derrière le hotspot | Partiel ici ; CHR et téléphone par Yacouba |
 
