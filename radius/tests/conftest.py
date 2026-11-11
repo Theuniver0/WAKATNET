@@ -116,15 +116,17 @@ def donnees():
                 "INSERT INTO app.router (id, tenant_id, site_id, overlay_ip, shortname)"
                 " OVERRIDING SYSTEM VALUE VALUES (%s, %s, %s, %s, %s)", (i, tenant, site, ip, nom))
         c.execute("""
-            INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, validity_s, rate_limit, devices,
-                                  scope, site_id)
+            INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, validity_s, data_limit_bytes,
+                                  rate_limit, devices, scope, site_id)
             OVERRIDING SYSTEM VALUE VALUES
-              (1, 1, '1 heure', 100, 3600, NULL, '512k/2M', 1, 'tenant', NULL),
-              (2, 1, '1 heure sans débit', 100, 3600, NULL, NULL, 1, 'tenant', NULL),
-              (3, 2, '1 heure (B)', 100, 3600, NULL, '1M/1M', 1, 'tenant', NULL),
-              (4, 1, 'Validité 5 heures', 200, NULL, 18000, NULL, 1, 'tenant', NULL),
-              (5, 1, '1 heure, site S2 seulement', 100, 3600, NULL, NULL, 1, 'site', 2),
-              (6, 3, '1 heure (C, tests SQL)', 100, 3600, NULL, '2M/2M', 2, 'tenant', NULL);
+              (1, 1, '1 heure', 100, 3600, NULL, NULL, '512k/2M', 1, 'tenant', NULL),
+              (2, 1, '1 heure sans débit', 100, 3600, NULL, NULL, NULL, 1, 'tenant', NULL),
+              (3, 2, '1 heure (B)', 100, 3600, NULL, NULL, '1M/1M', 1, 'tenant', NULL),
+              (4, 1, 'Validité 5 heures', 200, NULL, 18000, NULL, NULL, 1, 'tenant', NULL),
+              (5, 1, '1 heure, site S2 seulement', 100, 3600, NULL, NULL, NULL, 1, 'site', 2),
+              (6, 3, '1 heure (C, tests SQL)', 100, 3600, NULL, NULL, '2M/2M', 2, 'tenant', NULL),
+              (7, 1, '1 Go sur 24 heures', 500, 86400, NULL, 1000000000, NULL, 1, 'tenant', NULL),
+              (8, 1, '1 heure, 2 appareils', 150, 3600, NULL, NULL, NULL, 2, 'tenant', NULL);
         """)
         # Rôle de test (ADR 0007) : seul autorisé sur la fonction interne à instant injecté.
         c.execute("""
