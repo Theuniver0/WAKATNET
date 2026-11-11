@@ -151,20 +151,33 @@ def test_suspension_de_b_sans_effet_sur_a():
 
 # --- découvert ------------------------------------------------------------
 
-def test_decision_d_acces_independante_des_credits():
-    """« Propriétaire au plafond de découvert → ticket accepté » (ADR 0001, ADR 0006 §4).
+def test_garde_decision_d_acces_sans_lecture_des_credits():
+    """GARDE PARTIELLE, pas une preuve, du critère « propriétaire au plafond de découvert →
+    ticket accepté » (ADR 0001, ADR 0006 §4). Les crédits n'existent qu'en phase 3 ; le test
+    de bout en bout avec un propriétaire au plafond y est dû (docs/PLAN.md, ticket 3.4).
 
-    Les crédits n'existent qu'en phase 3. Ce test fixe dès maintenant la propriété qui
-    garantit le critère : la décision d'accès ne lit QUE ces relations. Toute lecture
-    future d'un solde, d'un crédit ou du grand livre le fera échouer ; le test de bout
-    en bout avec un propriétaire au plafond s'ajoutera en phase 3, avec le modèle de crédits.
+    Ce que le test vérifie, sur le texte des fonctions (commentaires retirés) :
+      * relations qualifiées : seulement app.router, app.tenant, app.voucher, radius.parametre ;
+      * appels de fonction : seulement une liste fermée de fonctions intégrées ; un appel non
+        qualifié (résolu par search_path) ou une nouvelle fonction le fait échouer ;
+      * app.tenant : seules les colonnes id et suspendu sont lues ; ni SELECT * ni %ROWTYPE.
+    Limite connue : une lecture transitive (vue sur app.tenant jointe au grand livre) passerait.
+    Toute modification de ces fonctions doit donc revoir cette liste, et non l'élargir par défaut.
     """
-    autorisees = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius._authorize_at"}
+    relations = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius._authorize_at"}
+    appels = {"coalesce", "extract", "floor", "isfinite", "least", "upper", "now", "radius._authorize_at",
+              "or", "and", "not", "in"}   # mots-clés suivis d'une parenthèse
     with admin() as c:
         sources = c.execute("""SELECT p.proname, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                                 WHERE n.nspname = 'radius' AND p.proname IN ('authorize', '_authorize_at')""").fetchall()
     assert len(sources) == 2
     for nom, source in sources:
-        lues = {m.lower() for m in re.findall(r"\b(?:app|radius|ledger|public)\.[a-z_][a-z0-9_]*", source, re.I)}
-        assert lues <= autorisees, f"{nom} lit {sorted(lues - autorisees)}"
-        assert not re.search(r"ledger|credit|solde|decouvert", source, re.I), f"{nom} mentionne les crédits"
+        code = re.sub(r"--[^\n]*", "", source)
+        lues = {m.lower() for m in re.findall(r"\b(?:app|radius|ledger|public)\.[a-z_][a-z0-9_]*", code, re.I)}
+        assert lues <= relations, f"{nom} lit {sorted(lues - relations)}"
+        appelees = {m.lower() for m in re.findall(r"([A-Za-z_][A-Za-z0-9_.]*)\s*\(", code)}
+        assert appelees <= appels, f"{nom} appelle {sorted(appelees - appels)}"
+        assert not re.search(r"app\.tenant%ROWTYPE|\*\s+INTO\s+\w+\s+FROM\s+app\.tenant", code, re.I)
+        for alias in re.findall(r"app\.tenant\s+(?:AS\s+)?([a-z_]\w*)", code, re.I):
+            colonnes = {m.lower() for m in re.findall(rf"\b{alias}\.(\w+)", code)}
+            assert colonnes <= {"id", "suspendu"}, f"{nom} lit app.tenant.{sorted(colonnes - {'id', 'suspendu'})}"

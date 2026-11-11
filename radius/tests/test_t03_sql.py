@@ -148,11 +148,22 @@ def test_expiration_infinie(expire, attendu):
     _refus(d, attendu) if attendu == "expire" else _accept(d, attendu)
 
 
-def test_session_timeout_plafonne_a_l_entier_32_bits_signe():
-    """Session-Timeout est un entier RADIUS de 32 bits : au-delà, FreeRADIUS ne l'enverrait pas,
-    et l'Accept partirait sans durée. Activation datée dans le futur (horloge fausse lors de l'import)."""
-    code = ticket_c(uptime=None, validite=2_000_000_000, active=400_000_000 * US)
-    _accept(decider(code), ST_MAX)
+@pytest.mark.parametrize("active", [3600 * US, 400_000_000 * US, "infinity"])
+def test_activation_datee_dans_le_futur_jamais_plus_que_la_validite(active):
+    """Horloge du nœud reculée ou donnée corrompue : le reste de validité est borné par
+    la validité du forfait (revue du ticket 03). Jamais plus que ce qui a été vendu."""
+    _accept(decider(ticket_c(uptime=None, validite=18000, active=active)), 18000)
+
+
+@pytest.mark.parametrize("instant", [None, "infinity", "-infinity"])
+def test_instant_de_reference_inutilisable_jamais_d_accept(instant):
+    """La fonction interne seule peut recevoir un instant NULL ou infini (l'enveloppe passe now())."""
+    code = ticket_c()
+    with en_tant_que_test() as c:
+        ligne = c.execute("SELECT * FROM radius._authorize_at(%s, %s, '', '', %s::timestamptz)",
+                          (code, ROUTEURS_SQL["c4"][0], instant)).fetchall()
+    assert len(ligne) == 1
+    _refus(dict(zip(COLONNES, ligne[0])), "expire")
 
 
 # --- Portée (scope) --------------------------------------------------------
@@ -212,6 +223,20 @@ def test_donnee_incoherente_donne_un_refus_code(colonnes, cause):
     assert all(d[k] is None for k in ("cleartext_password", "session_timeout", "rate_limit", "port_limit", "interim"))
 
 
+def test_session_timeout_plafonne_a_l_entier_32_bits_signe():
+    """Session-Timeout est un entier RADIUS de 32 bits : au-delà, FreeRADIUS ignorerait l'attribut
+    et l'Accept partirait sans durée. Seule une donnée hors des CHECK l'atteint : ni temps ni
+    validité, et une expiration absolue lointaine (le reste d'expiration n'est pas un entier 32 bits)."""
+    with voucher_sans_contraintes() as c:
+        code = c.execute("SELECT app.voucher_creer(3, 6)").fetchone()[0]
+        c.execute("""UPDATE app.voucher SET f_uptime_limit_s = NULL, f_validity_s = NULL,
+                            expires_at = %s::timestamptz + interval '200 years'
+                      WHERE tenant_id = 3 AND code = %s""", (INSTANT, code))
+        ligne = c.execute("SELECT * FROM radius._authorize_at(%s, %s, '', '', %s)",
+                          (code, ROUTEURS_SQL["c4"][0], INSTANT)).fetchall()
+    _accept(dict(zip(COLONNES, ligne[0])), ST_MAX)
+
+
 # --- Propriété : la fonction suit l'oracle de l'ADR 0006 §4 et §5 ------------
 
 def oracle(*, suspendu, scope, site, routeur, uptime, validite, active, expire):
@@ -222,7 +247,7 @@ def oracle(*, suspendu, scope, site, routeur, uptime, validite, active, expire):
         return ("Reject", "mauvais_site", None)
     restes, expire_ = [], False
     if validite is not None:
-        reste = validite * US if active is None else active + validite * US
+        reste = validite * US if active is None else min(validite * US, active + validite * US)
         expire_ |= active is not None and reste // US < 1
         restes.append(reste)
     if expire == "-infinity":
@@ -260,6 +285,9 @@ def test_propriete_decision_conforme_a_l_oracle(suspendu, portee, routeur, uptim
     suspendre_c(suspendu)
     d = decider(code, routeur)
     _invariants(d, code)
+    if d["decision"] == "Accept":
+        # Jamais plus que ce qui a été vendu (invariant indépendant de l'oracle).
+        assert all(d["session_timeout"] <= x for x in (uptime, validite) if x is not None), d
     attendu = oracle(suspendu=suspendu, scope=scope, site=site, routeur=routeur,
                      uptime=uptime, validite=validite, active=active, expire=expire)
     assert (d["decision"], d["reply_message"], d["session_timeout"]) == attendu

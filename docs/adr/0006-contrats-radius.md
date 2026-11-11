@@ -101,6 +101,12 @@ Association pour `map_auth` (colonne → attribut) :
 
 Ordre d'évaluation : `trop_de_tentatives` → `ticket_inconnu` → `proprietaire_suspendu` → `mauvais_site` → `expire` → `epuise` → `trop_d_appareils`.
 
+**Amendement du 11/11/2026, ticket 03** (règles de calcul, issues de la revue ; à valider par Yacouba avec la PR du ticket 03) :
+- **`expire` dès qu'il reste moins d'une seconde.** Un reste de validité ou d'expiration absolue qui, arrondi à la seconde inférieure, vaut moins de 1 donne `expire`, et non `epuise`. Une fenêtre de moins d'une seconde ne peut pas produire `Session-Timeout` ≥ 1. Changement de cause par rapport à la migration 0002 : une expiration à +0,5 s y donnait `epuise`. Aucun Accept n'est concerné.
+- **Reste de validité borné par la validité du forfait** : min(`f_validity_s`, fin de validité − maintenant). Une activation datée dans le futur (horloge du nœud reculée, donnée corrompue) ne donne jamais plus que ce qui a été vendu.
+- **Instant de référence NULL ou infini** (appel direct de la fonction interne seulement) : `expire`, jamais d'Accept.
+- **Dates infinies** (`±infinity`) : traitées sans exception.
+
 - **Mauvais mot de passe.** `authorize` ne peut pas le voir, puisque PAP ou CHAP décident ensuite. Dans `Post-Auth-Type REJECT` : si `reply:Reply-Message` est absent, il prend la valeur `ticket_inconnu`. On garde `attr_filter.access_reject`, qui retire les attributs d'Accept déjà recopiés.
 - **PAP** : `User-Name` et `User-Password` passent en majuscules (`%{toupper:…}`) avant `pap`. **CHAP** : la mise en majuscules se fait dans `login.html` (§15).
 - **`reject_delay = 0`** : le défaut de 1 s dépasse le `timeout` de RouterOS (1100 ms). Le routeur basculerait sur B et afficherait « serveur injoignable » au lieu de la cause. L'anti-devinette est assurée par `trop_de_tentatives` (§11). Testé au ticket 02.
@@ -109,7 +115,7 @@ Ordre d'évaluation : `trop_de_tentatives` → `ticket_inconnu` → `proprietair
 
 | Attribut | Décision |
 |---|---|
-| `Session-Timeout` | min(temps restant, fin de validité − maintenant, expiration absolue − maintenant), en secondes entières, ≥ 1 ; sinon `epuise` ou `expire`. |
+| `Session-Timeout` | min(temps restant, fin de validité − maintenant, expiration absolue − maintenant), en secondes entières, ≥ 1 ; sinon `epuise` ou `expire` (§4, amendement du ticket 03). **Plafonné à 2^31 − 1** (amendement du ticket 03) : c'est un entier RADIUS de 32 bits, et au-delà FreeRADIUS ignorerait l'attribut, si bien que l'Accept partirait sans durée. |
 | `Mikrotik-Rate-Limit` | Copie figée du forfait, si définie. |
 | `Port-Limit` | `devices` du forfait. |
 | `Acct-Interim-Interval` | **120 s** **[accepté le 11/11/2026]**. Le dépassement de volume vaut au plus débit × 120 s, par exemple 30 Mo à 2 Mbit/s. Valeur globale réglable. Le script d'enrôlement (ticket 2.3) doit poser `radius-interim-update=received`, ou 2m, de façon cohérente (LABO-19). |

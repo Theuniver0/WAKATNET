@@ -10,13 +10,15 @@
 -- trop_de_tentatives (ticket 07, en tête) et trop_d_appareils (ticket 06, en fin) viendront s'y insérer.
 --
 -- Règles de calcul (en secondes, sur des numeric exacts à la microseconde) :
---   * reste de validité   = activated_at + f_validity_s − maintenant (ticket activé seulement) ;
+--   * instant de référence NULL ou infini -> « expire » (appel direct de la fonction interne seulement) ;
+--   * reste de validité   = min(f_validity_s, activated_at + f_validity_s − maintenant) (ticket activé seulement) ;
 --   * reste d'expiration  = expires_at − maintenant ;
 --   * « expire » dès que l'un de ces restes, arrondi à la seconde inférieure, est < 1 :
 --     une fenêtre de moins d'une seconde ne peut pas donner Session-Timeout >= 1 ;
 --   * Session-Timeout = plancher(min(uptime figé, validité restante ou entière, expiration restante)),
 --     plafonné à 2^31 − 1 (entier RADIUS de 32 bits : au-delà, FreeRADIUS ignorerait l'attribut
 --     et l'Accept partirait sans durée) ; < 1, absent ou infini -> « epuise ».
+-- Ces règles sont consignées dans l'ADR 0006 (amendement du ticket 03).
 -- Les dates infinies (±infinity) sont traitées sans exception : extract(epoch) les rend en
 -- ±Infinity (numeric), au lieu de l'erreur « cannot subtract infinite timestamps » de la version 0002.
 -- La consommation (temps, volume) arrive au ticket 05.
@@ -51,6 +53,11 @@ BEGIN
   -- de refus est remplie. Une condition indéterminée (NULL) ne vaut jamais acceptation.
   <<regles>>
   BEGIN
+    -- Instant de référence inutilisable : seul un appel direct de la fonction interne
+    -- (rôle de test) peut le produire, l'enveloppe passant now(). Jamais d'Accept sans repère.
+    v_cause := 'expire';
+    EXIT regles WHEN p_now IS NULL OR NOT isfinite(p_now);
+
     v_cause := 'ticket_inconnu';
     -- Routeur : déduit de l'IP source uniquement (§5.1) ; le propriétaire et le site en découlent.
     SELECT * INTO v_routeur FROM app.router r WHERE r.overlay_ip = v_ip AND r.actif;
@@ -72,7 +79,10 @@ BEGIN
 
     v_cause := 'expire';
     IF v_ticket.f_validity_s IS NOT NULL AND v_ticket.activated_at IS NOT NULL THEN
-      v_reste_validite := extract(epoch FROM v_ticket.activated_at) + v_ticket.f_validity_s - v_now;
+      -- Borné par la validité du forfait : une activation datée dans le futur (horloge du
+      -- nœud reculée, donnée corrompue) ne donne jamais plus que ce qui a été vendu.
+      v_reste_validite := least(v_ticket.f_validity_s::numeric,
+                                extract(epoch FROM v_ticket.activated_at) + v_ticket.f_validity_s - v_now);
       EXIT regles WHEN floor(v_reste_validite) < 1;
     END IF;
     IF v_ticket.expires_at IS NOT NULL THEN

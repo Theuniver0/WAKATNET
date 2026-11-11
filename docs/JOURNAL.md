@@ -274,3 +274,21 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Écarté et motivé** : RLS en phase 2 (PRD §3). Écarts techniques consignés dans l'ADR 0008 (amendement du 11/11/2026).
 - **Dernier passage depuis une pile neuve** : 41 passed, trace T10 pour r4 et r1, aucun secret dans les sorties, `SUCCÈS`.
 - Le code du ticket 02 a été poussé dans la PR n°8, avec le ticket 01, pour ne pas le perdre (conteneur redémarré). Les commits restent séparés par ticket.
+
+### Ticket 03 : refus codés (11/11/2026)
+
+- PR n°8 (tickets 01 et 02) fusionnée par Yacouba. Branche `claude/new-session-4gefvp` repartie de `main`. Imposée par la session cloud, elle remplace la branche `ticket/03-…` de P6, et Yacouba fusionne lui-même.
+- **Rouge d'abord** : 23 échecs avant le SQL. L'un d'eux révèle un défaut du ticket 02 : une date `infinity` levait « cannot subtract infinite timestamps », donc FreeRADIUS restait muet au lieu de refuser.
+- **Livré** :
+  - `app/0003` : CHECK de la copie figée ;
+  - `radius/0004` : `_authorize_at` remplacée, causes `proprietaire_suspendu`, `mauvais_site` et `expire` dans l'ordre de l'ADR 0006 §4 ;
+  - tests de bout en bout (forme d) et SQL (forme a), dont une propriété Hypothesis contre un oracle de l'ADR.
+- **Revue** (Standards, Spec, robustesse ; un sceptique par constat). Constats retenus et corrigés :
+  - la garde « plafond de découvert » promettait plus qu'elle ne vérifiait. Elle est durcie (appels de fonction en liste fermée, colonnes de `app.tenant` limitées à `id` et `suspendu`) et présentée comme une garde partielle. Le test de bout en bout est dû au ticket 3.4 (`docs/PLAN.md`) ;
+  - règles de calcul consignées dans l'ADR 0006 (amendement du ticket 03) : moins d'une seconde → `expire`, plafond 2^31 − 1, reste de validité borné par la validité vendue (activation datée dans le futur) ;
+  - instant NULL ou infini → `expire` ;
+  - critère T6 « tentative journalisée » ajouté au ticket 07.
+- **Écartés** :
+  - nom de branche (P6) : imposé par la session ;
+  - sous-transaction de l'analyse de `p_src` : coût de quelques microsecondes, sans écriture, déjà présent dans `client_lookup`. Il sera mesuré au ticket 10.
+- **Dernier passage depuis une pile neuve, après les corrections** : 92 passed, trace T10 pour r4 et r1, aucun secret dans les sorties, `SUCCÈS`. La garde « crédits » durcie a été vérifiée sur deux violations injectées (une colonne de `app.tenant` en plus, un appel non qualifié) : elle détecte les deux.
