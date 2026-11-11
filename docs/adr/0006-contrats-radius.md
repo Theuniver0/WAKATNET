@@ -132,8 +132,12 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - **Temps consommé = somme de toutes les sessions du ticket**, ouvertes ou arrêtées, sur tous les routeurs et tous les appareils. Une session ouverte compte jusqu'à son dernier Interim reçu. `Session-Timeout` = plancher(min(uptime − temps consommé, validité restante, expiration restante)).
 - **Volume consommé = somme des deux sens** de toutes les sessions. `epuise` dès que le temps ou le volume est atteint (≥). L'ordre de l'§4 est inchangé : `expire` passe avant `epuise`.
 - **Session « à couper »** (§6) : chaque événement d'accounting vérifie le temps et le volume du ticket. Si l'un est atteint, toutes les sessions **ouvertes** du ticket reçoivent `a_couper_le` et `motif_coupure` (`volume_epuise` ou `temps_epuise`), posés une seule fois. Le Disconnect est émis au ticket 09.
-  - **Dépassement maximal** : débit × (Interim 120 s + coupure 30 s), soit environ 37,5 Mo à 2 Mbit/s.
+  - **Dépassement du volume** (corrigé après la revue) : Σ sur les sessions ouvertes du ticket (débit montant + débit descendant) × (intervalle d'Interim 120 s + retard du lecteur `detail` + période de coupure 30 s).
+    - Exemple : forfait `512k/2M` avec 2 appareils, lecteur à jour : 2 × 2,5 Mbit/s × 150 s ≈ 94 Mo.
+    - **Aucune borne** pour un forfait à volume **sans** `rate_limit`, ni si un Interim est perdu ou si le spool est en retard (base indisponible). Le dépassement dépend alors du lien. Exiger un débit pour tout forfait à volume se décidera avec le tableau de bord (phase 4).
   - Pour le temps, `Session-Timeout` borne déjà chaque session. L'inscription couvre plusieurs appareils dont la somme dépasse le forfait.
+- **La consommation est la somme de `radius.session`** : aucune session d'un ticket encore utilisable (non épuisé, non expiré) ne doit être purgée, sans quoi du temps ou du volume serait rendu. C'est une contrainte pour la future purge ou le partitionnement (ADR 0008 §2). Elle pourra être levée par un cumul sur le ticket avant toute purge.
+- **Calculs en `numeric`** : une somme de compteurs `bigint` peut dépasser 2^63 − 1. Sans cela, une exception bloquerait le lecteur (revue du ticket 05).
 - **Forfaits à sens séparés : reportés** (pas en v1). `Mikrotik-Recv-Limit` / `Xmit-Limit` ne sont jamais envoyés, et le critère correspondant du ticket 05 est retiré.
 
 ## 7. Horloges

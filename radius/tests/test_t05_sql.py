@@ -92,6 +92,30 @@ def _coupure(code):
                              WHERE v.tenant_id = 3 AND v.code = %s ORDER BY s.id""", (code,)).fetchall()
 
 
+def _coupure_complete(code):
+    with admin() as c:
+        return c.execute("""SELECT s.acct_session_id, s.motif_coupure, s.a_couper_le
+                              FROM radius.session s JOIN app.voucher v ON v.id = s.voucher_id
+                             WHERE v.tenant_id = 3 AND v.code = %s ORDER BY s.id""", (code,)).fetchall()
+
+
+def test_compteurs_extremes_jamais_d_exception():
+    """Revue du ticket 05 : chaque sens peut valoir jusqu'à 2^63 − 1 (ticket 04) ; leur somme,
+    et celle de plusieurs sessions, dépasse un bigint. Calcul en numeric : ni exception
+    (lecteur bloqué) ni Accept à tort."""
+    code = ticket_c(uptime=3600)
+    volume(code, 10 ** 18)
+    a, b = uuid.uuid4().hex[:12], uuid.uuid4().hex[:12]
+    with en_tant_que_acct() as c:
+        for sid in (a, b):
+            assert c.execute("SELECT radius.acct_interim(%s, %s, %s, '', '', '4294967295', '2147483647', "
+                             "'4294967295', '2147483647', '10', '', '1900000000')",
+                             (ROUTEURS_SQL["c4"][0], sid, code)).fetchone()[0] == "ok"
+    assert [m for _, m, _ in _coupure_complete(code)] == ["volume_epuise", "volume_epuise"]
+    d = decider(code)
+    assert (d["decision"], d["reply_message"]) == ("Reject", "epuise")
+
+
 def test_volume_atteint_par_deux_sessions_ouvertes_les_inscrit_toutes_deux():
     code = ticket_c(uptime=3600)
     volume(code, 1000)
@@ -101,14 +125,11 @@ def test_volume_atteint_par_deux_sessions_ouvertes_les_inscrit_toutes_deux():
     assert [x[2] for x in _coupure(code)] == [False, False]
     assert _acct("acct_interim", code, b, montants=400) == "ok"        # 100 + 500 + 400 = 1000
     assert _coupure(code) == [(c_, None, False), (a, "volume_epuise", True), (b, "volume_epuise", True)]
-    # Idempotent : un Interim de plus ne change ni l'instant ni le motif.
-    with admin() as c:
-        avant = c.execute("SELECT max(a_couper_le) FROM radius.session s JOIN app.voucher v ON v.id = s.voucher_id "
-                          "WHERE v.code = %s", (code,)).fetchone()
-    _acct("acct_interim", code, a, montants=600, recu=1_900_000_100)
-    with admin() as c:
-        assert c.execute("SELECT max(a_couper_le) FROM radius.session s JOIN app.voucher v ON v.id = s.voucher_id "
-                         "WHERE v.code = %s", (code,)).fetchone() == avant
+    # Idempotent : un Interim de plus, même avec le TEMPS atteint ensuite, ne change ni
+    # l'instant ni le motif (posés une seule fois).
+    avant = _coupure_complete(code)
+    assert _acct("acct_interim", code, a, montants=600, duree=3600, recu=1_900_000_100) == "ok"
+    assert _coupure_complete(code) == avant
 
 
 def test_temps_atteint_inscrit_temps_epuise():

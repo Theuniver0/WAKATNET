@@ -11,8 +11,9 @@
 --     Session-Timeout = plancher(min(uptime − temps consommé, validité restante, expiration restante)) ;
 --   * _acct : inscrit « à couper » les sessions ouvertes du ticket dès que le temps ou le
 --     volume est atteint (Disconnect au ticket 09).
--- Dépassement maximal du volume : débit × (intervalle d'Interim 120 s + délai de coupure,
--- 30 s au ticket 09), par exemple 2 Mbit/s → ~37,5 Mo (ADR 0006 §5, §17).
+-- Dépassement du volume : borné seulement si le forfait a un débit et si les Interim arrivent ;
+-- voir ADR 0006, amendement du ticket 05. La consommation est la somme des sessions : aucune
+-- session d'un ticket encore utilisable ne doit être purgée.
 
 SET ROLE wakatnet_owner;
 
@@ -20,8 +21,10 @@ ALTER TABLE radius.session
   ADD COLUMN a_couper_le   timestamptz,
   ADD COLUMN motif_coupure text CHECK (motif_coupure IN ('volume_epuise', 'temps_epuise')),
   ADD CONSTRAINT session_coupure_coherente CHECK ((a_couper_le IS NULL) = (motif_coupure IS NULL));
--- Consommation d'un ticket, lue à chaque Access-Request : toutes ses sessions.
-CREATE INDEX session_par_ticket ON radius.session (voucher_id) INCLUDE (duree_s, octets_montants, octets_descendants);
+-- Consommation d'un ticket, lue à chaque Access-Request : toutes ses sessions (quelques-unes
+-- par ticket). Sans INCLUDE : les compteurs, modifiés à chaque Interim, ne sont dans aucun
+-- index, ce qui garde les mises à jour HOT possibles (revue du ticket 05).
+CREATE INDEX session_par_ticket ON radius.session (voucher_id);
 -- Sessions à couper (lues par le déclencheur du ticket 09).
 CREATE INDEX session_a_couper ON radius.session (a_couper_le) WHERE a_couper_le IS NOT NULL AND arrete_le IS NULL;
 
@@ -42,8 +45,8 @@ DECLARE
   v_reste_expiration numeric;
   v_timeout          numeric;
   v_cause            text;
-  v_temps            bigint;
-  v_octets           bigint;
+  v_temps            numeric;   -- numeric : une somme de bigint peut dépasser 2^63 − 1
+  v_octets           numeric;
 BEGIN
   BEGIN
     v_ip := p_src::inet;
@@ -96,7 +99,7 @@ BEGIN
     -- tous routeurs et tous appareils confondus (décision de Yacouba du 11/11/2026).
     -- Une session ouverte compte jusqu'à son dernier Interim reçu.
     v_cause := 'epuise';
-    SELECT coalesce(sum(s.duree_s), 0), coalesce(sum(s.octets_montants + s.octets_descendants), 0)
+    SELECT coalesce(sum(s.duree_s::numeric), 0), coalesce(sum(s.octets_montants::numeric + s.octets_descendants), 0)
       INTO v_temps, v_octets
       FROM radius.session s WHERE s.voucher_id = v_ticket.id;
     EXIT regles WHEN v_ticket.f_uptime_limit_s IS NOT NULL AND v_temps >= v_ticket.f_uptime_limit_s;
@@ -159,8 +162,8 @@ DECLARE
   v_descend   bigint;
   v_session   bigint;
   v_debut     timestamptz;
-  v_temps     bigint;
-  v_octets    bigint;
+  v_temps     numeric;   -- numeric : une somme de bigint peut dépasser 2^63 − 1 (revue du ticket 05)
+  v_octets    numeric;
   v_motif_cut text;
 BEGIN
   -- Chaque étape pose le motif de quarantaine qu'elle produirait, puis sort si invalide.
@@ -260,7 +263,7 @@ BEGIN
   -- Épuisement (ticket 05, ADR 0006 §6) : temps ou volume du ticket atteint, toutes sessions
   -- confondues. Les sessions encore OUVERTES du ticket sont inscrites « à couper » ; le
   -- Disconnect est émis au ticket 09. Posé une seule fois (instant et motif conservés).
-  SELECT coalesce(sum(s.duree_s), 0), coalesce(sum(s.octets_montants + s.octets_descendants), 0)
+  SELECT coalesce(sum(s.duree_s::numeric), 0), coalesce(sum(s.octets_montants::numeric + s.octets_descendants), 0)
     INTO v_temps, v_octets
     FROM radius.session s WHERE s.voucher_id = v_ticket.id;
   v_motif_cut := CASE

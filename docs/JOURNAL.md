@@ -316,3 +316,24 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - époque et Accounting-On/Off : relèvent du ticket 06, et le scénario n'est pas atteignable avant ;
   - USAGE des schémas : aucun droit sur les données sans droit sur un objet, déjà testé.
 - **Dernier passage depuis une pile neuve, après les corrections** : 167 passed, cinq étapes base arrêtée et figée réussies, trace T10, aucun secret, `SUCCÈS`.
+
+### Ticket 05 : temps et volume restants (11/11/2026)
+
+- PR n°10 (ticket 04) fusionnée par Yacouba. Branche repartie de `main`.
+- **Décisions de Yacouba** (questions posées avant le code) :
+  - temps consommé = **somme des sessions** du ticket ;
+  - **forfaits à sens séparés reportés**. Le critère du ticket 05 contredisait l'ADR 0006 §5 accepté ; il est retiré.
+- **Rouge d'abord** : 15 échecs avant le SQL.
+- **Livré** : migration `radius/0006`.
+  - `_authorize_at` : `epuise` sur le temps ou le volume, et `Session-Timeout` = min des restes.
+  - `_acct` : sessions ouvertes inscrites « à couper ».
+  - Tests de bout en bout (T3, T12, deux appareils), tests SQL et propriété.
+- **Revue** (Standards, Spec, robustesse et argent ; un sceptique par constat). Constats retenus et corrigés :
+  - **bloquant**, relevé par les trois axes : la somme des octets se faisait en `bigint` et débordait sur des compteurs admis par le ticket 04. Une exception bloquait le lecteur : c'était une régression. Calcul passé en `numeric`, avec un test aux valeurs extrêmes ;
+  - **important** : le dépassement maximal du volume était sous-estimé. La borne est réécrite (sessions × deux sens × délais) ; il n'y a **aucune borne** sans débit ou avec un Interim perdu ;
+  - **mineurs** :
+    - contrainte de purge des sessions consignée ;
+    - index sans `INCLUDE`, pour garder les mises à jour HOT ;
+    - test d'idempotence complet (motif conservé) ;
+    - journal mis à jour.
+- **Écarté après vérification** : la copie figée du volume (déjà couverte par la copie figée des colonnes `f_*`).
