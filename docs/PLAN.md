@@ -51,7 +51,9 @@ Chaque ticket de la piste A précise la preuve de la piste B qui le ferme, quand
 
 ---
 
-## Phase 1 — Cœur RADIUS (un seul propriétaire)
+## Phase 1 — Cœur RADIUS (un propriétaire ; un second dans les données de test pour T6)
+
+Détail : `.scratch/phase-1-coeur-radius/` (PRD et tickets 01 à 10, où le ticket NN correspond à la ligne 1.(NN − 1)).
 
 Fichiers principaux : `infra/sql/radius/` (migrations SQL versionnées), `infra/freeradius/` (configuration de production), `radius/tests/` (matrice T automatisée). Pile de test : la pile de dev existante `infra/docker-compose.yml` (FreeRADIUS 3.2.10, PostgreSQL 16.15). On réutilise les acquis du labo `infra/lab/freeradius/` : `client_lookup` SQL, rôle EXECUTE seul, `&FreeRADIUS-Client-Require-MA`, `radreq.py` pour T10, lecteur `detail`.
 
@@ -59,16 +61,16 @@ Fichiers principaux : `infra/sql/radius/` (migrations SQL versionnées), `infra/
 |---|---|---|
 | 1.0 Contrats (ADR) | Signatures SQL de `radius.*` (§5.2) ; schéma minimal (tenant, site, router, plan, voucher, session) ; injection de l'instant de référence en test, avec 3 formes comparées (§14.4) ; outil de migration SQL | ADR accepté par Yacouba |
 | 1.1 T2 de bout en bout | radclient → FreeRADIUS → `radius.authorize` → Accept avec `Session-Timeout` exact ; clients dynamiques + MA par attribut (E-FR-2) | T2, T10 |
-| 1.2 Refus codés | `ticket_inconnu`, `expire`, `epuise`, `proprietaire_suspendu` dans `Reply-Message` | T1, T4 |
+| 1.2 Refus codés | `ticket_inconnu`, `expire`, `mauvais_site` (scope), `proprietaire_suspendu` ; recherche par propriétaire + code | T1, T4, T6 |
 | 1.3 Accounting découplé | `detail` → lecteur → `radius.acct_*` idempotents ; activation au premier Start | T7, T2 (activation) |
-| 1.4 Compteurs | Temps restant, validité, volume restant recalculés à chaque login | T3, T12 |
+| 1.4 Compteurs | Temps restant, validité, volume restant recalculés à chaque login ; `epuise` | T3, T12 |
 | 1.5 Sessions | Appareils simultanés côté serveur, sessions fantômes, `acct_on_off` | T5, T8 |
 | 1.6 Anti-devinette | `post_auth`, limitation par MAC et par routeur, alerte | T11 |
 | 1.7 Base arrêtée | Variante `do_not_respond` (ADR) | L6e rejoué ; LABO-16 (piste B) |
 | 1.8 CoA / Disconnect | Émission depuis le nœud avec le secret du routeur | Test serveur ici ; T9 sur CHR (piste B) |
 | 1.9 Performance | p95 de `authorize` < 50 ms, 200 auth/s sur 4 vCPU (radclient / radperf) | Rapport chiffré |
 
-**Fin de phase 1** : matrice T1–T12 verte, sauf T6 (phase 2) et T9 (CHR) ; revue en deux axes, Standards et Spec ; étiquette `phase-1`.
+**Fin de phase 1** : matrice T1–T12 verte, T9 côté serveur seulement (le reste de T9 se fait sur CHR) ; revue en deux axes, Standards et Spec ; étiquette `phase-1`.
 
 ---
 
@@ -134,7 +136,7 @@ Un site de Telecom Universel pendant 2 semaines, avec de petits montants et un r
 
 | Action | Débloque | Avant |
 |---|---|---|
-| LABO-00 (versions), LABO-16 (bascule A → B), LABO-09 (timeout) sur CHR | Tickets 1.7 et 1.8 ; réglage du `timeout` | Fin de phase 1 |
+| LABO-00 (versions), LABO-09 (timeout), LABO-16 (bascule A → B), LABO-18 (`Acct-Session-Id` après redémarrage), LABO-19 (`Acct-Interim-Interval`) sur CHR | Tickets 02, 04, 05, 08 et 09 ; réglage du `timeout` | Fin de phase 1 |
 | LABO-08 (utilisateurs locaux), LABO-14 (walled garden HTTPS), tests des scripts 2.3 sur CHR | Phase 2, ticket 3.3 | Fin de phase 2 |
 | Réponses des agrégateurs, clés de bac à sable | D2, D3, tickets 3.0 et 3.5 | Phase 3 |
 | Juriste, CIL, ARCEP, comptable → `docs/CONFORMITE.md` | G-ARGENT | Fin de phase 3 |

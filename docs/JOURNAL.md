@@ -208,3 +208,22 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - **moins de 50 routeurs** à 12 mois au début.
 - `docs/G0.md` mis à jour ; `CONTEXT.md` créé (glossaire initial).
 - Phase 1 ouverte : PRD et tickets dans `.scratch/phase-1-coeur-radius/`, soumis à la validation de Yacouba.
+
+### PRD et tickets de la phase 1 : relecture adversariale (11/11/2026)
+
+- Deux relecteurs indépendants (conformité à la spec ; testabilité et sécurité) ont conclu « à corriger » : 3 points bloquants, une vingtaine d'importants.
+- Points bloquants :
+  - un échec d'écriture de `post_auth` transformait un Accept en Reject, ce qui rendait T13 impossible sur une réplique en lecture seule ;
+  - l'heure du rejeu de l'accounting décalait l'activation et fermait des sessions vivantes ;
+  - `scope` / `mauvais_site` absents, et T6 reporté sans justification.
+- Autres points corrigés :
+  - réutilisation possible de `Acct-Session-Id` (LABO-18) ;
+  - silence sur une erreur SQL quelconque ;
+  - fuite possible de l'horloge de test (`SECURITY DEFINER`) ;
+  - codes de ticket en clair dans les journaux ;
+  - générateur de codes non cryptographique ;
+  - double appel de `authorize` ;
+  - secrets et rôles (`wk_coa`, `wk_maint`) ;
+  - déclencheur de coupure absent ;
+  - mesures de performance non mesurables telles qu'écrites.
+- Le ticket 01 regroupe désormais toutes les décisions d'architecture de la phase. T6 revient en phase 1. Ajout de LABO-18 et LABO-19.
