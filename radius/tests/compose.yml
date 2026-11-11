@@ -1,0 +1,90 @@
+# WAKATNET — pile de TEST de la matrice T (ADR 0008 §3 à §6). Lancée par run.sh.
+#
+# FreeRADIUS y tourne avec la configuration de PRODUCTION (infra/freeradius/),
+# montée telle quelle. Les seules différences sont des variables
+# d'environnement, listées dans surcharges/LISTE.md et vérifiées par
+# test_surcharges.py.
+#
+# Les secrets sont aléatoires et jetables : run.sh les génère à chaque passage
+# dans jeu.secrets (non versionné). Aucun port n'est publié sur l'hôte.
+
+name: wakatnet-test
+
+x-secrets: &secrets
+  env_file:
+    - path: ./jeu.secrets
+      required: true
+
+services:
+  postgres:
+    image: postgres:16.15@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    <<: *secrets
+    environment:
+      POSTGRES_USER: wakatnet_admin
+      POSTGRES_DB: wakatnet
+    volumes:
+      - ../../infra/sql:/depot/infra/sql:ro
+    networks:
+      arriere: { ipv4_address: 172.29.215.5 }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wakatnet_admin -d wakatnet"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  freeradius:
+    image: freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
+    # Pas de -X : il affiche les secrets et passe le serveur en mono-fil (ADR 0008 §5).
+    # -x (debug niveau 1, multi-fil conservé) : seul moyen de journaliser le rejet
+    # d'un paquet sans Message-Authenticator (radius.c l. 2891, listen.c, DEBUG_ENABLED).
+    # Surcharge de test listée dans surcharges/LISTE.md ; la recherche de secrets la couvre.
+    command: ["freeradius", "-x", "-l", "stdout"]
+    env_file:
+      - path: ./jeu.secrets
+        required: true
+      - path: ./surcharges/test.env
+        required: true
+    volumes:
+      - ../../infra/freeradius/radiusd.conf:/etc/freeradius/radiusd.conf:ro
+      - ../../infra/freeradius/clients.conf:/etc/freeradius/clients.conf:ro
+      - ../../infra/freeradius/sites-enabled:/etc/freeradius/sites-enabled:ro
+      - ../../infra/freeradius/mods-enabled:/etc/freeradius/mods-enabled:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks:
+      overlay: { ipv4_address: 10.213.0.1 }
+      hors: { ipv4_address: 172.29.214.2 }
+      arriere: { ipv4_address: 172.29.215.2 }
+
+  testeur:
+    # Construite par run.sh (docker build --network host : nécessaire derrière un proxy local).
+    image: wakatnet-testeur:local
+    <<: *secrets
+    cap_add: [NET_ADMIN]   # pour porter plusieurs IP de l'overlay (un routeur simulé par IP)
+    working_dir: /depot/radius/tests
+    volumes:
+      - ../..:/depot:ro
+    networks:
+      overlay: { ipv4_address: 10.213.1.10 }
+      hors: { ipv4_address: 172.29.214.10 }
+      arriere: { ipv4_address: 172.29.215.10 }
+
+networks:
+  overlay:
+    name: wakatnet-test-overlay
+    ipam:
+      config:
+        - subnet: 10.213.0.0/16
+          gateway: 10.213.255.254
+  hors:
+    name: wakatnet-test-hors
+    ipam:
+      config:
+        - subnet: 172.29.214.0/24
+          gateway: 172.29.214.254
+  arriere:
+    name: wakatnet-test-arriere
+    ipam:
+      config:
+        - subnet: 172.29.215.0/24
+          gateway: 172.29.215.254
