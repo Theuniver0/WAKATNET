@@ -120,6 +120,8 @@ def test_routeur_desactive_continue_de_comptabiliser():
     ({"in_oct": "abc"}, "donnee_invalide"),
     ({"in_oct": "-1"}, "donnee_invalide"),
     ({"in_oct": str(GIO4)}, "donnee_invalide"),
+    ({"in_giga": "2147483648"}, "donnee_invalide"),    # giga × 2^32 déborderait un bigint
+    ({"out_giga": "4294967295"}, "donnee_invalide"),
     ({"out_giga": "1.5"}, "donnee_invalide"),
     ({"duree": "1e3"}, "donnee_invalide"),
     ({"recu": ""}, "donnee_invalide"),
@@ -152,6 +154,39 @@ def test_code_en_minuscules_rapproche_du_ticket():
     code, sid = nouveau_ticket(), _sid()
     assert acct("acct_start", sid=sid, user=code.lower()) == "ok"
     assert session(code, sid) is not None
+
+
+def test_gigawords_maximum_admis_tient_dans_un_bigint():
+    code, sid = nouveau_ticket(), _sid()
+    assert acct("acct_interim", sid=sid, user=code, in_oct=GIO4 - 1, in_giga=2147483647) == "ok"
+    assert session(code, sid)["octets_montants"] == 2 ** 63 - 1
+
+
+TEXTE = st.text(alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"), max_size=40)
+
+
+@settings(max_examples=150, deadline=None, database=None)
+@given(params=st.fixed_dictionaries({k: st.one_of(TEXTE, st.from_regex(r"[0-9]{1,25}", fullmatch=True))
+                                      for k in ("in_oct", "in_giga", "out_oct", "out_giga", "duree", "recu")}),
+       autres=st.fixed_dictionaries({k: TEXTE for k in ("sid", "calling", "framed", "cause")}),
+       fonction=st.sampled_from(["acct_start", "acct_interim", "acct_stop"]))
+def test_propriete_texte_arbitraire_jamais_d_exception(params, autres, fonction):
+    """Sans sous-transaction, seule cette garantie protège le lecteur d'une exception imprévue :
+    toute combinaison de textes donne 'ok' ou 'quarantaine' (revue du ticket 04)."""
+    code = nouveau_ticket()
+    assert acct(fonction, user=code, **params, **autres) in ("ok", "quarantaine")
+
+
+def test_acct_session_id_reutilise_pour_un_autre_ticket_signale():
+    a, b, sid = nouveau_ticket(), nouveau_ticket(), _sid()
+    with admin() as c:
+        avant = c.execute("SELECT coalesce(max(id), 0) FROM radius.acct_anomalie").fetchone()[0]
+    assert acct("acct_start", sid=sid, user=a) == "ok"
+    assert acct("acct_start", sid=sid, user=b) == "ok"
+    assert session(a, sid) is not None and session(b, sid) is not None
+    with admin() as c:
+        assert c.execute("SELECT motif FROM radius.acct_anomalie WHERE id > %s", (avant,)).fetchall() == [
+            ("session_reutilisee",)]
 
 
 # --- Sens des octets (C2 : réglage en SQL) -----------------------------------

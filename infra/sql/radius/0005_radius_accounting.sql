@@ -68,6 +68,17 @@ CREATE TABLE radius.acct_quarantaine (
   donnees  jsonb NOT NULL
 );
 
+-- Anomalies sans refus (ADR 0006 §8) : l'enregistrement est traité, mais signalé.
+-- 'session_reutilisee' : même (routeur, époque, Acct-Session-Id) pour un autre ticket (LABO-18).
+CREATE TABLE radius.acct_anomalie (
+  id                 bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  recu_le            timestamptz NOT NULL DEFAULT now(),
+  motif              text NOT NULL,
+  session_id         bigint NOT NULL,
+  session_started_at timestamptz NOT NULL,
+  donnees            jsonb NOT NULL
+);
+
 -- Événement d'activation, idempotent (un par ticket), lu en phase 3 par le grand livre
 -- pour le frais papier (ADR 0002). Aucune clé étrangère vers session : la purge des
 -- sessions ne doit pas toucher à un fait comptable.
@@ -103,6 +114,9 @@ SET search_path = radius, pg_temp
 AS $$
 DECLARE
   c_max32     constant bigint := 4294967295;
+  -- Gigawords bornés pour que giga × 2^32 + octets tienne dans un bigint :
+  -- 2147483647 × 2^32 + 4294967295 = 2^63 − 1 (au-delà : 'donnee_invalide', jamais une exception).
+  c_max_giga  constant bigint := 2147483647;
   v_fonction  text := 'acct_' || p_type;
   v_motif     text;
   v_routeur   app.router%ROWTYPE;
@@ -136,8 +150,8 @@ BEGIN
 
     v_motif := 'donnee_invalide';
     -- Compteurs : giga × 2^32 + octets, pour chaque sens (ADR 0006 §8).
-    v_in    := radius._acct_entier(p_in_giga, c_max32) * (c_max32 + 1) + radius._acct_entier(p_in_oct, c_max32);
-    v_out   := radius._acct_entier(p_out_giga, c_max32) * (c_max32 + 1) + radius._acct_entier(p_out_oct, c_max32);
+    v_in    := radius._acct_entier(p_in_giga, c_max_giga) * (c_max32 + 1) + radius._acct_entier(p_in_oct, c_max32);
+    v_out   := radius._acct_entier(p_out_giga, c_max_giga) * (c_max32 + 1) + radius._acct_entier(p_out_oct, c_max32);
     v_duree := radius._acct_entier(p_session_time, c_max32);
     EXIT regles WHEN v_in IS NULL OR v_out IS NULL OR v_duree IS NULL;
     EXIT regles WHEN p_received_epoch IS NULL OR p_received_epoch !~ '^[0-9]{1,11}$';
@@ -190,6 +204,15 @@ BEGIN
     RETURNING id, started_at INTO v_session, v_debut;
     INSERT INTO radius.acct_cle (router_id, router_epoch, acct_session_id, username, session_id, session_started_at)
     VALUES (v_routeur.id, v_routeur.epoch, v_sid, v_user, v_session, v_debut);
+    -- Même identifiant déjà vu pour un AUTRE ticket sur ce routeur et cette époque :
+    -- session distincte (clé avec username), mais anomalie signalée (ADR 0006 §8, LABO-18).
+    IF EXISTS (SELECT 1 FROM radius.acct_cle k
+                WHERE k.router_id = v_routeur.id AND k.router_epoch = v_routeur.epoch
+                  AND k.acct_session_id = v_sid AND k.username <> v_user) THEN
+      INSERT INTO radius.acct_anomalie (motif, session_id, session_started_at, donnees)
+      VALUES ('session_reutilisee', v_session, v_debut,
+              jsonb_build_object('router_id', v_routeur.id, 'router_epoch', v_routeur.epoch, 'acct_session_id', v_sid));
+    END IF;
   END IF;
 
   -- Compteurs : maximum cumulé, jamais une addition (rejeu, désordre, doublons).
@@ -204,8 +227,11 @@ BEGIN
                                 ELSE s.cause_fin END
    WHERE s.id = v_session AND s.started_at = v_debut;
 
-  -- Activation : au premier événement traité du ticket (normalement le Start), à l'instant
-  -- de RÉCEPTION. Posée une seule fois ; l'événement comptable aussi.
+  -- Activation : au premier événement TRAITÉ du ticket (normalement le Start), à l'instant
+  -- de RÉCEPTION de cet événement. Posée une seule fois ; l'événement comptable aussi.
+  -- Start perdu : l'activation vaut la réception du premier Interim ou Stop, donc en retard
+  -- d'au plus un intervalle d'Interim (ou de la session entière sans Interim), au bénéfice
+  -- du client (ADR 0006, amendement du ticket 04).
   UPDATE app.voucher v SET activated_at = v_recu WHERE v.id = v_ticket.id AND v.activated_at IS NULL;
   IF FOUND THEN
     INSERT INTO radius.activation (voucher_id, tenant_id, active_le, session_id, session_started_at)

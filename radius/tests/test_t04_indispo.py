@@ -28,7 +28,8 @@ import uuid
 
 import pytest
 
-from conftest import admin, attendre_rejeu, comptabiliser, creneau_nouveau_client, demander, nouveau_ticket, spool_vide
+from conftest import (SPOOL, admin, attendre_rejeu, comptabiliser, creneau_nouveau_client, demander, nouveau_ticket,
+                      spool_vide)
 
 ETAT = pathlib.Path("/tmp/wakatnet-t04-indispo.json")
 ATTENTE_S = 10   # run.sh attend au moins ce délai entre l'envoi et la relance de la base
@@ -53,6 +54,15 @@ def _creer_client(nom: str):
     assert r is not None and r.un("Reply-Message") == "ticket_inconnu"
 
 
+def _records_du_spool() -> list[list[str]]:
+    """Enregistrements de chaque fichier du spool (lecture seule), dans l'ordre d'écriture."""
+    fichiers = []
+    for f in sorted(pathlib.Path(SPOOL).glob("detail*")):
+        blocs = [b for b in f.read_text(errors="replace").split("\n\n") if b.strip()]
+        fichiers.append(blocs)
+    return fichiers
+
+
 def _envoyer(nom: str, code: str) -> dict:
     """Start, Interim, Stop d'une session ; chaque réponse doit être immédiate (règle 2)."""
     sid = uuid.uuid4().hex[:16]
@@ -75,23 +85,42 @@ def _verifier_rejeu(e: dict):
                                  FROM radius.session s JOIN app.voucher v ON v.id = s.voucher_id
                                 WHERE v.tenant_id = 1 AND v.code = %s""", (e["code"],)).fetchall()
     attendre_rejeu(lambda: len(sessions()) == 1 and sessions()[0][4] is not None, delai=90)
-    rejeu = time.time()
     (montants, descendants, duree, debut, arret), = sessions()     # une seule session : aucun doublon
     assert (montants, descendants, duree) == (900, 1500, 95)       # aucune perte
     with admin() as c:
         active = c.execute("SELECT activated_at FROM app.voucher WHERE tenant_id = 1 AND code = %s",
                            (e["code"],)).fetchone()[0].timestamp()
-        n_act = c.execute("""SELECT count(*) FROM radius.activation a JOIN app.voucher v ON v.id = a.voucher_id
-                              WHERE v.code = %s""", (e["code"],)).fetchone()[0]
-    # Activation à l'instant de RÉCEPTION (envoi), pas à l'instant du rejeu, bien plus tard.
+        # inscrit_le = now() de la transaction de REJEU (heure de la base) : l'instant réel du rejeu.
+        lignes = c.execute("""SELECT a.active_le, a.inscrit_le FROM radius.activation a
+                                JOIN app.voucher v ON v.id = a.voucher_id WHERE v.code = %s""", (e["code"],)).fetchall()
+    assert len(lignes) == 1
+    active_le, rejoue_le = (x.timestamp() for x in lignes[0])
+    # Activation à l'instant de RÉCEPTION (envoi)…
     assert int(e["envoi"]) <= active <= e["envoi"] + 1.5, (e["envoi"], active)
-    assert rejeu - active >= ATTENTE_S - 1, "le rejeu aurait dû avoir lieu bien après la réception"
-    assert debut.timestamp() == active and n_act == 1
+    assert active_le == active == debut.timestamp()
+    # … alors que le rejeu, mesuré en base, a eu lieu bien plus tard : la base était donc
+    # réellement indisponible pendant l'attente de run.sh (revue du ticket 04).
+    assert rejoue_le - active >= ATTENTE_S - 1, (active, rejoue_le)
+
+
+def _dernier_quarantaine() -> int:
+    with admin() as c:
+        return c.execute("SELECT coalesce(max(id), 0) FROM radius.acct_quarantaine").fetchone()[0]
+
+
+POISON = "P" * 70   # User-Name invalide (> 64) : 'utilisateur_invalide'
+
+
+def _session_de(code: str) -> int:
+    with admin() as c:
+        return c.execute("""SELECT count(*) FROM radius.session s JOIN app.voucher v ON v.id = s.voucher_id
+                             WHERE v.tenant_id = 1 AND v.code = %s""", (code,)).fetchone()[0]
 
 
 @_etape("a")
 def test_a_preparer():
-    _ecrire({"tickets": [nouveau_ticket(), nouveau_ticket()]})
+    _ecrire({"tickets": [nouveau_ticket(), nouveau_ticket()], "voisins": [nouveau_ticket(), nouveau_ticket()],
+             "q0": _dernier_quarantaine()})
     _creer_client("r8")
 
 
@@ -99,12 +128,32 @@ def test_a_preparer():
 def test_b_base_arretee_accounting_repond_et_attend():
     etat = _lire()
     etat["arretee"] = _envoyer("r8", etat["tickets"][0])
+    # Enregistrement empoisonné AU MILIEU d'un fichier : le lecteur, bloqué sur detail.work,
+    # laisse les paquets suivants s'accumuler dans un nouveau fichier detail-* (critère du ticket 04).
+    avant, apres = etat["voisins"]
+    for user in (avant, POISON, apres):
+        r = comptabiliser("r8", statut="Interim-Update" if user == POISON else "Start",
+                          session_id=uuid.uuid4().hex[:16], utilisateur=user, essais=1, delai=1.0)
+        assert r is not None and r.nom == "Accounting-Response"
+    for blocs in _records_du_spool():
+        idx = [i for i, b in enumerate(blocs) if POISON in b]
+        if idx:
+            assert 0 < idx[0] < len(blocs) - 1, f"empoisonné en position {idx[0]} sur {len(blocs)}"
+            break
+    else:
+        raise AssertionError("enregistrement empoisonné absent du spool")
     _ecrire(etat)
 
 
 @_etape("c")
 def test_c_rejeu_complet_apres_relance():
-    _verifier_rejeu(_lire()["arretee"])
+    etat = _lire()
+    _verifier_rejeu(etat["arretee"])
+    # L'empoisonné est en quarantaine, et l'enregistrement qui le suivait est passé.
+    assert all(_session_de(c) == 1 for c in etat["voisins"])
+    with admin() as c:
+        assert c.execute("SELECT fonction, motif FROM radius.acct_quarantaine WHERE id > %s",
+                         (etat["q0"],)).fetchall() == [("acct_interim", "utilisateur_invalide")]
     _creer_client("r9")
 
 
