@@ -157,15 +157,17 @@ def test_garde_decision_d_acces_sans_lecture_des_credits():
     de bout en bout avec un propriétaire au plafond y est dû (docs/PLAN.md, ticket 3.4).
 
     Ce que le test vérifie, sur le texte des fonctions (commentaires retirés) :
-      * relations qualifiées : seulement app.router, app.tenant, app.voucher, radius.parametre ;
+      * relations qualifiées : seulement app.router, app.tenant, app.voucher, radius.parametre,
+        radius.session (consommation, ticket 05) ;
       * appels de fonction : seulement une liste fermée de fonctions intégrées ; un appel non
         qualifié (résolu par search_path) ou une nouvelle fonction le fait échouer ;
       * app.tenant : seules les colonnes id et suspendu sont lues ; ni SELECT * ni %ROWTYPE.
     Limite connue : une lecture transitive (vue sur app.tenant jointe au grand livre) passerait.
     Toute modification de ces fonctions doit donc revoir cette liste, et non l'élargir par défaut.
     """
-    relations = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius._authorize_at"}
-    appels = {"coalesce", "extract", "floor", "isfinite", "least", "upper", "now", "radius._authorize_at",
+    # radius.session (ticket 05) : consommation du ticket (temps, volume), aucune colonne de crédit.
+    relations = {"app.router", "app.tenant", "app.voucher", "radius.parametre", "radius.session", "radius._authorize_at"}
+    appels = {"coalesce", "extract", "floor", "isfinite", "least", "upper", "now", "sum", "radius._authorize_at",
               "or", "and", "not", "in"}   # mots-clés suivis d'une parenthèse
     with admin() as c:
         sources = c.execute("""SELECT p.proname, p.prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace

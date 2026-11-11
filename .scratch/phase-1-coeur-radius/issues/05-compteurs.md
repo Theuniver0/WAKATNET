@@ -12,7 +12,8 @@
 - **T3** : forfait d'1 h dont 20 min ont été consommées → `Session-Timeout = 2400`.
 - **T12** (écart assumé, ADR 0006) : forfait d'1 Go dont 900 Mo ont été consommés → Accept, et la session est inscrite « à couper » dès que le reste est consommé. Le dépassement maximal est documenté.
 - Temps épuisé → `epuise`. Volume épuisé → `epuise`.
-- Forfait à sens séparés de plus de 4 Go → Gigawords correctement envoyés.
+- ~~Forfait à sens séparés de plus de 4 Go → Gigawords correctement envoyés.~~ **Reporté par Yacouba le 11/11/2026** : pas de forfait à sens séparés en v1 (ADR 0006 §5, SPEC §5.3). Le volume total au-delà de 4 Gio est compté et contrôlé côté serveur.
+- **Plusieurs appareils** (décision de Yacouba du 11/11/2026) : le temps consommé est la **somme** des sessions du ticket.
 - Forfait modifié après la vente → `Session-Timeout` inchangé pour le ticket déjà vendu.
 
 ## Piste B

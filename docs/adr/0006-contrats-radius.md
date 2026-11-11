@@ -128,6 +128,14 @@ Ordre d'évaluation : `trop_de_tentatives` → `ticket_inconnu` → `proprietair
 
 Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la session « à couper ». Le déclencheur (§17) émet le Disconnect. **Écart assumé avec la formulation de T12** (« limite restante envoyée ») : T12 est vérifié par l'Accept, puis par une coupure en moins d'un intervalle d'Interim (tickets 05 et 09).
 
+**Amendement du 11/11/2026, ticket 05** (décisions de Yacouba du même jour) :
+- **Temps consommé = somme de toutes les sessions du ticket**, ouvertes ou arrêtées, sur tous les routeurs et tous les appareils. Une session ouverte compte jusqu'à son dernier Interim reçu. `Session-Timeout` = plancher(min(uptime − temps consommé, validité restante, expiration restante)).
+- **Volume consommé = somme des deux sens** de toutes les sessions. `epuise` dès que le temps ou le volume est atteint (≥). L'ordre de l'§4 est inchangé : `expire` passe avant `epuise`.
+- **Session « à couper »** (§6) : chaque événement d'accounting vérifie le temps et le volume du ticket. Si l'un est atteint, toutes les sessions **ouvertes** du ticket reçoivent `a_couper_le` et `motif_coupure` (`volume_epuise` ou `temps_epuise`), posés une seule fois. Le Disconnect est émis au ticket 09.
+  - **Dépassement maximal** : débit × (Interim 120 s + coupure 30 s), soit environ 37,5 Mo à 2 Mbit/s.
+  - Pour le temps, `Session-Timeout` borne déjà chaque session. L'inscription couvre plusieurs appareils dont la somme dépasse le forfait.
+- **Forfaits à sens séparés : reportés** (pas en v1). `Mikrotik-Recv-Limit` / `Xmit-Limit` ne sont jamais envoyés, et le critère correspondant du ticket 05 est retiré.
+
 ## 7. Horloges
 
 - **Décision d'accès** : `now()` de PostgreSQL (règle 5).
