@@ -1,0 +1,68 @@
+# WAKATNET — connexions PostgreSQL de FreeRADIUS (ADR 0006 §1, §13).
+# Deux pools distincts pour le même rôle wk_radius : la création des clients
+# (qui bloque le fil de réception) et l'authentification ne se gênent pas.
+# Aucune requête authorize_* ici : les requêtes sont portées par rlm_sql_map.
+# Mot de passe lu dans l'environnement (EnvironmentFile systemd, jamais versionné).
+
+sql sql_clients {
+	dialect = "postgresql"
+	driver = "rlm_sql_postgresql"
+	server = "$ENV{WAKATNET_PG_HOST}"
+	port = 5432
+	login = "wk_radius"
+	password = "$ENV{WAKATNET_PG_RADIUS_PASSWORD}"
+	radius_db = "wakatnet"
+	sql_user_name = "%{User-Name}"
+	read_clients = no
+	read_groups = no
+	read_profiles = no
+	# Secondes entières (minimum du pilote). Borne principale : statement_timeout
+	# du rôle wk_radius (500 ms, migration 0002). ADR 0006 §13.
+	query_timeout = 1
+	postgresql {
+		send_application_name = yes
+	}
+	pool {
+		# 0 : radiusd démarre même si la base est indisponible (L6d).
+		start = 0
+		min = 0
+		max = 4
+		spare = 1
+		uses = 0
+		retry_delay = 5
+		lifetime = 0
+		idle_timeout = 60
+		connect_timeout = 2.0
+		max_retries = 1
+	}
+}
+
+sql sql_auth {
+	dialect = "postgresql"
+	driver = "rlm_sql_postgresql"
+	server = "$ENV{WAKATNET_PG_HOST}"
+	port = 5432
+	login = "wk_radius"
+	password = "$ENV{WAKATNET_PG_RADIUS_PASSWORD}"
+	radius_db = "wakatnet"
+	sql_user_name = "%{User-Name}"
+	read_clients = no
+	read_groups = no
+	read_profiles = no
+	query_timeout = 1
+	postgresql {
+		send_application_name = yes
+	}
+	pool {
+		start = 0
+		min = 0
+		max = 16
+		spare = 4
+		uses = 0
+		retry_delay = 5
+		lifetime = 0
+		idle_timeout = 60
+		connect_timeout = 2.0
+		max_retries = 1
+	}
+}

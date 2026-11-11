@@ -1,0 +1,14 @@
+# WAKATNET — conteneur de test de la matrice T (ADR 0008 §3 et §4).
+# Base : la MÊME image FreeRADIUS que le serveur testé, pour disposer de
+# radclient dans la même version et avec le même dictionnaire (MikroTik inclus).
+# Python sert aux tests (pytest) et à l'émetteur maison radlib.py, qui choisit
+# son IP source (radclient ne le permet pas) et peut omettre le Message-Authenticator (T10).
+FROM freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv iproute2 ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt /tmp/requirements.txt
+RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
+ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1
+ENTRYPOINT []
+CMD ["sleep", "infinity"]

@@ -1,0 +1,85 @@
+# WAKATNET — serveur virtuel d'authentification des routeurs (phase 1, ticket 02).
+# AUCUNE logique d'accès ici (C2) : la décision vit dans radius.authorize.
+# Ce fichier ne fait qu'appeler la base une fois et transmettre le résultat.
+server wakatnet {
+	listen {
+		type = auth
+		# Adresse du nœud dans l'overlay (10.213.0.1 pour A) ; voir surcharges/LISTE.md.
+		ipaddr = $ENV{WAKATNET_RADIUS_LISTEN}
+		port = 1812
+	}
+
+	authorize {
+		# Codes en majuscules (ADR 0006 §15). En CHAP, la casse est fixée par login.html,
+		# le serveur ne pouvant pas recalculer le hachage.
+		update request {
+			&User-Name := "%{toupper:%{User-Name}}"
+		}
+		if (&User-Password) {
+			update request {
+				&User-Password := "%{toupper:%{User-Password}}"
+			}
+		}
+
+		chap
+
+		# UN appel SQL : décision + attributs de réponse (ADR 0006 §2).
+		# Base indisponible ou délai dépassé : silence, pour que RouterOS bascule
+		# vers le nœud B (ADR 0006 §13, provisoire jusqu'à LABO-16).
+		map_auth {
+			fail = 1
+		}
+		if (fail) {
+			do_not_respond
+		}
+
+		# Adaptation de transport, sans logique d'accès (C2) : la décision est
+		# prise par radius.authorize et transmise telle quelle.
+		# Seul un « Accept » explicite laisse passer. En unlang, toute comparaison
+		# sur un attribut ABSENT est fausse (y compris « != ») : le refus est donc
+		# la branche par défaut, et non une branche conditionnelle.
+		if (&control:Tmp-String-1 == "Accept") {
+			noop
+		}
+		else {
+			update control {
+				&Auth-Type := Reject
+			}
+			if (&control:Tmp-String-2 && &control:Tmp-String-2 != "") {
+				update reply {
+					&Reply-Message := &control:Tmp-String-2
+				}
+			}
+		}
+		# Chaînes vides (NULL côté SQL) : jamais envoyées au routeur.
+		if (&reply:Mikrotik-Rate-Limit == "") {
+			update reply {
+				&Mikrotik-Rate-Limit !* ANY
+			}
+		}
+
+		pap
+	}
+
+	authenticate {
+		Auth-Type CHAP {
+			chap
+		}
+		Auth-Type PAP {
+			pap
+		}
+	}
+
+	post-auth {
+		Post-Auth-Type REJECT {
+			# Mauvais mot de passe : même cause qu'un code inconnu (ADR 0006 §4).
+			if (!&reply:Reply-Message || &reply:Reply-Message == "") {
+				update reply {
+					&Reply-Message := "ticket_inconnu"
+				}
+			}
+			# Retire tout attribut d'Accept d'un Reject.
+			attr_filter.access_reject
+		}
+	}
+}

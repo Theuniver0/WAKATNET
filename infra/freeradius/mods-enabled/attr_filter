@@ -1,0 +1,2 @@
+# WAKATNET : module de la distribution, activé tel quel.
+$INCLUDE ${confdir}/mods-available/attr_filter

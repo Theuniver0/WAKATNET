@@ -1,0 +1,4 @@
+# Versions épinglées (publiées depuis plus de deux semaines au 11/11/2026).
+pytest==9.1.1
+hypothesis==6.170.12
+psycopg[binary]==3.3.6

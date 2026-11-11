@@ -227,3 +227,50 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - déclencheur de coupure absent ;
   - mesures de performance non mesurables telles qu'écrites.
 - Le ticket 01 regroupe désormais toutes les décisions d'architecture de la phase. T6 revient en phase 1. Ajout de LABO-18 et LABO-19.
+
+### Ticket 01 : ADR 0006, 0007 et 0008 (11/11/2026)
+
+- PR n°7 fusionnée par Yacouba : validation du PRD et des tickets de la phase 1, comme annoncé.
+- Faits vérifiés dans le code de FreeRADIUS 3.2.10 avant d'écrire :
+  - le champ `Timestamp` du `detail` est l'instant de réception ;
+  - un `fail` en `post-auth` donne un Reject ;
+  - `rlm_sql` n'a pas de `map` ;
+  - `query_timeout` est en secondes.
+- Vérification adversariale par un agent indépendant (dans le code source) : 8 points bloquants corrigés, dont :
+  - Message-Authenticator non exigé si `FreeRADIUS-Client-Require-MA` est absent ;
+  - `reject_delay = 1` par défaut, supérieur au `timeout` de RouterOS ;
+  - délais réfutés (reconnexion et rejeu) ;
+  - `-X` incompatible avec la recherche de secrets ;
+  - clé d'idempotence et partitionnement ;
+  - valeur vide qui bloque le lecteur `detail` ;
+  - EXECUTE accordé à PUBLIC ;
+  - valeurs NULL ou entre apostrophes inverses interprétées par `rlm_sql`.
+- Points soumis à l'acceptation de Yacouba : 7 dans l'ADR 0006, 1 dans l'ADR 0008 (marqués « [à accepter] »).
+- **11/11/2026 : Yacouba accepte les 7 points « [à accepter] » des ADR 0006 et 0008**, et donc les ADR 0006, 0007 et 0008. C4 de `CONTRIBUTING.md` reçoit la précision sur l'horloge de l'accounting.
+
+### Ticket 02 : T2 de bout en bout (11/11/2026)
+
+- **Rouge d'abord.** Avant le code de production, `radius/tests/run.sh` échouait : migrations absentes, puis 16 échecs sur 31.
+- **Faits appris en exécution**, intégrés au code et aux ADR :
+  - `rlm_sql_map` fait une requête unique ;
+  - le pilote PostgreSQL de FreeRADIUS rend NULL en chaîne vide, d'où une décision `Accept` / `Reject` explicite ;
+  - le module `eap` de l'image empêchait le démarrage, d'où `mods-enabled` en liste fermée ;
+  - faux positif T10 dû à `rate_limit` ;
+  - la trace T10 n'existe qu'en debug (`-x`), et le `stdout` de radiusd est mis en tampon ;
+  - un routeur désactivé est refusé immédiatement ;
+  - `lifetime` vide accepté par FreeRADIUS, d'où la garde `verifier-env.sh` ;
+  - les statistiques PostgreSQL d'une connexion inactive ne sont publiées qu'au bout de ~10 s ;
+  - `-x` affiche les codes de ticket : réservé au test.
+- **Revue en deux axes** (Standards, Spec), par deux agents qui n'ont pas écrit le code. Elle conclut « avec réserves » ; tous les constats bloquants et importants sont corrigés :
+  - `wk_acct` créé ;
+  - jamais d'Accept sans durée (`expire`, `epuise`) ;
+  - refus par défaut en unlang ;
+  - clés étrangères de site ;
+  - mot de passe hors journal ;
+  - recherche de secrets étendue à la sortie de pytest ;
+  - Message-Authenticator exigé sur toute réponse ;
+  - toutes les tables vérifiées ;
+  - preuves de la copie figée, de l'échappement SQL, du « un seul appel SQL » (5 appels pour 5 requêtes), de l'isolement des secrets et du garde-fou ADR 0007 sur le catalogue.
+- **Écarté et motivé** : RLS en phase 2 (PRD §3). Écarts techniques consignés dans l'ADR 0008 (amendement du 11/11/2026).
+- **Dernier passage depuis une pile neuve** : 41 passed, trace T10 pour r4 et r1, aucun secret dans les sorties, `SUCCÈS`.
+- Le code du ticket 02 a été poussé dans la PR n°8, avec le ticket 01, pour ne pas le perdre (conteneur redémarré). Les commits restent séparés par ticket.
