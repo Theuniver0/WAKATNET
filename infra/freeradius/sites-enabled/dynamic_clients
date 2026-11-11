@@ -1,0 +1,15 @@
+# WAKATNET — création des clients dynamiques (ADR 0006 §1, SPEC §5.1).
+# Appelé une fois par IP source inconnue de l'overlay. Une seule requête SQL
+# (map_clients -> radius.client_lookup). Routeur inconnu ou inactif, ou base
+# indisponible : aucun client n'est créé, le paquet est ignoré (listen.c l. 338–353).
+server dynamic_clients {
+	authorize {
+		map_clients
+		if (updated && &control:FreeRADIUS-Client-Secret && &control:FreeRADIUS-Client-Require-MA) {
+			ok
+		}
+		else {
+			fail
+		}
+	}
+}

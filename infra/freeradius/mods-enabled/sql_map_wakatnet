@@ -1,0 +1,31 @@
+# WAKATNET — requêtes uniques par paquet (rlm_sql_map, ADR 0006 §2).
+# Valeur illisible : ignorée sans échec. ATTENTION : le pilote PostgreSQL rend NULL
+# sous forme de chaîne VIDE (observé le 11/11/2026) ; une chaîne vide est donc
+# retirée dans le site wakatnet, et un entier vide est ignoré à l'analyse ;
+# aucune évaluation des valeurs ; erreur SQL -> fail ; aucune ligne -> noop.
+
+sql_map map_clients {
+	sql_module_instance = "sql_clients"
+	query = "SELECT ip, secret, shortname, virtual_server, require_ma FROM radius.client_lookup('%{Packet-Src-IP-Address}')"
+	update {
+		control:FreeRADIUS-Client-IP-Address	:= 0
+		control:FreeRADIUS-Client-Secret	:= 1
+		control:FreeRADIUS-Client-Shortname	:= 2
+		control:FreeRADIUS-Client-Virtual-Server	:= 3
+		control:FreeRADIUS-Client-Require-MA	:= 4
+	}
+}
+
+sql_map map_auth {
+	sql_module_instance = "sql_auth"
+	query = "SELECT cleartext_password, decision, reply_message, session_timeout, rate_limit, port_limit, interim FROM radius.authorize('%{User-Name}', '%{Packet-Src-IP-Address}', '%{Calling-Station-Id}', '%{Called-Station-Id}')"
+	update {
+		control:Cleartext-Password	:= 0
+		control:Tmp-String-1		:= 1
+		control:Tmp-String-2		:= 2
+		reply:Session-Timeout		:= 3
+		reply:Mikrotik-Rate-Limit	:= 4
+		reply:Port-Limit		:= 5
+		reply:Acct-Interim-Interval	:= 6
+	}
+}
