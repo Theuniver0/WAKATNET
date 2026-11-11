@@ -7,6 +7,7 @@
 # Variables lues (aucune n'est passée en argument de commande) :
 #   POSTGRES_USER / POSTGRES_DB   superutilisateur et base (défauts de l'image postgres)
 #   WAKATNET_PG_RADIUS_PASSWORD   mot de passe du rôle wk_radius (posé après les migrations)
+#   WAKATNET_PG_ACCT_PASSWORD     mot de passe du rôle wk_acct (lecteur detail, ticket 04)
 #
 # Garanties :
 #   - chaque fichier NNNN_*.sql de app/ et radius/ est appliqué une seule fois,
@@ -50,20 +51,25 @@ SQL
   } | "${PSQL[@]}" -1 -v nom="$nom" -v empreinte="$empreinte" -f -
 done
 
-# Mot de passe du rôle FreeRADIUS : lu dans l'environnement par psql (\getenv),
+# Mots de passe des rôles de FreeRADIUS : lus dans l'environnement par psql (\getenv),
 # jamais sur une ligne de commande ni dans un fichier versionné. La session coupe
-# la journalisation des instructions pour que le mot de passe n'apparaisse dans
-# aucun journal, même en cas d'erreur.
-if [ -n "${WAKATNET_PG_RADIUS_PASSWORD:-}" ]; then
-  "${PSQL[@]}" <<'SQL'
+# la journalisation des instructions pour qu'aucun mot de passe n'apparaisse dans
+# un journal, même en cas d'erreur. Le nom du rôle est une constante du script.
+poser_mot_de_passe() {
+  local role="$1" variable="$2"
+  if [ -n "${!variable:-}" ]; then
+    "${PSQL[@]}" -v role="$role" -v variable="$variable" <<'SQL'
 SET log_statement = 'none';
 SET log_min_error_statement = 'panic';
 SET log_min_duration_statement = -1;
-\getenv mdp WAKATNET_PG_RADIUS_PASSWORD
-ALTER ROLE wk_radius PASSWORD :'mdp';
+\getenv mdp :variable
+ALTER ROLE :"role" PASSWORD :'mdp';
 SQL
-  echo "mot de passe de wk_radius posé"
-else
-  echo "ATTENTION : WAKATNET_PG_RADIUS_PASSWORD absent — wk_radius n'a pas de mot de passe : FreeRADIUS ne pourra pas se connecter." >&2
-fi
+    echo "mot de passe de $role posé"
+  else
+    echo "ATTENTION : $variable absent — $role n'a pas de mot de passe : FreeRADIUS ne pourra pas se connecter avec ce rôle." >&2
+  fi
+}
+poser_mot_de_passe wk_radius WAKATNET_PG_RADIUS_PASSWORD
+poser_mot_de_passe wk_acct WAKATNET_PG_ACCT_PASSWORD
 echo "migrations à jour"

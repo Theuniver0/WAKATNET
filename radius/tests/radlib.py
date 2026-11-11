@@ -169,6 +169,68 @@ def access_request(
         s.close()
 
 
+ACCOUNTING_REQUEST, ACCOUNTING_RESPONSE = 4, 5
+CODES[ACCOUNTING_RESPONSE] = "Accounting-Response"
+STATUTS = {"Start": 1, "Stop": 2, "Interim-Update": 3, "Accounting-On": 7, "Accounting-Off": 8}
+
+
+def accounting_request(
+    *,
+    serveur: str,
+    secret: bytes,
+    statut: str,
+    session_id: str,
+    utilisateur: str | None = None,
+    source: str | None = None,
+    port: int = 1813,
+    octets_entree: int | None = None,
+    giga_entree: int | None = None,
+    octets_sortie: int | None = None,
+    giga_sortie: int | None = None,
+    duree: int | None = None,
+    cause_fin: int | None = None,
+    calling_station_id: str = "AA-BB-CC-00-00-01",
+    framed_ip: str | None = "10.5.50.2",
+    event_timestamp: int | None = None,
+    delai: float = 1.5,
+    essais: int = 1,
+) -> Reponse | None:
+    """Accounting-Request (RFC 2866) ; renvoie l'Accounting-Response vérifiée, ou None.
+    Request Authenticator = MD5(code + id + longueur + 16 zéros + attributs + secret)."""
+    ident = os.urandom(1)[0]
+    entier = lambda t, v: _attr(t, struct.pack("!I", v))
+    corps = [entier(40, STATUTS[statut]), _attr(44, session_id.encode())]
+    if utilisateur is not None:
+        corps.append(_attr(1, utilisateur.encode()))
+    for t, v in ((42, octets_entree), (52, giga_entree), (43, octets_sortie), (53, giga_sortie),
+                 (46, duree), (49, cause_fin), (55, event_timestamp)):
+        if v is not None:
+            corps.append(entier(t, v))
+    corps += [_attr(31, calling_station_id.encode()), _attr(32, b"routeur-test")]
+    if framed_ip:
+        corps.append(_attr(8, socket.inet_aton(framed_ip)))
+    corps_b = b"".join(corps)
+    entete = struct.pack("!BBH", ACCOUNTING_REQUEST, ident, 20 + len(corps_b))
+    auth_req = hashlib.md5(entete + b"\x00" * 16 + corps_b + secret).digest()
+    paquet = entete + auth_req + corps_b
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        if source:
+            s.bind((source, 0))
+        s.settimeout(delai)
+        for _ in range(essais):
+            s.sendto(paquet, (serveur, port))
+            try:
+                data, _src = s.recvfrom(4096)
+            except socket.timeout:
+                continue
+            return _verifier(data, auth_req, secret, ident)
+        return None
+    finally:
+        s.close()
+
+
 def _verifier(data: bytes, auth_req: bytes, secret: bytes, ident: int) -> Reponse:
     if len(data) < 20:
         raise ReponseInvalide("réponse trop courte")

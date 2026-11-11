@@ -29,3 +29,33 @@ sql_map map_auth {
 		reply:Acct-Interim-Interval	:= 6
 	}
 }
+
+# Rejeu de l'accounting (ADR 0006 §1, §7, §12). Paramètres en texte, analysés en SQL.
+# Packet-Src-IP-Address : adresse du routeur, rétablie par le lecteur depuis le fichier
+# (log_packet_header = yes). Packet-Original-Timestamp : instant de RÉCEPTION par le nœud.
+# Résultat 'ok' ou 'quarantaine' ; une erreur SQL donne fail, donc aucune réponse au
+# lecteur, qui réessaie (detail.c l. 76).
+
+sql_map map_acct_start {
+	sql_module_instance = "sql_acct"
+	query = "SELECT radius.acct_start('%{Packet-Src-IP-Address}', '%{Acct-Session-Id}', '%{User-Name}', '%{Calling-Station-Id}', '%{Framed-IP-Address}', '%{Acct-Input-Octets}', '%{Acct-Input-Gigawords}', '%{Acct-Output-Octets}', '%{Acct-Output-Gigawords}', '%{Acct-Session-Time}', '%{Acct-Terminate-Cause}', '%{integer:Packet-Original-Timestamp}')"
+	update {
+		control:Tmp-String-0	:= 0
+	}
+}
+
+sql_map map_acct_interim {
+	sql_module_instance = "sql_acct"
+	query = "SELECT radius.acct_interim('%{Packet-Src-IP-Address}', '%{Acct-Session-Id}', '%{User-Name}', '%{Calling-Station-Id}', '%{Framed-IP-Address}', '%{Acct-Input-Octets}', '%{Acct-Input-Gigawords}', '%{Acct-Output-Octets}', '%{Acct-Output-Gigawords}', '%{Acct-Session-Time}', '%{Acct-Terminate-Cause}', '%{integer:Packet-Original-Timestamp}')"
+	update {
+		control:Tmp-String-0	:= 0
+	}
+}
+
+sql_map map_acct_stop {
+	sql_module_instance = "sql_acct"
+	query = "SELECT radius.acct_stop('%{Packet-Src-IP-Address}', '%{Acct-Session-Id}', '%{User-Name}', '%{Calling-Station-Id}', '%{Framed-IP-Address}', '%{Acct-Input-Octets}', '%{Acct-Input-Gigawords}', '%{Acct-Output-Octets}', '%{Acct-Output-Gigawords}', '%{Acct-Session-Time}', '%{Acct-Terminate-Cause}', '%{integer:Packet-Original-Timestamp}')"
+	update {
+		control:Tmp-String-0	:= 0
+	}
+}

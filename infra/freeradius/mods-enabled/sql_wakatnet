@@ -66,3 +66,37 @@ sql sql_auth {
 		max_retries = 1
 	}
 }
+
+# Lecteur detail (ADR 0006 §12) : rôle wk_acct, pool à lui, distinct de l'authentification.
+# Une base lente ou arrêtée ne touche que le rejeu, jamais les réponses aux routeurs.
+sql sql_acct {
+	dialect = "postgresql"
+	driver = "rlm_sql_postgresql"
+	server = "$ENV{WAKATNET_PG_HOST}"
+	port = 5432
+	login = "wk_acct"
+	password = "$ENV{WAKATNET_PG_ACCT_PASSWORD}"
+	radius_db = "wakatnet"
+	sql_user_name = "%{User-Name}"
+	read_clients = no
+	read_groups = no
+	read_profiles = no
+	# Hors chemin critique : borne principale = statement_timeout de wk_acct (5 s, migration 0005).
+	query_timeout = 5
+	postgresql {
+		send_application_name = yes
+	}
+	pool {
+		start = 0
+		min = 0
+		# Le lecteur n'a qu'un enregistrement en cours à la fois (detail.c).
+		max = 2
+		spare = 1
+		uses = 0
+		retry_delay = 5
+		lifetime = 0
+		idle_timeout = 60
+		connect_timeout = 2.0
+		max_retries = 1
+	}
+}

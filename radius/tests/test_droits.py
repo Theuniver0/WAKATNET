@@ -19,6 +19,9 @@ DEPOT = pathlib.Path("/depot")
 ATTENDU = {
     "radius.client_lookup(p_src text)": {"wk_radius"},
     "radius.authorize(p_user text, p_src text, p_calling text, p_called text)": {"wk_radius"},
+    "radius.acct_start(p_src text, p_session_id text, p_user text, p_calling text, p_framed_ip text, p_in_oct text, p_in_giga text, p_out_oct text, p_out_giga text, p_session_time text, p_cause text, p_received_epoch text)": {"wk_acct"},
+    "radius.acct_interim(p_src text, p_session_id text, p_user text, p_calling text, p_framed_ip text, p_in_oct text, p_in_giga text, p_out_oct text, p_out_giga text, p_session_time text, p_cause text, p_received_epoch text)": {"wk_acct"},
+    "radius.acct_stop(p_src text, p_session_id text, p_user text, p_calling text, p_framed_ip text, p_in_oct text, p_in_giga text, p_out_oct text, p_out_giga text, p_session_time text, p_cause text, p_received_epoch text)": {"wk_acct"},
 }
 
 
@@ -47,11 +50,16 @@ def test_lecture_directe_refusee_en_pratique():
             c.execute("SELECT secret FROM radius.router_secret LIMIT 1")
 
 
-def test_wk_acct_n_a_encore_aucune_fonction():
+def test_chaque_role_n_execute_que_ses_fonctions():
+    """wk_radius : client_lookup et authorize ; wk_acct : acct_start, acct_interim, acct_stop (ticket 04)."""
     with admin() as c:
-        n = c.execute("""SELECT count(*) FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                          WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege('wk_acct', p.oid, 'EXECUTE')""").fetchone()[0]
-    assert n == 0
+        lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
+                                FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct')) r(rolname)
+                               WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
+                               ORDER BY 1, 2""").fetchall()
+    assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_start"), ("wk_acct", "radius.acct_stop"),
+                      ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():

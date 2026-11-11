@@ -97,3 +97,12 @@ Ces écarts sont des choix techniques, motivés par des faits observés en exéc
 | — | — | **Garde de démarrage `infra/freeradius/verifier-env.sh`** (`ExecStartPre` en production, et commande du conteneur en test). | FreeRADIUS accepte un `lifetime` vide, qui vaut alors un cache sans fin (constaté). `run.sh` vérifie que la garde refuse une variable absente ou un lifetime nul. |
 
 **Hors périmètre de la phase 1, confirmé** : la RLS (I1) arrive en phase 2 (PRD §3, « cloisonnement applicatif complet »). En phase 1, le cloisonnement repose sur la clé `(propriétaire, code)` et sur les clés étrangères composites (`tenant_id`, …), testées par T6 au ticket 03.
+
+## Amendement du 11/11/2026 — ticket 04 (accounting découplé)
+
+| § | Prévu | Réalisé | Motif |
+|---|---|---|---|
+| §3 | Tests « base indisponible » en dernier, sous un marqueur pytest | **Orchestrés par `run.sh`**, en cinq étapes de `test_t04_indispo.py`, entre lesquelles `run.sh` arrête, relance, fige (`docker compose pause`) puis libère PostgreSQL. Chaque étape doit compter exactement « 1 passed ». Hors de cette orchestration, ces tests sont ignorés. | Le conteneur de test ne pilote pas Docker, et une base arrêtée empêche la fixture de données. `WAKATNET_SANS_FIXTURES=1` garde les données du passage principal. |
+| §3 | Primitive « detail vidé » | Volume `radacct` partagé : en écriture pour FreeRADIUS, en **lecture seule** pour le testeur (`conftest.attendre_rejeu`). | Observer le spool sans pouvoir le modifier. |
+| §5 | Aucune différence de lancement hors `-x` | `install -d -o freerad … /var/log/freeradius/radacct` avant le démarrage, en test seulement. | Le volume partagé est créé vide par Docker. En production, le paquet crée ce répertoire pour `freerad`. |
+| §6 | Secrets générés | `WAKATNET_PG_ACCT_PASSWORD` en plus (rôle `wk_acct`). `migrer.sh` pose les deux mots de passe par une même fonction, avec la journalisation coupée. `verifier-env.sh` exige la variable. | Le lecteur `detail` a son propre rôle (ADR 0006 §12). |

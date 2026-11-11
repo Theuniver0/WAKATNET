@@ -9,6 +9,13 @@ server wakatnet {
 		port = 1812
 	}
 
+	# Accounting du même nœud (ticket 04) : écrit dans le spool, puis répond.
+	listen {
+		type = acct
+		ipaddr = $ENV{WAKATNET_RADIUS_LISTEN}
+		port = 1813
+	}
+
 	authorize {
 		# Codes en majuscules (ADR 0006 §15). En CHAP, la casse est fixée par login.html,
 		# le serveur ne pouvant pas recalculer le hachage.
@@ -68,6 +75,12 @@ server wakatnet {
 		Auth-Type PAP {
 			pap
 		}
+	}
+
+	# Règle 2 et C3 : aucune base ici. Une écriture qui échoue (disque plein) ne donne
+	# aucune réponse, et le routeur retransmet ; elle ne touche jamais l'authentification.
+	accounting {
+		detail_wakatnet
 	}
 
 	post-auth {

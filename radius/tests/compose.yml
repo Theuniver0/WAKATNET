@@ -42,7 +42,9 @@ services:
     # d'un paquet sans Message-Authenticator (radius.c l. 2891, listen.c, DEBUG_ENABLED).
     # Surcharge de test listée dans surcharges/LISTE.md ; la recherche de secrets la couvre.
     # La garde verifier-env.sh précède le démarrage, comme ExecStartPre en production.
-    entrypoint: ["sh", "-c", "/opt/wakatnet/verifier-env.sh && exec freeradius -f -x -l stdout"]
+    # install -d : le volume du spool est partagé avec le testeur ; il doit appartenir à
+    # freerad (en production, le paquet crée /var/log/freeradius/radacct pour lui).
+    entrypoint: ["sh", "-c", "install -d -o freerad -g freerad -m 0700 /var/log/freeradius/radacct && /opt/wakatnet/verifier-env.sh && exec freeradius -f -x -l stdout"]
     # Seulement ce dont FreeRADIUS a besoin : son mot de passe et les surcharges.
     env_file:
       - path: ./jeu-radius.secrets
@@ -55,6 +57,7 @@ services:
       - ../../infra/freeradius/sites-enabled:/etc/freeradius/sites-enabled:ro
       - ../../infra/freeradius/mods-enabled:/etc/freeradius/mods-enabled:ro
       - ../../infra/freeradius/verifier-env.sh:/opt/wakatnet/verifier-env.sh:ro
+      - radacct:/var/log/freeradius/radacct
     depends_on:
       postgres: { condition: service_healthy }
     networks:
@@ -71,10 +74,15 @@ services:
     volumes:
       - ../../infra:/depot/infra:ro
       - ../../radius:/depot/radius:ro
+      # Spool de l'accounting, en LECTURE SEULE : primitive « detail vidé » (ADR 0008 §3).
+      - radacct:/radacct:ro
     networks:
       overlay: { ipv4_address: 10.213.1.10 }
       hors: { ipv4_address: 172.29.214.10 }
       arriere: { ipv4_address: 172.29.215.10 }
+
+volumes:
+  radacct:
 
 networks:
   overlay:
