@@ -27,7 +27,7 @@ Instances `rlm_sql`, qui portent les connexions, et `rlm_sql_map`, qui portent l
 | Fonction | Rôle | Contrat |
 |---|---|---|
 | `radius.client_lookup(p_src text) RETURNS TABLE(ip text, secret text, shortname text, virtual_server text, require_ma text)` | `wk_radius` | Appelée par `map_clients` dans le serveur `dynamic_clients` : **une seule requête**, et `fail` en cas d'erreur. Pour le routeur **actif** dont l'IP overlay est `p_src`, elle renvoie **une ligne**. Ses colonnes vont dans `control:FreeRADIUS-Client-IP-Address`, `-Secret`, `-Shortname`, `-Virtual-Server` et **`-Require-MA`, toujours présent et jamais NULL** (`yes` par défaut ; `no` seulement par exception tracée dans `router.require_ma_exception` et le journal d'audit, ADR 0003). Routeur inconnu ou inactif : aucune ligne, donc aucun client et aucune réponse. |
-| `radius.authorize(p_user text, p_src text, p_calling text, p_called text) RETURNS TABLE(cleartext_password text, auth_type text, reply_message text, session_timeout bigint, rate_limit text, port_limit int, interim int)` | `wk_radius` | **Lecture seule** (`STABLE`). Renvoie **une ligne**, dont les colonnes sont associées aux attributs par `map_auth` (§2) : une seule requête par Access-Request. Ne lève jamais d'exception à cause d'une donnée : tout cas inattendu donne un refus codé. Enveloppe de `radius._authorize_at(…, p_now)` (ADR 0007). |
+| `radius.authorize(p_user text, p_src text, p_calling text, p_called text) RETURNS TABLE(cleartext_password text, decision text, reply_message text, session_timeout bigint, rate_limit text, port_limit int, interim int)` | `wk_radius` | **Lecture seule** (`STABLE`). Renvoie **une ligne**, dont les colonnes sont associées aux attributs par `map_auth` (§2) : une seule requête par Access-Request. Ne lève jamais d'exception à cause d'une donnée : tout cas inattendu donne un refus codé. Enveloppe de `radius._authorize_at(…, p_now)` (ADR 0007). |
 | `radius.post_auth(p_user text, p_src inet, p_calling text, p_result text, p_cause text) RETURNS void` | `wk_radius` | Écrit dans `auth_log` : routeur, MAC, résultat, cause, `voucher_id` si le code existe pour ce propriétaire, sinon NULL. **Jamais le code.** Pose la liaison `bind_mac` au premier Accept (§9). |
 | `radius.acct_start / acct_interim / acct_stop(p_src text, p_session_id text, p_user text, p_calling text, p_framed_ip text, p_in_oct text, p_in_giga text, p_out_oct text, p_out_giga text, p_session_time text, p_cause text, p_received_epoch text) RETURNS text` | `wk_acct` | Idempotentes (§8). **Tous les paramètres sont en `text`** et analysés dans la fonction : une conversion impossible (chaîne vide, valeur invalide) envoie la ligne en quarantaine **au lieu** de faire échouer l'appel SQL, ce qui bloquerait le lecteur sans fin. `p_received_epoch` = `%{integer:Packet-Original-Timestamp}`. Renvoient `'ok'` ou `'quarantaine'`. |
 | `radius.acct_on_off(p_src text, p_received_epoch text) RETURNS text` | `wk_acct` | Ferme les sessions de l'**époque courante** du routeur, puis incrémente l'époque (§8). Le critère est l'époque et non l'instant, parce que l'instant est arrondi à la seconde. |
@@ -54,7 +54,8 @@ Correspondance avec la matrice T :
 
 **Amendement du 11/11/2026, ticket 02.** La recopie de `control` vers `reply` est remplacée par le module **`rlm_sql_map`** de FreeRADIUS 3.2.10 (`mods-available/sql_map`, `rlm_sql_map.so`). Raisons, lues dans `src/modules/rlm_sql_map/rlm_sql_map.c` (tag `release_3_2_10`) :
 - une requête, et les colonnes de **la** ligne renvoyée sont associées, par leur numéro, à des attributs de **n'importe quelle liste** (`control`, `reply`). La décision et les valeurs viennent donc du même instantané, sans recopie `unlang` ;
-- **colonne NULL : attribut ignoré** (l. 174) ; **valeur illisible : ignorée**, avec un avertissement, **sans faire échouer** la requête (l. 186–193). Le piège de `rlm_sql`, où une ligne malformée fait échouer toute la requête, disparaît ;
+- **valeur illisible : ignorée**, avec un avertissement, **sans faire échouer** la requête (l. 186–193). Le piège de `rlm_sql`, où une ligne malformée fait échouer toute la requête, disparaît ;
+- **Correction du 11/11/2026, observée en exécution au ticket 02** : le module ignore bien une colonne NULL (l. 174), mais **le pilote PostgreSQL de FreeRADIUS rend une colonne NULL sous forme de chaîne vide**. La trace montrait `control:Auth-Type := 0` et `reply:Reply-Message := ""`. Il ne faut donc **jamais** compter sur NULL pour « attribut absent » ;
 - **aucune évaluation** des valeurs (`fr_pair_value_from_str`) : l'injection par une valeur entourée d'apostrophes inverses, possible avec `rlm_sql`, disparaît ;
 - erreur SQL → `fail` (l. 375–378) ; aucune ligne → `noop` (l. 353, 382).
 
@@ -63,14 +64,19 @@ Association pour `map_auth` (colonne → attribut) :
 | Colonne | Attribut |
 |---|---|
 | 0 `cleartext_password` | `control:Cleartext-Password :=` |
-| 1 `auth_type` | `control:Auth-Type :=` (vaut `Reject` en cas de refus, NULL sinon) |
-| 2 `reply_message` | `reply:Reply-Message :=` (cause du refus) |
+| 1 `decision` | `control:Tmp-String-1 :=` (`Accept` ou `Reject`, **toujours explicite**) |
+| 2 `reply_message` | `control:Tmp-String-2 :=` (cause du refus) |
 | 3 `session_timeout` | `reply:Session-Timeout :=` |
 | 4 `rate_limit` | `reply:Mikrotik-Rate-Limit :=` |
 | 5 `port_limit` | `reply:Port-Limit :=` |
 | 6 `interim` | `reply:Acct-Interim-Interval :=` |
 
-- Code inconnu : `authorize` renvoie une ligne de refus (`auth_type = 'Reject'`, `reply_message = 'ticket_inconnu'`), et non zéro ligne, pour que la réponse soit explicite.
+- **Adaptation de transport dans le site `wakatnet`, sans logique d'accès (C2)** :
+  - `decision = 'Reject'` : `Auth-Type := Reject`, puis `Reply-Message` prend la valeur de la cause ;
+  - ni `Accept` ni `Reject` (ligne absente) : refus par défaut ;
+  - une chaîne vide dans `Mikrotik-Rate-Limit` est retirée ;
+  - les entiers vides (`Session-Timeout`…) ne passent pas l'analyse et sont donc ignorés.
+- Code inconnu : `authorize` renvoie une ligne de refus (`decision = 'Reject'`, `reply_message = 'ticket_inconnu'`), et non zéro ligne, pour que la réponse soit explicite.
 - Garde-fous conservés : contrainte `CHECK` en base sur `rate_limit` (`^[0-9A-Za-z/ .:-]+$`) ; une colonne d'attribut de réponse est **NULL** en cas de refus. Un test de propriétés vérifie qu'un refus ne porte jamais d'attribut d'Accept.
 - La configuration `rlm_sql` des instances `sql_clients` et `sql_auth` ne définit **aucune** requête `authorize_*` : elles ne servent qu'à porter les pools.
 - **À prouver en exécution au ticket 02.**
