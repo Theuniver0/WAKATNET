@@ -93,4 +93,4 @@ Une ligne par jour. Un incident fait l'objet d'un compte rendu, sans recherche d
 
 Elle s'ouvre après G-PILOTE et deux semaines d'écart nul à l'étape A.
 - **Rapprochement** : chaque propriétaire a son relevé et son propre rapprochement (`--proprietaire`). L'agent n'a jamais accès à leurs comptes marchands.
-- **Accueil** : `docs/ONBOARDING_ROUTEUR.md`, avec un guide imprimable si Yacouba le demande (SPEC §14.4).
+- **Accueil** : `docs/ONBOARDING_ROUTEUR.md`, et le guide imprimable du propriétaire et du vendeur, `docs/guides/guide-pilote.pdf` (6 pages A4 ; la partie du vendeur tient sur une page). Remplir les cases du contact avant d'imprimer.

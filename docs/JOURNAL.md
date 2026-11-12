@@ -906,3 +906,14 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/e2e.sh` : SUCCÈS ;
   - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes ; ansible-lint, profil production, sans remarque.
 - **Non prouvé** : la clé /64 de nginx sur une vraie IPv6 (le banc tourne en IPv4 seulement ; `nginx -t` valide la syntaxe).
+
+### Guide imprimable du propriétaire et du vendeur (12/11/2026)
+
+- **Demande** de Yacouba : « fais le point 3 » (SPEC §14.4, guide du propriétaire et du vendeur pour le pilote).
+- **Livré** : `docs/guides/guide-pilote.html` (source), `docs/guides/imprimer.mjs` (rendu par Playwright et Chromium), `docs/guides/guide-pilote.pdf` (6 pages A4).
+  - Partie 1, propriétaire : compte, raccordement, page de connexion, forfaits, points de vente, tickets papier et leur coût, vente en ligne (pas encore ouverte), suivi de l'argent ;
+  - partie 2, vendeur, sur une page : connexion, vente, aide au client, mémo de caisse ;
+  - partie 3 : dépannage, retrait d'un routeur, sécurité.
+- **Vérifié** : chaque libellé de bouton et d'écran cité a été relevé dans `apps/dashboard/src`, et les droits du gérant et du vendeur dans `apps/api/src/exploitation.ts`. Rendu relu page par page.
+- **Trouvé en l'écrivant** : la coupure de l'accès d'un vendeur (M3) existe dans l'API (`PUT /v1/utilisateurs/:id`), mais **aucun écran** ne l'offre. Le guide dit d'appeler Telecom Universel.
+- **Non vérifié** : la compréhension par un vrai propriétaire, à éprouver au premier accueil. Les étapes sur le routeur suivent `docs/ONBOARDING_ROUTEUR.md`, qui n'a pas encore été joué sur CHR.
