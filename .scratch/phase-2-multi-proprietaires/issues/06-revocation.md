@@ -3,7 +3,8 @@
 **PRD** : `../PRD.md` · **Dépend de** : 03, 05
 
 ## À livrer
-- `POST /v1/routers/{id}/revoke` : `actif = false`, audit, `NOTIFY` ; les sessions ouvertes du routeur sont inscrites à couper.
+- `POST /v1/routers/{id}/revoke` : `actif = false`, audit, `NOTIFY`.
+- **[précisé à la réalisation, 12/11/2026]** Les sessions ouvertes ne sont **pas** inscrites à couper : le pair est retiré en quelques dizaines de millisecondes, donc un Disconnect ne joindrait plus le routeur. Comme aucun Interim n'arrive plus, ces sessions sont fermées comme sessions fantômes (ADR 0006 §8), au bout de 3 intervalles Interim. La révocation est définitive : le routeur revient par désinstallation puis nouvel enrôlement, avec une nouvelle clé et une nouvelle adresse.
 
 ## Critères d'acceptation
 - Pair retiré de `wg0` en moins de 2 s (test `wg-agent`).

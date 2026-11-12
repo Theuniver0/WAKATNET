@@ -113,6 +113,8 @@ test("wk_api ne lit aucun secret et n'exécute aucune fonction radius", async ()
   await assert.rejects(sql(URL_API, "SELECT secret FROM radius.router_secret"), /permission denied/);
   await assert.rejects(sql(URL_API, "SELECT * FROM radius.authorize('X', '10.213.1.10', '', '')"), /permission denied/);
   await assert.rejects(sql(URL_API, "SELECT * FROM radius.client_lookup('10.213.1.10')"), /permission denied/);
-  await assert.rejects(sql(URL_API, "UPDATE app.router SET actif = false"), /permission denied/);
+  // Seule la colonne actif est modifiable (révocation, ticket 06), et sous RLS.
+  await assert.rejects(sql(URL_API, "UPDATE app.router SET shortname = 'x'"), /permission denied/);
+  await assert.rejects(sql(URL_API, "DELETE FROM app.router"), /permission denied/);
   await assert.rejects(sql(URL_API, "SELECT nom FROM app.tenant"), /permission denied/);
 });

@@ -649,3 +649,13 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - l'archive Debian n'est pas joignable depuis ce conteneur (proxy CONNECT seul : 405 en HTTP). Le conteneur de test est donc construit sur Ubuntu 24.04, avec la chaîne Go recopiée de l'image officielle ;
   - `wireguard-go` exige `WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1` sous Linux.
 - **Non prouvé ici** : le module WireGuard du noyau sur un nœud Debian. `wgctrl` passe alors par netlink plutôt que par la socket de `wireguard-go`, avec la même API. À rejouer en phase 5.
+
+### Phase 2, ticket 06 : révocation d'un routeur (12/11/2026)
+
+- `POST /v1/routers/{id}/revoke` : idempotente, avec une seule entrée d'audit. Migration 0016 : `wk_api` peut modifier la **seule** colonne `actif`, et seulement sur ses routeurs (RLS).
+- Effets prouvés :
+  - en base, `client_lookup` ne rend plus le routeur (test HTTP) ;
+  - sur le tunnel, le pair est retiré en 25 ms (`wg-agent`, ticket 05) ;
+  - dans FreeRADIUS, le routeur est oublié au plus tard à l'expiration du client dynamique (`test_clients.py::test_l8_*`, phase 1).
+- Sessions ouvertes : fermées comme sessions fantômes, puisqu'un Disconnect ne passerait plus (ticket 06 précisé).
+- **Preuves** : `apps/api/tests/run.sh` (pile neuve) donne 46 tests, SUCCÈS. Ils couvrent la révocation, le 404 chez un autre propriétaire, et `wk_api` qui ne change que `actif` et seulement chez lui.

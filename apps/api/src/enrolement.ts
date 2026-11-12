@@ -114,6 +114,29 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
     return rep.code(201).send({ commande: commande(config.urlPublique, jeton), expire_le: cree.expire_le.toISOString() });
   });
 
+  // Propriétaire : révocation de SON routeur (ticket 06). Effet immédiat sur le tunnel (wg-agent
+  // retire le pair au NOTIFY) et sur la base (client_lookup ne le rend plus) ; FreeRADIUS l'oublie
+  // au plus tard à l'expiration du client dynamique (lifetime), sans paquet possible entre-temps
+  // puisque le tunnel est fermé. Ses sessions ouvertes sont fermées comme sessions fantômes
+  // (ADR 0006 §8). Définitive : un routeur révoqué revient par désinstallation puis nouvel
+  // enrôlement (nouvelle clé, nouvelle adresse).
+  app.post<{ Params: { id: string } }>("/v1/routers/:id/revoke", async (req, rep) => {
+    if (!IDENTIFIANT.test(req.params.id)) return rep.code(404).send({ erreur: "routeur inconnu" });
+    const fait = await enTantQue(base, req.tenantId, async (tx) => {
+      const r = await tx.router.findUnique({ where: { id: BigInt(req.params.id) }, select: { id: true, actif: true } });
+      if (r === null) return null;
+      if (r.actif) {
+        await tx.router.update({ where: { id: r.id }, data: { actif: false }, select: { id: true } });
+        await tx.audit_log.create({
+          data: { tenant_id: req.tenantId, acteur: `tenant:${req.tenantId}`, action: "routeur_revoque", objet: `router:${r.id}` },
+        });
+      }
+      return r;
+    });
+    if (fait === null) return rep.code(404).send({ erreur: "routeur inconnu" });
+    return { id: fait.id.toString(), actif: false };
+  });
+
   // Propriétaire : script de désinstallation propre à SON routeur, valeurs d'origine relevées à
   // l'enrôlement (R6, ADR 0012 §4). Ticket 04.
   app.get<{ Params: { id: string } }>("/v1/routers/:id/uninstall.rsc", async (req, rep) => {
