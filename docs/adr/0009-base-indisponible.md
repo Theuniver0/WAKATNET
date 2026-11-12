@@ -1,6 +1,6 @@
 # ADR 0009 — Comportement quand PostgreSQL est indisponible
 
-- **Statut** : **proposé** (ticket 08), à valider par Yacouba. **Provisoire jusqu'à LABO-16** (piste B).
+- **Statut** : **accepté le 12/11/2026, par délégation de Yacouba** (« fais tout le travail sans poser de question »), avec ses trois choix : silence sur tout échec SQL du chemin critique (§1), délais du serveur sans rapport avec le `timeout` de RouterOS pour un silence (§2), routeur hors cache laissé sans réponse pendant une panne (§5). **Toujours provisoire jusqu'à LABO-16** (piste B) : si RouterOS bascule aussi sur un Reject, le §1 sera rouvert.
 - **Références** : `docs/SPEC.md` §4 (règles 1 et 2), §10.2, §10.3 ; ADR 0006 §1, §12 (amendement du ticket 04), §13 ; `docs/LABO.md` L6, L6d, L6e, LABO-09, LABO-16 ; ticket `.scratch/phase-1-coeur-radius/issues/08-base-indisponible.md`.
 - **Code lu** (FreeRADIUS `release_3_2_10`) : `rlm_sql_map.c` (`mod_map`), `sql.c` (`rlm_sql_select_query`), `drivers/rlm_sql_postgresql/rlm_sql_postgresql.c` et `sql_postgresql.h`, `main/connection.c`, `rlm_linelog.c`. libpq de l'image : 18.6 (`fe-connect.c`, `REL_18_STABLE`).
 

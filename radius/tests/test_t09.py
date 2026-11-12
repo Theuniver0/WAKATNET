@@ -381,3 +381,21 @@ def test_unites_systemd_de_la_coupure_valides():
     autres = [l for l in (v.stdout + v.stderr).splitlines()
               if l.strip() and "/opt/wakatnet/coupure/coupure.ts" not in l and "/usr/bin/node" not in l]
     assert autres == [], autres
+
+
+def test_noeud_en_lecture_seule_aucun_envoi(fauxnas):
+    """Réplique (T13) simulée par default_transaction_read_only sur wk_coa : aucun Disconnect,
+    rien d'enregistré, sortie 0 (ADR 0010 §3 ; revue de fin de phase 1)."""
+    i, sid, _ = session_ouverte("r13")
+    a_couper(i)
+    n = len(recus(fauxnas))
+    try:
+        with admin() as c:
+            c.execute("ALTER ROLE wk_coa SET default_transaction_read_only = on")
+        t = coupure()
+    finally:
+        with admin() as c:
+            c.execute("ALTER ROLE wk_coa RESET default_transaction_read_only")
+    assert t.returncode == 0 and "lecture seule" in t.stdout, t.stdout + t.stderr
+    assert len(recus(fauxnas)) == n and etat(i) == (None, 0)
+    clore(i)

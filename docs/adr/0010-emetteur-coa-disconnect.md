@@ -1,6 +1,6 @@
 # ADR 0010 — Émetteur de Disconnect / CoA et déclencheur de coupure
 
-- **Statut** : **proposé le 12/11/2026** (ticket 09), à valider par Yacouba. Il précise l'ADR 0006 §1, §6 et §17, acceptés, sans les contredire. Les points marqués **[à valider]** sont des choix que ces sections laissaient ouverts.
+- **Statut** : **accepté le 12/11/2026, par délégation de Yacouba** (« fais tout le travail sans poser de question »). Il précise l'ADR 0006 §1, §6 et §17, acceptés, sans les contredire. Les deux points qui étaient « à valider » sont retenus tels que proposés : accès à la base par `psql` jusqu'à la phase 2, et états finaux `nak` / `abandon` définitifs.
 - **Références** : `docs/SPEC.md` §4 (règle 1), §5.6 (T9, T12), §10.1 ; ADR 0006 §1, §6, §14, §17 ; ADR 0008 ; ticket `.scratch/phase-1-coeur-radius/issues/09-coa-disconnect.md`.
 
 ## 1. Émetteur (`infra/coupure/emetteur.ts`)
@@ -30,7 +30,7 @@
 ## 3. Déclencheur (`infra/coupure/coupure.ts`) et suivi en base
 
 - Un tour : `radius.sessions_to_cut()`, puis pour chaque session `radius.coa_target()`, l'envoi du Disconnect et `radius.mark_cut()`. Rôle `wk_coa`, seul lecteur du secret par session (ADR 0006 §1, §14).
-- **[à valider] Accès à la base par `psql`**, sans dépendance npm. Le socle Node (Fastify, Prisma) n'arrive qu'en phase 2 (ticket 2.1). Le futur worker gardera l'émetteur et remplacera cet accès. Les paramètres passent par des variables `psql`, jamais par concaténation.
+- **[accepté le 12/11/2026, par délégation] Accès à la base par `psql`**, sans dépendance npm. Le socle Node (Fastify, Prisma) n'arrive qu'en phase 2 (ticket 2.1). Le futur worker gardera l'émetteur et remplacera cet accès. Les paramètres passent par des variables `psql`, jamais par concaténation.
 - **Sessions à couper** :
   - inscrites par l'accounting (volume ou temps épuisé, tickets 05 et 06) ;
   - ou dont le propriétaire est suspendu (motif `proprietaire_suspendu`).
@@ -43,7 +43,7 @@
   - `abandon` : après `coupure_tentatives_max` tours sans réponse (5, dans `radius.parametre`), avec **une** alerte `coupure_abandonnee`.
   - Les alertes portent l'identifiant de session.
   - `mark_cut` ne change plus un état final (`ack`, `nak`, `abandon`), par exemple après un tour tué entre l'envoi et l'enregistrement, ou un appel concurrent.
-  - **[à valider] États finaux définitifs** : une session en `nak` ou en `abandon` n'est plus reprise, même pour un nouveau motif. Par exemple, une session abandonnée pendant une suspension, dont le volume s'épuise ensuite. Les alertes la signalent à l'exploitant.
+  - **[accepté le 12/11/2026, par délégation] États finaux définitifs** : une session en `nak` ou en `abandon` n'est plus reprise, même pour un nouveau motif. Par exemple, une session abandonnée pendant une suspension, dont le volume s'épuise ensuite. Les alertes la signalent à l'exploitant.
 - **Écarts de signature avec l'ADR 0006 §1** : `coa_target` rend `nas_ip` en `text` et non en `inet`, parce que c'est ce que lit le déclencheur. `sessions_to_cut` prend un paramètre `p_limite` (100 par défaut, au plus 1 000).
 - Un tour traite au plus 100 sessions, **l'une après l'autre**, dans un **budget de temps** (`WAKATNET_COUPURE_BUDGET_S`, 20 s, sous le `TimeoutStartSec=25s` de l'unité). Les sessions restantes passent au tour suivant.
 - **Ordre** : d'abord les sessions jamais tentées, puis la tentative la plus ancienne (`coupure_le NULLS FIRST`). Avant la revue, le tri par date d'inscription remettait les mêmes sessions muettes en tête à chaque tour : un routeur éteint avec une dizaine de clients **affamait** toutes les autres coupures (revue du ticket 09). Prouvé : une session vivante inscrite après une muette est coupée au tour suivant.

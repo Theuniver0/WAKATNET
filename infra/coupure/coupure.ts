@@ -105,7 +105,10 @@ async function uneSession(session: string, motif: string): Promise<void> {
 }
 
 async function tour(): Promise<number> {
-  const [[lecture_seule]] = await sql("SELECT pg_is_in_recovery();\n", {});
+  // Réplique (pg_is_in_recovery) ou base en lecture seule (transaction_read_only, qui vaut
+  // aussi « on » sur une réplique) : mark_cut ne pourrait rien enregistrer.
+  const [[lecture_seule]] = await sql(
+    "SELECT pg_is_in_recovery() OR current_setting('transaction_read_only') = 'on';\n", {});
   if (lecture_seule === "t") {
     console.log("base en lecture seule (réplique) : aucune coupure sur ce nœud");
     return 0;

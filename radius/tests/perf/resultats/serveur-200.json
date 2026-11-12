@@ -1,1 +1,1 @@
-{"authorize": {"mesures": 11996, "p50": 1.101, "p95": 1.648, "p99": 2.035, "max": 19.346}, "post_auth": {"mesures": 11996, "p50": 1.154, "p95": 1.866, "p99": 3.079, "max": 82.272}, "client_lookup": {"mesures": 0, "p50": null, "p95": null, "p99": null, "max": null}}
+{"authorize": {"mesures": 11984, "p50": 0.857, "p95": 1.395, "p99": 1.772, "max": 20.768}, "post_auth": {"mesures": 11984, "p50": 1.423, "p95": 2.141, "p99": 3.615, "max": 93.38}, "client_lookup": {"mesures": 0, "p50": null, "p95": null, "p99": null, "max": null}}

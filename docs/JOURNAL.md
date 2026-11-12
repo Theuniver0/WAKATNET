@@ -518,3 +518,32 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - Interim envoyés d'abord sur le port 1812 au lieu de 1813. Ce premier rattrapage, de 0,6 s, ne valait rien et a été remplacé ;
   - Reject inattendus en mode Accept expliqués par le jeu de données.
 - **Revue** : outillage de test seulement, sans code de production. Pas de revue indépendante pour ce ticket ; à faire avec la revue de fin de phase 1.
+
+### Fin de phase 1 : anti-devinette sous attaque, décisions, revue (12/11/2026)
+
+- PR n°17 (tickets 09 et 10) fusionnée par Yacouba.
+- **Consigne de Yacouba** dans cette session, le 12/11/2026 : « fais tout le travail sans poser de question, pas d'erreur ». Les points « à valider » des ADR 0009 et 0010 sont donc acceptés **par délégation**, tels que recommandés. L'ADR 0011 l'est aussi. Yacouba peut les rouvrir.
+- **Anti-devinette sous attaque** (RAPPORT §7, ADR 0011, migration `radius/0012`) :
+  - **Rouge sur `main`** : 5 `authorize` d'un vrai client parcouraient l'index par routeur (compteurs de PostgreSQL).
+  - **Correction** : l'index par routeur porte sur `(router_id + 0)`, et les comptes d'alerte de `post_auth` sont bornés au seuil.
+  - **Mesure** : 100 000 échecs récents, 44 ms avant, **0,46 ms** après. C'est une moyenne d'appels SQL directs, pas un p95 RADIUS.
+- **Revue de fin de phase 1**, en deux axes (Standards, Spec), par des relecteurs indépendants. Constats retenus et corrigés :
+  - **important** : la migration 0012 supprimait l'index d'abord. Le verrou exclusif sur `auth_log`, tenu pendant la construction du nouvel index, aurait rendu le nœud muet. L'index est maintenant construit d'abord, puis l'ancien supprimé et le nouveau renommé juste avant la validation ;
+  - **important** : le débit et le p95 dataient d'avant 0012. Ils ont été remesurés : p95 d'`authorize` de 1,40 ms, 200/s et 400/s sans perte (RAPPORT §9). Les chiffres sous attaque sont requalifiés en moyennes SQL ;
+  - **important** : la garde « nœud en lecture seule » de la coupure n'était pas testée. Elle couvre maintenant aussi `transaction_read_only`, et elle est testée ;
+  - **mineurs** :
+    - `test_droits.py` couvre `wk_maint` et `wk_coa` pour CREATE, ainsi que TRUNCATE, REFERENCES et TRIGGER ;
+    - `test_t10_sql.py` est renommé `test_devinette_attaque_sql.py`, pour ne pas le confondre avec T10 ;
+    - les fichiers de secrets jetables laissés par un passage manuel sont supprimés.
+- **Écartés ou notés** :
+  - quatre anciens commits ne citent pas le chemin de leur ticket (P3) : l'historique fusionné n'est pas réécrit ;
+  - la cause `ticket_inconnu` posée en unlang pour un mauvais mot de passe (C2) : choix de l'ADR 0006 §4, testé ;
+  - le ticket 04 demandait une panne de 20 min, le test attend 10 s : même propriété vérifiée ;
+  - l'alerte de T11 n'a pas encore de consommateur (worker en phase 2).
+- **Vert** : `run.sh` depuis une pile neuve, 278 passed, étapes des tickets 04 et 08, trace T10, aucune ligne Login, aucune requête de FreeRADIUS dans le journal de PostgreSQL, aucun secret, `SUCCÈS`.
+- **État de la phase 1 au regard du PRD §6** :
+  1. Matrice verte en une commande : **oui**.
+  2. Essais sur CHR (piste B, Yacouba) : **non**. LABO-00, 09, 16, 18 et 19 sont ouverts, ainsi que T9 et T12 sur un vrai routeur.
+  3. Rapport de performance : **oui**.
+  4. Revue en deux axes : **faite**, ses constats sont corrigés.
+  5. Étiquette `phase-1` : **non posée**. Elle attend le point 2. L'étiquette `g0` n'existe pas non plus dans le dépôt.
