@@ -4,6 +4,7 @@ import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "no
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Base } from "./base.ts";
 import { chiffrer, dechiffrer } from "./chiffrement.ts";
+import { cleSource } from "./cle-ip.ts";
 
 export type Role = "super_admin" | "proprietaire" | "gerant" | "vendeur";
 export type Utilisateur = { id: bigint; tenantId: bigint | null; pdvId: bigint | null; role: Role; email: string; totpOk: boolean };
@@ -149,6 +150,14 @@ export function garde(base: Base, mode: "proprietaire" | "admin") {
 // ------------------------------------------------------------------ routes publiques et de session
 const EMAIL = /^[^@\s]{1,64}@[^@\s]{1,190}\.[a-zA-Z]{2,24}$/;
 
+// Appareil connu (revue de sécurité M2, migration 0031) : posé à chaque connexion réussie, envoyé seulement à
+// /v1/connexion ; il donne un budget d'essais propre, que le plafond global d'une attaque distribuée n'atteint pas.
+const COOKIE_APPAREIL = "wk_appareil";
+function lireAppareil(req: FastifyRequest): string | null {
+  const m = new RegExp(`(?:^|;\\s*)${COOKIE_APPAREIL}=([A-Za-z0-9_-]{43})(?:;|$)`).exec(req.headers.cookie ?? "");
+  return m ? m[1] : null;
+}
+
 function poserSession(rep: FastifyReply, jeton: string) {
   rep.header("set-cookie", `${COOKIE_SESSION}=${jeton}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800`);
 }
@@ -159,7 +168,7 @@ export async function ouvrirSession(base: Base, utilisateurId: bigint): Promise<
   return jeton;
 }
 
-export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buffer | null): void {
+export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buffer | null, cleHmac: Buffer | null = null): void {
   app.register(async (pub) => {
     pub.addHook("onRequest", async (req, rep) => {
       if (!csrfOk(req)) return rep.code(403).send({ erreur: "en-tête X-Wakatnet-Requete manquant" });
@@ -178,22 +187,27 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
       return rep.code(201).send({ ok: true });
     });
 
-    // Connexion : même réponse que le compte existe ou non ; 5 essais par adresse en 15 min, RÉSERVÉS en
-    // base avant la vérification (revue de sécurité M2 : des requêtes parallèles ne passent plus outre).
+    // Connexion : même réponse que le compte existe ou non ; 5 essais par adresse et par source (ou par appareil
+    // connu) en 15 min, 10 par adresse toutes sources inconnues confondues, RÉSERVÉS en base avant la vérification (revue de sécurité M2, migrations
+    // 0030 et 0031 : des requêtes parallèles ne passent plus outre, un tiers ne bloque plus le compte à lui seul).
     pub.post<{ Body: { email?: unknown; mot_de_passe?: unknown } }>("/v1/connexion", async (req, rep) => {
       const { email, mot_de_passe } = req.body ?? {};
       if (typeof email !== "string" || typeof mot_de_passe !== "string" || email.length > 254 || mot_de_passe.length > 200) {
         return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
       }
-      const [{ essai }] = await base.$queryRaw<{ essai: bigint | null }[]>`SELECT app.connexion_reserver(${email}) AS essai`;
+      const appareil = lireAppareil(req);
+      const [{ essai }] = await base.$queryRaw<{ essai: bigint | null }[]>`
+        SELECT app.connexion_reserver(${email}, ${cleSource(req.ip, cleHmac)}, ${appareil ? empreinte(appareil) : null}::bytea) AS essai`;
       if (essai === null) return rep.code(429).send({ erreur: "trop d'essais : patientez 15 minutes" });
       const [l] = await base.$queryRaw<{ utilisateur_id: bigint | null; mot_de_passe: string | null; actif: boolean | null }[]>`
         SELECT utilisateur_id, mot_de_passe, actif FROM app.connexion_lire(${email})`;
       const bon = await verifier(mot_de_passe, l.mot_de_passe ?? (await empreinteFactice()));
       // Échec : la réservation reste et compte. Réussite : elle est effacée.
       if (!bon || l.utilisateur_id === null || !l.actif) return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
-      await base.$executeRaw`SELECT app.connexion_reussie(${essai})`;
+      const jetonAppareil = appareil ?? randomBytes(32).toString("base64url");
+      await base.$executeRaw`SELECT app.connexion_reussie(${essai}, ${empreinte(jetonAppareil)})`;
       poserSession(rep, await ouvrirSession(base, l.utilisateur_id));
+      rep.header("set-cookie", `${COOKIE_APPAREIL}=${jetonAppareil}; Path=/v1/connexion; HttpOnly; Secure; SameSite=Strict; Max-Age=7776000`);
       return { ok: true };
     });
 

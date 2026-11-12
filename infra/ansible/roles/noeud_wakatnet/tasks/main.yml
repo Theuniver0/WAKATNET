@@ -40,6 +40,7 @@
     mode: preserve
   loop: [infra/, apps/api/src/, apps/api/prisma/, apps/api/package.json, apps/api/prisma.config.ts, apps/api/tsconfig.json,
          packages/payments/, package.json, package-lock.json]
+  register: noeud_wakatnet_code
   notify: [Installer les dépendances de l'API, Générer le client Prisma]
 
 - name: Dépendances et client Prisma à jour avant d'activer les unités
@@ -123,3 +124,12 @@
     executable: /bin/bash
   register: noeud_wakatnet_migrations
   changed_when: "'application :' in noeud_wakatnet_migrations.stdout"
+
+# Le code et le schéma vont ensemble : une API restée sur l'ancien code appellerait des fonctions retirées par
+# une migration (relecture de la migration 0031). Redémarrée APRÈS les migrations ; quelques secondes d'erreurs
+# sur la connexion et le paiement restent possibles entre la migration et le redémarrage.
+- name: API redémarrée sur le nouveau code et le nouveau schéma
+  when: wakatnet_role == "primaire" and (noeud_wakatnet_code.changed or noeud_wakatnet_migrations.changed)
+  ansible.builtin.systemd_service:
+    name: wakatnet-api.service
+    state: restarted

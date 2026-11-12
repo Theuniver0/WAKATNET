@@ -61,6 +61,9 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const dossierTableau = env.WAKATNET_TABLEAU_DIR || undefined;
   const trustProxy = env.WAKATNET_TRUST_PROXY || undefined;
   if (trustProxy !== undefined && !/^[0-9a-f.:/,]+$/i.test(trustProxy)) throw new ConfigInvalide("WAKATNET_TRUST_PROXY : adresses IP séparées par des virgules");
+  // Sans lui, derrière nginx, toutes les requêtes viennent de 127.0.0.1 : les limites par source (M2, M7)
+  // retomberaient en silence sur une seule source. Refusé en production (relecture de la migration 0031).
+  if (trustProxy === undefined && env.NODE_ENV === "production") throw new ConfigInvalide("WAKATNET_TRUST_PROXY requis en production (ADR 0016 §2)");
   const etatsNoeuds = (env.WAKATNET_ETATS_NOEUDS ?? "/var/lib/wakatnet/sante/etat.json").split(",").filter(Boolean);
   return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
 }

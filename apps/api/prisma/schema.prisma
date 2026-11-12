@@ -250,11 +250,14 @@ model recuperation_tentative {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model connexion_echec {
-  id    BigInt   @id @default(autoincrement())
-  email String
-  le    DateTime @default(now()) @db.Timestamptz(6)
+  id     BigInt   @id @default(autoincrement())
+  email  String
+  le     DateTime @default(now()) @db.Timestamptz(6)
+  source String   @default("?")
 
   @@index([email, le], map: "connexion_echec_email")
+  @@index([email, source, le], map: "connexion_echec_email_source")
+  @@index([le], map: "connexion_echec_le")
   @@schema("app")
 }
 
@@ -372,5 +375,31 @@ model totp_essai {
   utilisateur    utilisateur @relation(fields: [utilisateur_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([utilisateur_id, le], map: "totp_essai_utilisateur")
+  @@schema("app")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model paiement_demande {
+  id      BigInt   @id @default(autoincrement())
+  site_id BigInt
+  source  String
+  le      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([site_id, le], map: "paiement_demande_site")
+  @@index([site_id, source, le], map: "paiement_demande_source")
+  @@index([le], map: "paiement_demande_le")
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model appareil_connu {
+  id        BigInt   @id @default(autoincrement())
+  email     String
+  empreinte Bytes
+  le        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([email, empreinte])
+  @@index([le], map: "appareil_connu_le")
   @@schema("app")
 }

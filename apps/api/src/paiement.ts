@@ -55,6 +55,8 @@ export class ServicePaiement {
   async creer(e: {
     sitePublic: string; planId: bigint; operateur: Operateur; numero: string; otp?: string;
     jetonAppareil: Buffer; soumission: string;
+    /** Source (cleSource) : la garde du site compte par source (revue de sécurité M7, migration 0031). */
+    source?: string;
   }): Promise<
     | { statut: "cree" | "deja"; reference: string; statutPaiement: string; message?: string }
     | { statut: "site_inconnu" | "forfait_inconnu" | "vente_suspendue" | "sans_compte_marchand" | "numero_invalide" | "trop_de_demandes" }
@@ -66,7 +68,7 @@ export class ServicePaiement {
                                             tenant_id: bigint | null; statut_paiement: string | null }[]>`
       SELECT statut, reference, montant, tenant_id, statut_paiement
         FROM app.paiement_creer(${e.sitePublic}, ${e.planId}, ${e.operateur}, ${numero}, ${hmacNumero(this.cles.hmac, numero)},
-                                ${masquerNumero(numero)}, ${e.jetonAppareil}, ${e.soumission}, ${reference})`;
+                                ${masquerNumero(numero)}, ${e.jetonAppareil}, ${e.soumission}, ${reference}, ${e.source ?? "?"})`;
     if (r.statut !== "cree" && r.statut !== "deja") return { statut: r.statut as "site_inconnu" };
     if (r.statut === "deja") return { statut: "deja", reference: r.reference!, statutPaiement: r.statut_paiement! };
 

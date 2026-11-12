@@ -39,17 +39,19 @@ nginx est retenu, comparé à Caddy :
   - Let's Encrypt par certbot (défi http-01, webroot), renouvelé par la minuterie du paquet. Les certificats passent à 64 jours le 10/02/2027 : certbot renouvelle aux deux tiers de leur durée ;
   - aucun agrafage OCSP (arrêté par Let's Encrypt) ;
   - HSTS sur `api.` seulement : le portail est ouvert depuis un hotspot, en clair, puis redirigé.
-- **Limites par IP source** (M1) :
+- **Limites par source** (M1) : l'IPv4, ou le /64 d'une IPv6 (un abonné en reçoit un entier), comme dans l'API :
 
   | Zone | Chemins | Limite |
   |---|---|---|
   | `connexion` | `/v1/connexion`, `/v1/inscription`, `/v1/totp` | 10 par minute, rafale de 5 : protège scrypt et le pool de threads de libuv |
-  | `payer` | `POST /p/*/payer` | 30 par minute, rafale de 10 : les clients d'un site sortent tous par l'IP WAN de son routeur, donc la limite reste celle d'un site (30 par minute, migration 0022) |
+  | `payer` | `POST /p/*/payer` | 30 par minute, rafale de 10 : les clients d'un site sortent tous par l'IP WAN de son routeur, dont l'API garde aussi le budget (30 par minute et par source, migration 0031) |
   | `general` | tout le reste | 20 par seconde, rafale de 40 |
 
   - `client_max_body_size 64k`, comme l'API.
-  - **M7 n'est que réduit** : un attaquant qui dispose de nombreuses IP épuise encore la garde de 30 par minute d'un site. Un budget par IP au sein du site demande une évolution de la base. C'est noté, pas fait.
-- **IP réelle** : nginx pose `X-Forwarded-For` ; l'API fait confiance au seul proxy local (`trustProxy: 127.0.0.1`, `WAKATNET_TRUST_PROXY`). Toute future clé par IP (M2) s'appuiera dessus.
+  - **Dans l'API** (migration 0031, M2 et M7) : la garde des paiements compte par (site, source), avec un plafond de 100 par minute et par site ; le verrou des connexions compte par (adresse, source), avec un plafond de 10 par adresse pour les sources inconnues, et un budget propre à chaque appareil connu (cookie posé à une connexion réussie).
+  - **M7 n'est que réduit** : 4 sources (4 /64, peu coûteux) épuisent encore le plafond d'un site, qui bloque aussi l'IP du routeur. Le fermer demande de connaître l'IP publique du routeur (point de terminaison WireGuard, vu par `wg-agent`) pour lui garder un budget hors plafond. Décision de Yacouba.
+- **IP réelle** : nginx pose `X-Forwarded-For` ; l'API fait confiance au seul proxy local (`trustProxy: 127.0.0.1`, `WAKATNET_TRUST_PROXY`). L'API **refuse de démarrer en production** sans lui : toutes les requêtes viendraient de 127.0.0.1, et les limites par source retomberaient en silence sur une seule source.
+- **Ce qui est gardé** : la source n'est jamais gardée en clair, mais en HMAC (clé `WAKATNET_CLE_HMAC`, renouvelée chaque jour UTC) ; une heure pour les paiements, un jour pour les connexions. Le journal d'accès de nginx garde, lui, les IP en clair (rotation du paquet, environ 14 jours) : à décrire au registre de traitement (`docs/CONFORMITE.md`).
 
 ## 3. Pare-feu de l'interface publique (F5)
 

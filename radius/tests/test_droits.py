@@ -47,7 +47,7 @@ ATTENDU = {
     "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
     "app.portail_site(p_public_id text)": {"wk_api"},
     "app.portail_forfaits(p_public_id text)": {"wk_api"},
-    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text)": {"wk_api"},
+    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text, p_source text)": {"wk_api"},
     "app.paiement_transition(p_reference text, p_vers text, p_reference_fournisseur text, p_montant bigint, p_devise text, p_origine text)": {"wk_api"},
     "app.paiement_evenement(p_fournisseur text, p_id_evenement text, p_tenant bigint, p_reference text, p_corps bytea)": {"wk_api"},
     "app.paiement_du_proprietaire(p_reference text, p_tenant bigint)": {"wk_api"},
@@ -63,7 +63,6 @@ ATTENDU = {
     # Phase 4 (ADR 0014) : comptes et sessions par fonctions ; super_admin_creer réservé à la main.
     "app.inscription(p_nom_proprietaire text, p_email text, p_mot_de_passe text)": {"wk_api"},
     "app.connexion_lire(p_email text)": {"wk_api"},
-    "app.connexion_echouee(p_email text)": {"wk_api"},
     "app.session_ouvrir(p_utilisateur bigint, p_empreinte bytea)": {"wk_api"},
     "app.session_lire(p_empreinte bytea)": {"wk_api"},
     "app.session_fermer(p_empreinte bytea)": {"wk_api"},
@@ -90,8 +89,8 @@ ATTENDU = {
     # Phase 5, ticket 05 : mesures de santé du nœud (ADR 0015 §6).
     "app.sante()": {"wk_sante"},
     # Phase 5, ticket 08 : corrections de la revue de sécurité (E2, M2, M3).
-    "app.connexion_reserver(p_email text)": {"wk_api"},
-    "app.connexion_reussie(p_essai bigint)": {"wk_api"},
+    "app.connexion_reserver(p_email text, p_source text, p_appareil bytea)": {"wk_api"},
+    "app.connexion_reussie(p_essai bigint, p_appareil bytea)": {"wk_api"},
     "app.totp_reserver(p_empreinte bytea)": {"wk_api"},
     "app.totp_reussi(p_essai bigint)": {"wk_api"},
     "app.utilisateur_desactiver(p_utilisateur bigint, p_auteur bigint)": {"wk_api"},
@@ -134,7 +133,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
                       ("wk_api", "app.admin_regler"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
-                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_echouee"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"),
+                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"),
                       ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
                       ("wk_api", "app.inscription"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),

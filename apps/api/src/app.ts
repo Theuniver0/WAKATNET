@@ -68,7 +68,7 @@ export function construire(config: Config, base: Base,
   routesEtat(app, config.etatsNoeuds ?? []);
 
   // Comptes : inscription, connexion, session, TOTP (ADR 0014 §1 à §3).
-  routesAuth(app, base, config.cles?.marchands ?? null);
+  routesAuth(app, base, config.cles?.marchands ?? null, config.cles?.hmac ?? null);
 
   // Routes du propriétaire (et, route par route, du gérant ou du vendeur) : session obligatoire.
   app.register(async (proprietaire) => {

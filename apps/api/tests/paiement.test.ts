@@ -336,3 +336,36 @@ test("erreurs internes : jamais de détail dans la réponse (portail en HTML, ai
     await base.$disconnect();
   }
 });
+
+test("revue de sécurité M7 : la garde de 30 par minute compte par source ; plafond de 100 par site", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "garde par source");
+    const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.site WHERE public_id = $1", [v.publicId]);
+    const creer = (source: string) => app.paiement!.creer({ sitePublic: v.publicId, planId: BigInt(v.plan), operateur: "moov_bf",
+      numero: numero("07"), jetonAppareil: jeton(), soumission: soumission(), source });
+    // 29 demandes d'un attaquant dans la minute : la 30e passe, la 31e est refusée.
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, '198.51.100.9' FROM generate_series(1, 29)", [id]);
+    assert.equal((await creer("198.51.100.9")).statut, "cree");
+    assert.equal((await creer("198.51.100.9")).statut, "trop_de_demandes");
+    // Les clients du hotspot (IP WAN du routeur) gardent leur budget.
+    assert.equal((await creer("203.0.113.7")).statut, "cree");
+    // Plafond global du site : 100 par minute, toutes sources confondues (31 déjà : 29 + 2 acceptées).
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, 'x' || g FROM generate_series(1, 69) g", [id]);
+    assert.equal((await creer("192.0.2.1")).statut, "trop_de_demandes");
+    // Les demandes de plus d'une minute ne comptent plus.
+    await sql(URL_ADMIN, "UPDATE app.paiement_demande SET le = le - interval '2 minutes' WHERE site_id = $1", [id]);
+    assert.equal((await creer("198.51.100.9")).statut, "cree");
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.payment WHERE site_id = $1", [id]);
+    assert.equal(n, 3, "seules les demandes acceptées créent un paiement");
+  });
+});
+
+test("revue de sécurité M7 : 40 demandes PARALLÈLES d'une même source → 30 acceptées au plus (verrou du site)", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "garde parallèle");
+    const r = await Promise.all(Array.from({ length: 40 }, () => app.paiement!.creer({ sitePublic: v.publicId, planId: BigInt(v.plan),
+      operateur: "moov_bf", numero: numero("07"), jetonAppareil: jeton(), soumission: soumission(), source: "198.51.100.9" })));
+    assert.equal(r.filter((x) => x.statut === "cree").length, 30);
+    assert.equal(r.filter((x) => x.statut === "trop_de_demandes").length, 10);
+  });
+});

@@ -883,3 +883,26 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `systemd-analyze verify` sur `wakatnet-api.service`.
 - **Portes : G-ARGENT et G-PILOTE FERMÉES** (`docs/PILOTE.md` §2). Arrêt obligatoire : rien ne touche à un franc réel ni au routeur d'un tiers sans Yacouba.
 - **Non prouvé ici** : scripts RouterOS sur CHR, Debian 13, vrai VPS, Let's Encrypt réel, format du relevé de l'agrégateur.
+
+### Revue de sécurité, M2 et M7 : limites par source (12/11/2026)
+
+- **Demande** de Yacouba : il n'existe pas de phase 7 au SPEC (§12 s'arrête au pilote). Parmi les trois pistes proposées sans franchir de porte, il a retenu « fermer M2 et M7 ».
+- **Migration 0031** et `apps/api/src/cle-ip.ts` :
+  - source = IPv4, ou /64 d'une IPv6 (un abonné en reçoit un entier ; compter par adresse ne le limiterait pas). Gardée en HMAC du jour, jamais en clair ;
+  - M7 : garde des paiements par (site, source), plafond de 100 par minute et par site ;
+  - M2 : 5 essais par (adresse, source), 10 par adresse pour les sources inconnues ; cookie d'appareil connu, posé à une connexion réussie, avec son propre budget ;
+  - l'API refuse de démarrer en production sans `WAKATNET_TRUST_PROXY` ; nginx compte lui aussi par /64 ; Ansible redémarre l'API après les migrations.
+- **Relu par un second agent** (règle 4) sur la première version :
+  - elle ne faisait que déplacer le blocage d'un compte (6 /64 suffisaient) : le cookie d'appareil connu répond ;
+  - plafond de paiements à 300 : régression contre l'envoi massif de demandes, ramené à 100 ;
+  - IP gardée en clair et reliable au paiement par l'horodatage : remplacée par le HMAC du jour ;
+  - et : nginx comptait par adresse IPv6 entière, l'API pouvait tourner sur l'ancien code après la migration, la purge n'avait pas d'index, la documentation était périmée.
+- **Restes, honnêtes** :
+  - M7 n'est que réduit : 4 sources bloquent encore un site. Le fermer demande l'IP publique du routeur, vue par `wg-agent` : décision de Yacouba ;
+  - M2 : un titulaire sans appareil connu attend 15 min pendant une attaque d'au moins 2 sources.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 165 tests, SUCCÈS. Dont 40 demandes parallèles d'une source → 30 acceptées, appareil connu qui passe une attaque distribuée, en-tête `X-Forwarded-For` forgé hors du proxy non cru ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes ; ansible-lint, profil production, sans remarque.
+- **Non prouvé** : la clé /64 de nginx sur une vraie IPv6 (le banc tourne en IPv4 seulement ; `nginx -t` valide la syntaxe).

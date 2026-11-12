@@ -1,10 +1,18 @@
 # WAKATNET — nginx devant l'API (ADR 0016 §2). Géré par Ansible.
 # Limites par IP source (M1) ; la clé de « payer » n'est posée que pour un POST (l'affichage du formulaire
 # ne consomme pas le budget). Les clients d'un site sortent tous par l'IP WAN de son routeur.
-map $request_method $wk_cle_payer { POST $binary_remote_addr; default ""; }
-limit_req_zone $binary_remote_addr zone=wk_connexion:10m rate=10r/m;
-limit_req_zone $wk_cle_payer       zone=wk_payer:10m     rate=30r/m;
-limit_req_zone $binary_remote_addr zone=wk_general:10m   rate=20r/s;
+# IPv6 : la clé est le /64 (quatre premiers groupes), comme dans l'API (apps/api/src/cle-ip.ts) ; un abonné en
+# reçoit un entier. Une adresse abrégée avant le 4e groupe (« 2001:db8::5 ») donne un préfixe plus court,
+# donc une clé plus large : plus stricte, jamais contournable. IPv4 : l'adresse.
+map $remote_addr $wk_source {
+    "~^(?<p64>[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}:[0-9a-f]{1,4}):" $p64;
+    "~^(?<pcourt>[0-9a-f:]*?)::"                                          $pcourt;
+    default                                                                $remote_addr;
+}
+map $request_method $wk_cle_payer { POST $wk_source; default ""; }
+limit_req_zone $wk_source    zone=wk_connexion:10m rate=10r/m;
+limit_req_zone $wk_cle_payer zone=wk_payer:10m     rate=30r/m;
+limit_req_zone $wk_source    zone=wk_general:10m   rate=20r/s;
 limit_req_status 429;
 
 upstream wakatnet_api {

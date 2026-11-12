@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { base32Encoder, chiffrerTotp, hacher, hotp, totpPas, verifier } from "../src/auth.ts";
-import { avecApp, CLES, empreinteTest, entetesJeton, MDP_TEST, proprietaire, session, sql, URL_ADMIN } from "./aide.ts";
+import { avecApp, CLES, config, empreinteTest, entetesJeton, MDP_TEST, proprietaire, session, sql, URL_ADMIN } from "./aide.ts";
 
 type App = Parameters<Parameters<typeof avecApp>[0]>[0];
 const CSRF = { "x-wakatnet-requete": "1" };
@@ -174,4 +174,53 @@ test("revue de sécurité E2 : TOTP, 5 essais en 15 min (même en parallèle), p
     const h2 = entetesJeton(jetonDe(await connecter(app, email, MDP_TEST)));
     assert.equal((await app.inject({ method: "POST", url: "/v1/totp", headers: h2, payload: { code: hotp(secret, pas) } })).statusCode, 429);
   });
+});
+
+test("revue de sécurité M2 : le verrou compte par source ; plafond de 10 ; l'appareil connu passe une attaque distribuée", async () => {
+  await avecApp(async (app) => {
+    const email = adresse();
+    await inscrire(app, email);
+    const depuis = (ip: string, mdp: string, cookie?: string) => app.inject({ method: "POST", url: "/v1/connexion", remoteAddress: ip,
+      headers: { ...CSRF, ...(cookie ? { cookie } : {}) }, payload: { email, mot_de_passe: mdp } });
+    for (let i = 0; i < 5; i++) assert.equal((await depuis("198.51.100.9", "faux-mot-de-passe")).statusCode, 401);
+    assert.equal((await depuis("198.51.100.9", "un-mot-de-passe-long")).statusCode, 429, "l'attaquant est bloqué");
+    const ok = await depuis("203.0.113.7", "un-mot-de-passe-long");
+    assert.equal(ok.statusCode, 200, "le titulaire, ailleurs, se connecte");
+    // Deux cookies : la session, et l'appareil (limité à /v1/connexion).
+    const cookies = ([] as string[]).concat(ok.headers["set-cookie"] as string[] | string);
+    const appareil = cookies.find((c) => c.startsWith("wk_appareil="))!;
+    assert.ok(cookies.some((c) => c.startsWith("wk_session=")));
+    assert.match(appareil, /^wk_appareil=[A-Za-z0-9_-]{43}; Path=\/v1\/connexion; HttpOnly; Secure; SameSite=Strict; Max-Age=7776000$/);
+    const cookieAppareil = appareil.split(";")[0];
+    // Une IPv6 voisine (même /64) partage le budget de sa source.
+    for (let i = 0; i < 5; i++) await depuis(`2001:db8:1:2::${i + 1}`, "faux-mot-de-passe");
+    assert.equal((await depuis("2001:db8:1:2::ff", "un-mot-de-passe-long")).statusCode, 429);
+    // Plafond global atteint (10 échecs de sources inconnues) : toute source inconnue attend, même avec le bon mot de passe…
+    assert.equal((await depuis("192.0.2.1", "un-mot-de-passe-long")).statusCode, 429);
+    // …mais l'appareil connu du titulaire passe, d'où qu'il vienne.
+    assert.equal((await depuis("192.0.2.1", "un-mot-de-passe-long", cookieAppareil)).statusCode, 200);
+    // Un appareil connu a lui aussi son budget de 5, et un cookie inventé ne vaut rien.
+    for (let i = 0; i < 5; i++) assert.equal((await depuis("192.0.2.2", "faux-mot-de-passe", cookieAppareil)).statusCode, 401);
+    assert.equal((await depuis("192.0.2.2", "un-mot-de-passe-long", cookieAppareil)).statusCode, 429);
+    assert.equal((await depuis("192.0.2.3", "un-mot-de-passe-long", `wk_appareil=${"A".repeat(43)}`)).statusCode, 429);
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.appareil_connu WHERE email = $1", [email]);
+    assert.equal(n, 1, "un seul appareil connu : le cookie présenté est gardé, pas remplacé");
+    const sources = await sql<{ source: string }>(URL_ADMIN, "SELECT DISTINCT source FROM app.connexion_echec WHERE email = $1", [email]);
+    assert.ok(sources.every((x) => !/198\.51|2001:db8|192\.0\.2/.test(x.source)), "aucune IP en clair en base");
+  });
+});
+
+test("revue de sécurité M2 derrière nginx : la source est l'en-tête X-Forwarded-For du seul proxy de confiance", async () => {
+  await avecApp(async (app) => {
+    const email = adresse();
+    await inscrire(app, email);
+    const via = (xff: string, remoteAddress = "127.0.0.1") => app.inject({ method: "POST", url: "/v1/connexion", remoteAddress,
+      headers: { ...CSRF, "x-forwarded-for": xff }, payload: { email, mot_de_passe: "faux-mot-de-passe" } });
+    for (let i = 0; i < 5; i++) assert.equal((await via("198.51.100.9")).statusCode, 401);
+    assert.equal((await via("198.51.100.9")).statusCode, 429);
+    assert.equal((await via("203.0.113.7")).statusCode, 401, "autre client derrière le même proxy : autre budget");
+    // Un en-tête forgé par un client qui ne passe pas par le proxy n'est pas cru.
+    for (let i = 0; i < 5; i++) await via(`192.0.2.${i}`, "203.0.113.50");
+    assert.equal((await via("192.0.2.99", "203.0.113.50")).statusCode, 429);
+  }, config({ trustProxy: "127.0.0.1" }));
 });

@@ -39,4 +39,7 @@ test("WAKATNET_TRUST_PROXY (ADR 0016 §2) : adresses seulement ; absent, aucune 
   assert.equal(lireConfig(URL).trustProxy, undefined);
   assert.equal(lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "127.0.0.1" }).trustProxy, "127.0.0.1");
   assert.throws(() => lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "true" }), ConfigInvalide);
+  // En production, son absence ramènerait toutes les requêtes à une seule source (M2, M7) : refusé.
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production" }), /WAKATNET_TRUST_PROXY requis en production/);
+  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1" }).trustProxy, "127.0.0.1");
 });
