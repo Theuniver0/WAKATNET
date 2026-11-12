@@ -199,9 +199,12 @@ if [ "$#" = 0 ]; then
   if [ "$PRET" = 1 ]; then echo "radiusd prêt sans base"; else echo "radiusd ne démarre pas sans base"; INDISPO=1; fi
   pas h "$T8"
   echo "--- base relancée pendant l'étape i (3 s après son début)"
+  # Attente par PID : un « wait » nu attendrait aussi le tee de la redirection du début,
+  # qui ne se termine qu'à la sortie du script (blocage constaté le 11/11/2026).
   ( sleep 3; $C start postgres >/dev/null 2>&1 ) &
+  RELANCE=$!
   pas i "$T8"
-  wait
+  wait "$RELANCE"
   pret_pg
   pas j "$T8"
   echo "--- base FIGÉE"
@@ -209,8 +212,9 @@ if [ "$#" = 0 ]; then
   pas k "$T8"
   echo "--- base reprise pendant l'étape l (3 s après son début)"
   ( sleep 3; $C unpause postgres >/dev/null 2>&1 ) &
+  RELANCE=$!
   pas l "$T8"
-  wait
+  wait "$RELANCE"
   pret_pg
   [ "$INDISPO" = "$INDISPO_AVANT" ] && echo "base indisponible : silence compté, accounting immédiat, démarrage sans base, retour < retry_delay + 1 s"
 fi

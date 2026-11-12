@@ -8,11 +8,12 @@ Phase 1, ticket 02. Contrats : `docs/adr/0006-contrats-radius.md`. Cette configu
 |---|---|
 | `radiusd.conf` | Copie du fichier de l'image 3.2.10. Deux lignes marquées « WAKATNET » diffèrent : `reject_delay = 0`, et l'inclusion de `mods-enabled/` de ce dépôt (liste fermée des modules). |
 | `clients.conf` | Un seul bloc : tout l'overlay `10.213.0.0/16`, avec des clients **dynamiques** (`rate_limit = yes`, Message-Authenticator exigé). |
-| `sites-enabled/dynamic_clients` | Création d'un client au premier paquet d'une IP inconnue : une requête (`map_clients` → `radius.client_lookup`). |
-| `sites-enabled/wakatnet` | Authentification : une requête (`map_auth` → `radius.authorize`), CHAP et PAP, silence si la base est indisponible, `ticket_inconnu` pour tout refus sans cause. |
+| `sites-enabled/dynamic_clients` | Création d'un client au premier paquet d'une IP inconnue : une requête (`map_clients` → `radius.client_lookup`). Échec de la base : compté (`silence_client`) ; routeur inconnu : non compté. |
+| `sites-enabled/wakatnet` | Authentification : une requête (`map_auth` → `radius.authorize`), CHAP et PAP, silence compté (`silence_auth`) si la base est indisponible (ADR 0009), `ticket_inconnu` pour tout refus sans cause. |
 | `sites-enabled/rejeu_accounting` | Lecteur du spool d'accounting (ticket 04) : `radius.acct_start / acct_interim / acct_stop`, rôle `wk_acct`. Sans réponse (base indisponible), l'enregistrement est réessayé. |
 | `mods-enabled/sql_wakatnet` | Pools PostgreSQL : `sql_clients` et `sql_auth` (rôle `wk_radius`), `sql_acct` (rôle `wk_acct`, lecteur `detail`). |
 | `mods-enabled/sql_map_wakatnet` | Les requêtes et l'association colonnes → attributs (`rlm_sql_map`). |
+| `mods-enabled/linelog_wakatnet` | Compteurs des silences (ADR 0009) : `/var/log/freeradius/wakatnet/silence-auth.log` et `silence-client.log`, une ligne (heure, IP du routeur, jamais le code) par paquet laissé sans réponse faute de base. À faire tourner (`logrotate`) et lire par la supervision : phase 5. |
 | `mods-enabled/detail_wakatnet` | Spool de l'accounting : la section accounting n'écrit que ce fichier, puis répond (règle 2). |
 | `mods-enabled/{always,attr_filter,chap,pap,expr}` | Modules de la distribution, inclus tels quels. |
 

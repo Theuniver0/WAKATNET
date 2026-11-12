@@ -9,6 +9,7 @@ La pile de test monte la configuration FreeRADIUS de **production** (`infra/free
 | `WAKATNET_PG_HOST` | `127.0.0.1` | `172.29.215.5` | PostgreSQL est dans un autre conteneur. |
 
 **Préparation du spool** (test seulement) : `install -d -o freerad -g freerad -m 0700 /var/log/freeradius/radacct` avant le démarrage. Le volume partagé avec le testeur (lecture seule) est créé vide par Docker ; en production, le paquet crée ce répertoire.
+De même pour les compteurs de silence (ADR 0009) : `install -d -o freerad -g freerad -m 0750 /var/log/freeradius/wakatnet`, volume lu par le testeur en lecture seule. En production, `rlm_linelog` crée ce répertoire à la première ligne.
 
 **Option de lancement** (hors variables) : `-x` (debug niveau 1) en test, aucune option en production. C'est le seul moyen de journaliser le rejet d'un paquet sans Message-Authenticator (`radius.c` l. 2891, `listen.c` : `if (DEBUG_ENABLED)`), preuve exigée par T10. Le serveur reste multi-fil, contrairement à `-X`, et la recherche de secrets couvre ce journal.
 
