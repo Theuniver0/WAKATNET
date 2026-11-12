@@ -67,7 +67,7 @@ export const entetesJeton = (jeton: string) => ({ cookie: `wk_session=${jeton}`,
 /** Un propriétaire neuf avec un site, un compte et une session. */
 export async function proprietaire(nom: string): Promise<{ tenant: string; site: string }> {
   // Quota d'enrôlement large (ADR 0017) : les tests de l'enrôlement créent de nombreux jetons ; ceux du quota le baissent.
-  const [t] = await sql<{ id: string }>(URL_ADMIN, "INSERT INTO app.tenant (nom, quota_routeurs) VALUES ($1, 10000) RETURNING id::text", [nom]);
+  const [t] = await sql<{ id: string }>(URL_ADMIN, "INSERT INTO app.tenant (nom, quota_routeurs, valide_admin) VALUES ($1, 10000, true) RETURNING id::text", [nom]);
   SESSIONS.set(t.id, (await session(t.id, "proprietaire")).jeton);
   const [s] = await sql<{ id: string }>(URL_ADMIN,
     "INSERT INTO app.site (tenant_id, nom) VALUES ($1, $2) RETURNING id::text", [t.id, `site de ${nom}`]);

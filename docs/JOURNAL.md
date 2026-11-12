@@ -977,3 +977,67 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/e2e.sh` : SUCCÈS. Le parcours 1 suit le lien dans le navigateur avant d'obtenir la commande d'enrôlement ; axe-core : 14 écrans sans violation sérieuse.
 - **Guide du pilote** mis à jour (étape 1, dépannage), PDF régénéré (6 pages).
 - **Reste** : F9 accepté pour l'instant ; fournisseur d'e-mail à choisir (Yacouba), avec les conditions de l'ADR 0017.
+
+### Revue de sécurité M8 : sauvegardes verrouillées (12/11/2026)
+
+- **Demande** de Yacouba : « tranche M8 : fournisseur S3 avec verrouillage ». Décision : `docs/adr/0018-sauvegardes-verrouillees.md`.
+- **Vérifié sur sources** :
+  - pgBackRest relit un dépôt S3 **versionné** tel qu'il était à une date donnée (`--repo-target-time`, depuis la 2.54) ;
+  - la 2.59.2 corrige cette relecture au-delà de 1 000 versions (#2854) ;
+  - Backblaze B2 documente l'Object Lock en mode conformité, irréversible ;
+  - Cloudflare R2 n'a pas d'Object Lock ; Wasabi facture 90 jours minimum par objet.
+- **Décidé** :
+  - Backblaze B2, région EU Central : fournisseur de stockage seulement, jamais hébergeur de A ni de B ;
+  - bucket versionné, verrouillé en mode conformité 30 jours ; clé des nœuds sans droit sur les réglages du bucket ;
+  - pgBackRest 2.59.2 au moins, contrôlé par Ansible ;
+  - procédure « Restaurer après l'effacement du dépôt » (RUNBOOK §7), et exercice sur B2 avant G-PILOTE.
+- **Prouvé** par le banc `infra/noeud/essais/sauvegarde-s3.sh` (Ubuntu 26.04, pgBackRest 2.58, S3 de test moto derrière nginx) :
+  - avec les clés du nœud, l'attaquant efface la stanza et tous les objets ;
+  - ses 986 effacements définitifs de versions sont refusés ;
+  - `--repo-target-time` retrouve la sauvegarde, et la base revient avec sa ligne témoin.
+- **Trouvé en l'éprouvant** :
+  - l'image MinIO n'existe plus sur Docker Hub, d'où moto ;
+  - le serveur TLS intégré de moto ferme ses connexions sans la notification TLS de fin, ce qu'OpenSSL 3 refuse : nginx placé devant ;
+  - pgBackRest refuse `--target-action` sans type de cible ;
+  - le banc Ansible échouait dès que l'image en cache avait plus d'une heure (apt hors ligne) : la liste des paquets est désormais datée au démarrage.
+- **Autres preuves** :
+  - `infra/noeud/essais/sauvegarde.sh` : SUCCÈS ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes ; ansible-lint, profil production, sans remarque.
+- **Non vérifié** : B2 lui-même (en-têtes exigés par un bucket verrouillé, prix, nom de région). D'où l'exercice de mise en service.
+
+### Fournisseur d'e-mail : Brevo, et les protections de l'ADR 0017 (12/11/2026)
+
+- **Demande** de Yacouba : « tranche le fournisseur d'e-mail ». Décision : `docs/adr/0019-fournisseur-email.md`.
+- **Sources consultées** :
+  - Brevo : 300 e-mails par jour gratuits, API v3 stable, données en France et en Allemagne ;
+  - Scaleway TEM : API encore en `v1alpha1` ;
+  - Mailjet : convient, sans avantage sur Brevo ;
+  - Postmark et Resend : données aux États-Unis ;
+  - Amazon SES : gratuit seulement la première année.
+- **Adaptateur** `ExpediteurBrevo` (`fetch`, sans dépendance) :
+  - la clé ne passe que dans l'en-tête ;
+  - aucune redirection suivie, corps des réponses jamais lu, délai de 10 s ;
+  - réglage `WAKATNET_COURRIEL=brevo` ; sans lui, aucun envoi.
+- **Conditions de l'ADR 0017, remplies** (migration 0034) :
+  - inscription sans session, à réponse identique (ferme **F9**) ;
+  - connexion refusée avant confirmation, avec le message d'un mauvais mot de passe ;
+  - renvoi du lien sans session ;
+  - limites par source (/48 en IPv6) ;
+  - quota de 2 pour un compte neuf, 10 après validation ;
+  - pour les comptes non validés : plafond de 100 routeurs enrôlés par jour, et arrêt à 90 % de l'overlay.
+- **Relu par un second agent** ; corrigés :
+  - un tiers bloquait un compte neuf en 5 inscriptions : avis compté à part, 1 par jour ;
+  - envoi en masse vers des tiers : plafond global de 200 e-mails par jour, alerte `courriels` ;
+  - adresse occupée pour toujours : libérée après 7 jours sans confirmation, rien n'est effacé ;
+  - quota de 2 contourné par les comptes existants ;
+  - ancienne API qui rouvrait F9 : `app.inscription` retirée à `wk_api` ;
+  - plafond global épuisé par des jetons jamais consommés : il compte désormais les routeurs enrôlés ;
+  - baisser le quota validait le compte ;
+  - minutage : l'envoi part en arrière-plan ;
+  - redirection qui aurait emporté la clé ;
+  - suivi des clics de Brevo à désactiver (consigné).
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 184 tests, SUCCÈS. Dont l'adaptateur contre un faux serveur, la réponse identique (adresse libre ou prise), la connexion refusée avant confirmation, les limites par source, le quota de 2, le plafond global, le seuil des 90 % (overlay rempli pour de bon, puis vidé), la libération d'adresse et le plafond d'e-mails ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS. Inscription sans session, connexion refusée, lien suivi, connexion, raccordement ; axe-core : 13 écrans.
+- **Non vérifié** : Brevo lui-même (délivrabilité vers Gmail et Outlook depuis le Burkina, mention de marque sur l'offre gratuite, restriction des clés par IP, DPA).

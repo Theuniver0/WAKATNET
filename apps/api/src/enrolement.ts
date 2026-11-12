@@ -120,6 +120,9 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
     if (cree === "non_verifie") {
       return rep.code(403).send({ erreur: "Adresse e-mail non vérifiée : confirmez-la (lien reçu par e-mail) ou demandez sa validation à Telecom Universel." });
     }
+    if (cree === "plafond") {
+      return rep.code(409).send({ erreur: "Raccordements momentanément suspendus pour les comptes non validés : demandez la validation de votre compte à Telecom Universel." });
+    }
     if (typeof cree === "string") {
       return rep.code(409).send({ erreur: "Quota de routeurs atteint (routeurs raccordés, révoqués compris) : demandez une hausse à Telecom Universel." });
     }

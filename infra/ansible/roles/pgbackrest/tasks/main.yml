@@ -5,6 +5,18 @@
     name: pgbackrest
     state: present
 
+# ADR 0018 §7 : la restauration après un effacement du dépôt (--repo-target-time) exige cette version.
+- name: Version de pgBackRest
+  ansible.builtin.command: pgbackrest version
+  register: pgbackrest_version
+  changed_when: false
+
+- name: Exiger une version de pgBackRest au moins égale à {{ pgbackrest_version_min }}
+  ansible.builtin.assert:
+    that: (pgbackrest_version.stdout | regex_search('[0-9]+\\.[0-9]+(\\.[0-9]+)?')) is version(pgbackrest_version_min, '>=')
+    fail_msg: "{{ pgbackrest_version.stdout }} : il faut {{ pgbackrest_version_min }} ou plus récent (dépôt PGDG), ADR 0018"
+    quiet: true
+
 - name: Répertoires
   ansible.builtin.file:
     path: "{{ item }}"

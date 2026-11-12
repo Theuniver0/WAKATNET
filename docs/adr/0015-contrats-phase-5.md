@@ -62,7 +62,7 @@ La réplique copie aussi les erreurs : un `DELETE` malheureux, ou un déclencheu
     - *Corrigé à l'implémentation (ticket 04)* : la première rédaction la prenait sur B (`backup-standby`). Or pgBackRest exige alors un canal SSH ou TLS de B vers le primaire, et l'archive des WAL se fait de toute façon sur le primaire. À cette échelle, le gain de charge ne justifie pas ce canal de plus.
     - Le script tourne sur les deux nœuds et sort sans rien faire sur une réplique : la sauvegarde suit le primaire après une bascule.
 - **Chiffrement** côté client : `repo1-cipher-type = aes-256-cbc`. La phrase de passe est dans `/etc/pgbackrest/secret.conf` (root, 0600), créée par Yacouba. **Une copie hors des nœuds est obligatoire** : sans elle, la sauvegarde est perdue avec les nœuds.
-- **Stockage hors site** : dépôt compatible S3, **chez un troisième fournisseur**, distinct des deux hébergeurs des nœuds. Le choix du fournisseur est **[À CONFIRMER]** par Yacouba (coût, région).
+- **Stockage hors site** : dépôt compatible S3, **chez un troisième fournisseur**, distinct des deux hébergeurs des nœuds. **Décidé par l'ADR 0018** : Backblaze B2, verrouillé en mode conformité (revue de sécurité M8).
   - En labo, le dépôt est un répertoire (`repo1-type = posix`), avec le même chiffrement.
   - Le transport S3 n'est **pas prouvé ici** : il le sera sur le nœud.
 - **Essai de restauration mensuel, automatisé** (`infra/noeud/essai-restauration.sh`, minuterie systemd) :

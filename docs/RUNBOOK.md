@@ -128,6 +128,30 @@ Le spool doit se vider en quelques minutes.
 4. Démarrer PostgreSQL, puis passer la fumée, puis le §1.
 5. Rejouer les spools des nœuds perdus s'ils sont récupérables (`/var/log/freeradius/radacct/wakatnet/`), puis reconstruire B (§4).
 
+### Restaurer après l'effacement du dépôt (nœud compromis, ADR 0018)
+
+Le bucket B2 est verrouillé en mode conformité pendant 30 jours : un effacement ne fait que **masquer** les objets, et leurs versions restent lisibles. Symptômes : alerte `sauvegarde` (la stanza n'existe plus), ou `pgbackrest info` vide.
+
+1. **Contenir d'abord** :
+   - révoquer la clé d'application B2 des nœuds (console B2) ;
+   - traiter le nœud compromis (RUNBOOK §3 : couper son réseau).
+2. Retrouver l'heure de l'effacement : console B2, versions de `wakatnet/backup/wakatnet/backup.info` (heure du masquage). Choisir une heure **juste avant**, en UTC.
+3. Vérifier ce que le dépôt contenait à cette heure :
+
+   ```bash
+   sudo -u postgres pgbackrest --stanza=wakatnet --repo=1 --repo-target-time="2026-11-20 03:00:00+00" info
+   ```
+
+4. Sur un nœud sain, PostgreSQL arrêté, répertoire de données vide, restaurer jusqu'à la fin des WAL de cette heure :
+
+   ```bash
+   sudo -u postgres pgbackrest --stanza=wakatnet --repo=1 --repo-target-time="2026-11-20 03:00:00+00" restore
+   ```
+
+5. Démarrer PostgreSQL, fumée, §1. Créer une **nouvelle clé** B2 pour les nœuds, puis recréer la stanza (`stanza-create`) et lancer une sauvegarde complète.
+
+Prouvé au banc `infra/noeud/essais/sauvegarde-s3.sh` (S3 de test, verrou de conformité) ; à rejouer une fois sur B2 à la mise en service (`docs/MISE_EN_PRODUCTION.md`).
+
 **Mesuré** le 12/11/2026 sur le banc d'essai (`infra/noeud/essais/sauvegarde.sh`, base de 349 Mo : 100 000 tickets, 1,35 million de lignes d'`auth_log`) :
 - sauvegarde complète en 7,1 s ;
 - restauration jusqu'au point cohérent de la sauvegarde, instance ouverte, en 3,9 s.

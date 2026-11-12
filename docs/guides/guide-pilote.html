@@ -94,7 +94,7 @@
 <ol>
   <li>Ouvrez l'adresse du tableau de bord (page de couverture), puis <span class="bouton">Créer mon compte</span>.</li>
   <li>Saisissez le <strong>Nom de votre zone Wi-Fi</strong>, votre <strong>Adresse e-mail</strong> et votre <strong>Mot de passe</strong>.</li>
-  <li><strong>Confirmez votre adresse e-mail</strong> : ouvrez le lien reçu, puis <span class="bouton">Confirmer mon adresse</span>. Si vous n'avez rien reçu, votre contact Telecom Universel valide votre adresse ; sans elle, vous ne pouvez pas raccorder de routeur.</li>
+  <li><strong>Confirmez votre adresse e-mail</strong> : ouvrez le lien reçu (regardez aussi les indésirables), puis <span class="bouton">Confirmer mon adresse</span>, puis <span class="bouton">Se connecter</span>. Rien reçu ? Sur l'écran de connexion : <strong>Je n'ai pas reçu le lien de confirmation</strong>.</li>
   <li>Allez dans <span class="ecran">Sites et routeurs</span>. Saisissez le <strong>Nom du site</strong> (par exemple « Maquis du marché »), puis <span class="bouton">Ajouter le site</span>.</li>
 </ol>
 
@@ -228,8 +228,8 @@
   <tr><td>Le routeur n'apparaît pas au tableau de bord</td><td>Pas d'Internet sur le routeur, ou RouterOS trop ancien</td><td>Dans le terminal : <code>/ping 1.1.1.1</code>, puis <code>/system resource print</code> (version 7.15 au moins).</td></tr>
   <tr><td>Les clients voient « serveur sans réponse »</td><td>Tunnel coupé</td><td><code>/interface wireguard peers print</code> : le dernier échange doit dater de moins de 3 minutes. Sinon, vérifier Internet, puis appeler votre contact.</td></tr>
   <tr><td>Un code valable est refusé</td><td>Forfait réservé à un autre site, ou ticket déjà utilisé sur trop d'appareils</td><td>Vérifier le site du forfait dans <span class="ecran">Forfaits</span>.</td></tr>
-  <tr><td>« Adresse e-mail non vérifiée » au raccordement</td><td>Adresse pas encore confirmée</td><td>Ouvrir le lien reçu, ou <span class="bouton">Renvoyer le lien</span>, ou appeler votre contact.</td></tr>
-  <tr><td>« Quota de routeurs atteint »</td><td>10 routeurs par compte, routeurs retirés compris</td><td>Demander une hausse à votre contact.</td></tr>
+  <tr><td>« Quota de routeurs atteint »</td><td>2 routeurs pour un compte neuf, routeurs retirés compris</td><td>Demander une hausse à votre contact.</td></tr>
+  <tr><td>Connexion refusée « … ou adresse pas encore confirmée »</td><td>Lien de confirmation pas encore ouvert, ou mot de passe faux</td><td>Ouvrir le lien reçu, ou le redemander depuis l'écran de connexion.</td></tr>
   <tr><td>Impossible de générer des tickets</td><td>Solde de crédits épuisé, au-delà du découvert autorisé</td><td>Demander une recharge à votre contact. Les tickets déjà imprimés restent valables.</td></tr>
 </table>
 <div class="encadre"><strong>Si les serveurs WAKATNET sont injoignables</strong>, les clients déjà connectés restent connectés, et votre routeur bascule de lui-même sur le second serveur. Il n'y a rien à faire sur le routeur.</div>
@@ -241,8 +241,7 @@
 </ol>
 <p><strong>Routeur volé ou perdu :</strong> révoquez-le tout de suite (étape 2 seulement), puis prévenez votre contact.</p>
 
-<h2>Sécurité, en bref</h2>
-<p>Votre mot de passe et la commande de raccordement ne se partagent pas. Les tickets imprimés valent de l'argent : rangez-les. Un vendeur qui part : coupez son accès le jour même (étape 5). Telecom Universel ne vous demandera <strong>jamais</strong> votre mot de passe.</p>
+<p><strong>Sécurité, en bref.</strong> Votre mot de passe et la commande de raccordement ne se partagent pas. Les tickets imprimés valent de l'argent : rangez-les. Un vendeur qui part : coupez son accès le jour même (étape 5). Telecom Universel ne vous demandera <strong>jamais</strong> votre mot de passe.</p>
 
 </section>
 

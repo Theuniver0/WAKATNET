@@ -17,6 +17,44 @@ export class ExpediteurMemoire implements Expediteur {
   }
 }
 
+/** Brevo (ADR 0019) : API transactionnelle v3. La clé ne quitte jamais l'en-tête ; une erreur ne rapporte que le
+ *  code HTTP, jamais le corps (qui pourrait citer l'adresse ou le lien). Délai de 10 s. */
+export class ExpediteurBrevo implements Expediteur {
+  private readonly r: { cle: string; de: string; nom: string };
+  private readonly url: string;
+  constructor(r: { cle: string; de: string; nom: string }, url = "https://api.brevo.com/v3/smtp/email") {
+    this.r = r;
+    this.url = url;
+  }
+  async envoyer(m: Courriel): Promise<void> {
+    const rep = await fetch(this.url, {
+      method: "POST",
+      headers: { "api-key": this.r.cle, "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ sender: { email: this.r.de, name: this.r.nom }, to: [{ email: m.a }], subject: m.sujet, textContent: m.texte }),
+      signal: AbortSignal.timeout(10_000),
+      // Jamais de redirection : l'en-tête api-key la suivrait vers un autre domaine (relecture ADR 0019).
+      redirect: "error",
+    });
+    await rep.body?.cancel();             // corps jamais lu (il pourrait citer l'adresse) : libère la connexion
+    if (!rep.ok) throw new Error(`brevo : réponse ${rep.status}`);
+  }
+}
+
+/** Avis à une adresse déjà inscrite (ADR 0019 : l'inscription répond pareil, l'avis part à la vraie titulaire). */
+export function messageAvis(a: string, urlTableau: string): Courriel {
+  return {
+    a,
+    sujet: "WAKATNET : votre adresse a déjà un compte",
+    texte: [
+      "Bonjour,",
+      "",
+      "Quelqu'un vient de demander la création d'un compte WAKATNET avec votre adresse, qui en a déjà un. Aucun compte n'a été créé.",
+      `Si c'est vous, connectez-vous : ${urlTableau}#/connexion`,
+      "Sinon, ignorez ce message.",
+    ].join("\n"),
+  };
+}
+
 /** Message de vérification de l'adresse d'un propriétaire. */
 export function messageVerification(a: string, lien: string): Courriel {
   return {

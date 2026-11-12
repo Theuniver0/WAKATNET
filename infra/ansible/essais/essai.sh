@@ -39,6 +39,9 @@ for n in "$A:172.30.77.2" "$B:172.30.77.3"; do
   docker run -d --name "${n%%:*}" --network "$RESEAU" --ip "${n##*:}" --privileged --cgroupns=host \
     -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock wakatnet-noeud-essai:local >/dev/null
 done
+# Les nœuds d'essai n'ont pas Internet : la liste des paquets vient de l'image. Plus vieille qu'une heure (image en
+# cache), le module apt (cache_valid_time: 3600) voudrait la rafraîchir et échouerait. On la date de maintenant.
+for c in "$A" "$B"; do docker exec "$c" touch /var/lib/apt/lists; done
 for c in "$A" "$B"; do
   for _ in $(seq 1 60); do
     etat="$(docker exec "$c" systemctl is-system-running 2>/dev/null || true)"
@@ -67,7 +70,10 @@ mkdir -p "$TMP/group_vars" && cp "$ANSIBLE/group_vars/noeuds.yml" "$TMP/group_va
 # Ubuntu 24.04 livre PostgreSQL 16 : pas de dépôt PGDG pour l'essai.
 JOUER=("$BIN/ansible-playbook" -i "$TMP/inventaire.yml" -e "wakatnet_depot=$DEPOT" -e postgresql_depot_pgdg=false
         -e frontal_tls=fourni -e frontal_nom_api=api.essai -e frontal_nom_portail=portail.essai
-        -e frontal_certificat=/etc/wakatnet/tls/cert.pem -e frontal_cle=/etc/wakatnet/tls/cle.pem -e frontal_ipv6=false)
+        -e frontal_certificat=/etc/wakatnet/tls/cert.pem -e frontal_cle=/etc/wakatnet/tls/cle.pem -e frontal_ipv6=false
+        # Ubuntu 24.04 fournit pgBackRest 2.50 (pas de dépôt PGDG ici) ; le contrôle de version reste joué, au seuil
+        # du banc. En production : 2.59.2 (ADR 0018). Le dépôt S3 verrouillé a son propre banc : sauvegarde-s3.sh.
+        -e pgbackrest_version_min=2.50)
 export ANSIBLE_CONFIG="$ANSIBLE/ansible.cfg" ANSIBLE_ROLES_PATH="$ANSIBLE/roles"
 
 etape "Certificat TLS auto-signé de l'essai (frontal_tls=fourni)"

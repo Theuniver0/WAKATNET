@@ -7,8 +7,8 @@ import { isIPv4, isIPv6 } from "node:net";
 
 /** Ce qui est gardé en base : HMAC de la clé de source, clé WAKATNET_CLE_HMAC, renouvelé chaque jour UTC (relecture :
  *  ni IP en clair, ni lien d'un jour à l'autre). Sans clé (développement), la clé de source elle-même. */
-export function cleSource(ip: string | undefined, cleHmac: Buffer | null, maintenant = new Date()): string {
-  const c = cleIp(ip);
+export function cleSource(ip: string | undefined, cleHmac: Buffer | null, maintenant = new Date(), prefixe6: 48 | 64 = 64): string {
+  const c = cleIp(ip, prefixe6);
   if (cleHmac === null) return c;
   return createHmac("sha256", cleHmac).update(`source|${maintenant.toISOString().slice(0, 10)}|${c}`).digest("base64url").slice(0, 22);
 }
@@ -21,7 +21,9 @@ export function ipComparable(ip: string | undefined): string | null {
   return isIPv4(a) || isIPv6(a) ? a : null;
 }
 
-export function cleIp(ip: string | undefined): string {
+/** `prefixe6` : 64 par défaut ; 48 pour les routes publiques d'inscription et de renvoi (ADR 0019 : un abonné peut
+ *  disposer d'un /48, donc de 65 536 /64). */
+export function cleIp(ip: string | undefined, prefixe6: 48 | 64 = 64): string {
   let a = (ip ?? "").trim().toLowerCase().replace(/%.*$/, "");
   if (a.startsWith("::ffff:") && isIPv4(a.slice(7))) a = a.slice(7);
   if (isIPv4(a)) return a;
@@ -34,5 +36,6 @@ export function cleIp(ip: string | undefined): string {
   })() : [x])));
   const [gauche, droite] = groupes;
   const tout = droite === undefined ? gauche : [...gauche, ...Array(8 - gauche.length - droite.length).fill("0"), ...droite];
-  return `${tout.slice(0, 4).map((x) => parseInt(x, 16).toString(16)).join(":")}::/64`;
+  const groupes6 = prefixe6 / 16;
+  return `${tout.slice(0, groupes6).map((x) => parseInt(x, 16).toString(16)).join(":")}::/${prefixe6}`;
 }

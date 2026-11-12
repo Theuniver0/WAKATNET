@@ -27,3 +27,11 @@ test("source gardée en base : HMAC du jour, stable dans la journée, différent
   assert.notEqual(cleSource("2001:db8:1:3::5", cle, j1), s);
   assert.equal(cleSource("203.0.113.7", null), "203.0.113.7", "sans clé (développement) : la clé de source");
 });
+
+test("ADR 0019 : routes publiques d'inscription et de renvoi comptées par /48 en IPv6", () => {
+  assert.equal(cleIp("2001:db8:1:2::5", 48), "2001:db8:1::/48");
+  assert.equal(cleIp("2001:db8:1:ffff::9", 48), "2001:db8:1::/48", "tout /64 du même /48 : même clé");
+  assert.equal(cleIp("203.0.113.7", 48), "203.0.113.7", "IPv4 inchangée");
+  assert.notEqual(cleSource("2001:db8:1:2::5", Buffer.alloc(32, 1), new Date("2026-11-20T00:00:00Z"), 48),
+                  cleSource("2001:db8:2:2::5", Buffer.alloc(32, 1), new Date("2026-11-20T00:00:00Z"), 48));
+});

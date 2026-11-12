@@ -53,14 +53,20 @@ security:
 paths:
   /v1/inscription:
     post:
-      summary: Inscription d'un propriétaire (accès ouvert) ; ouvre une session
+      summary: "Inscription d'un propriétaire (accès ouvert) ; aucune session ; même réponse que l'adresse soit libre ou prise (ADR 0019, F9)"
       security: []
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nom, email, mot_de_passe], properties: { nom: { type: string }, email: { type: string }, mot_de_passe: { type: string, minLength: 10 } } } } } }
       responses:
-        "201": { description: Compte créé, session ouverte }
+        "202": { description: "Demande prise : lien de confirmation (compte neuf) ou avis (adresse déjà inscrite) envoyé par e-mail" }
         "403": { description: En-tête anti-CSRF manquant }
-        "409": { description: Adresse déjà utilisée }
         "422": { description: Saisie invalide }
+        "429": { description: "5 inscriptions par heure et par source" }
+  /v1/verification/renvoyer:
+    post:
+      summary: "Renvoi du lien de confirmation sans session ; réponse toujours identique ; 5 par heure et par source (ADR 0019)"
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string } } } } } }
+      responses: { "202": { description: Demande prise }, "422": { description: Adresse invalide } }
   # ADR 0017 (revue M4) : vérification de l'adresse du propriétaire, exigée pour raccorder un routeur.
   /v1/verification/confirmer:
     post:
@@ -167,7 +173,7 @@ paths:
         "404": { description: Site inconnu ou d'un autre propriétaire }
         "401": { description: Identité absente ou invalide }
         "403": { description: Propriétaire suspendu, ou adresse e-mail non vérifiée (ADR 0017) }
-        "409": { description: "Quota de routeurs atteint : routeurs enrôlés, révoqués compris, plus jetons ouverts (ADR 0017)" }
+        "409": { description: "Quota de routeurs atteint (ADR 0017), ou plafond des comptes non validés (ADR 0019)" }
   /v1/imports/mikhmon:
     post:
       summary: Importe des tickets Mikhmon (CSV name, password, profile) ; rejouable sans doublon

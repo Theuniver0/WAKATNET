@@ -11,9 +11,10 @@
 | Deux VPS Debian 13, IP fixes, B chez un **autre** hébergeur avant G-PILOTE | ADR 0004 |
 | Nom de domaine : `api.` et `portail.` (le portail sur une IP dédiée, si l'hébergeur le permet) | ADR 0013 §10, ADR 0016 §2 |
 | Accès console de chaque VPS (en cas de coupure SSH) | RUNBOOK §6 |
-| Dépôt S3 chez un troisième fournisseur, verrouillage d'objets activé | ADR 0015 §5, REVUE_SECURITE M8 |
+| Compte **Backblaze B2** (double authentification, distinct du compte Hetzner) ; bucket privé, région EU Central, **Object Lock activé à la création**, rétention par défaut **conformité 30 jours**, cycle de vie « versions masquées effacées après 31 jours » ; clé d'application limitée à ce bucket, sans droit sur ses réglages | ADR 0018, REVUE_SECURITE M8 |
 | Clé PGDG et clé de l'éditeur de FreeRADIUS téléchargées **et vérifiées** (empreinte) dans `infra/ansible/cles/` | ADR 0004 point 5 |
 | Bot Telegram et salon d'alertes | ADR 0015 §6 |
+| Compte **Brevo** (double authentification) ; sous-domaine expéditeur `notif.DOMAINE` authentifié (SPF, DKIM selon la console Brevo, DMARC `p=quarantine`) ; clé API dans `/etc/wakatnet/api.env` : `WAKATNET_COURRIEL=brevo`, `WAKATNET_BREVO_CLE`, `WAKATNET_COURRIEL_DE=ne-pas-repondre@notif.DOMAINE` ; si Brevo le permet, clé limitée aux IP de A et B ; **suivi des ouvertures et des clics désactivé** | ADR 0019 |
 
 ## 1. Secrets, posés à la main sur chaque nœud
 
@@ -52,7 +53,9 @@ Garder hors des nœuds, dans un coffre :
 
    Scanner une seule fois l'URI `otpauth://` affichée.
 
-   Tant qu'aucun fournisseur d'e-mail n'est branché (ADR 0017 §3), chaque propriétaire inscrit attend que le super-admin valide son adresse (Administration, **Valider l'adresse**), après l'avoir vérifiée par un autre moyen (téléphone). Sans cela, il ne peut pas raccorder de routeur.
+   **E-mail** (ADR 0019) : avec Brevo réglé, chaque propriétaire confirme son adresse par le lien reçu, puis se connecte (quota de 2 routeurs). Le super-admin le valide (Administration, **Valider l'adresse**) pour porter son quota à 10 et le sortir des plafonds des comptes non validés. Sans `WAKATNET_COURRIEL`, aucun e-mail ne part : un propriétaire inscrit ne peut pas se connecter tant que le super-admin n'a pas validé son adresse, après l'avoir vérifiée par un autre moyen (téléphone).
+
+   Premier essai d'envoi : créer un compte d'essai avec une adresse à soi, vérifier la réception (et le dossier indésirables), le lien, puis la connexion.
 7. Sauvegarde, sur A :
 
    ```bash
@@ -72,6 +75,8 @@ Garder hors des nœuds, dans un coffre :
    ```
 
    L'alerte « essai de restauration » reste levée tant qu'aucun essai n'a réussi : on le lance donc dès le déploiement.
+
+   **Exercice d'effacement, une fois, avant G-PILOTE** (ADR 0018) : sur un bucket B2 **d'essai**, réglé comme celui de production, refaire les étapes de `infra/noeud/essais/sauvegarde-s3.sh` à la main. Ce sont la sauvegarde, `stanza-delete --force`, une tentative d'effacement définitif d'une version (elle doit être refusée), puis la restauration avec `--repo-target-time` (RUNBOOK §7). Noter le résultat au journal du pilote. Le bucket d'essai reste facturé pendant ses 30 jours de verrou : quelques centimes.
 8. Alertes : arrêter `wakatnet-wg-agent` une minute sur B, vérifier que l'alerte puis sa résolution arrivent sur Telegram, et le redémarrer.
 
 ## 3. Avant d'ouvrir la vente en ligne (G-ARGENT)

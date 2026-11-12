@@ -1,0 +1,17 @@
+# WAKATNET — banc du dépôt S3 verrouillé (revue de sécurité M8, ADR 0018). Jetable, jamais en production.
+# Ubuntu 26.04 : pgBackRest 2.58 (--repo-target-time, depuis 2.54) et PostgreSQL de la distribution.
+# moto : serveur S3 de test (versionnement et Object Lock), épinglé, installé dans un venv ; nginx devant lui pour TLS
+# (le serveur TLS intégré de moto ferme sans close_notify, ce qu'OpenSSL 3, côté pgBackRest, refuse).
+FROM ubuntu:26.04
+RUN --mount=type=secret,id=ca,required=false \
+    if [ -s /run/secrets/ca ]; then cp /run/secrets/ca /tmp/ca.crt && chmod 0644 /tmp/ca.crt \
+      && sed -i 's#http://#https://#g' /etc/apt/sources.list.d/ubuntu.sources \
+      && echo 'Acquire::https::CAInfo "/tmp/ca.crt";' > /etc/apt/apt.conf.d/99ca; fi \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql pgbackrest python3-venv ca-certificates nginx-light openssl curl \
+ && python3 -m venv /opt/moto \
+ && if [ -s /tmp/ca.crt ]; then export PIP_CERT=/tmp/ca.crt; fi \
+ && /opt/moto/bin/pip install --no-cache-dir -q "moto[server]==5.1.15" \
+ && rm -f /etc/apt/apt.conf.d/99ca /tmp/ca.crt \
+ && rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]
