@@ -1,0 +1,33 @@
+# WAKATNET — sauvegarde nocturne par pgBackRest, sur le primaire (ADR 0015 §5).
+# Ticket : .scratch/phase-5-haute-disponibilite/issues/04-sauvegardes.md
+# Installée sur les deux nœuds : sur une réplique, le script sort sans rien faire.
+[Unit]
+Description=WAKATNET : sauvegarde chiffrée de la base
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+# Une sauvegarde complète du parc entier tient largement dans ce délai (mesure : docs/JOURNAL.md).
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/opt/wakatnet/infra/noeud/sauvegarder.sh
+ReadWritePaths=/var/lib/wakatnet /var/log/pgbackrest /var/spool/pgbackrest /tmp
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

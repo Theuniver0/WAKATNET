@@ -12,6 +12,7 @@ import { routesAdmin } from "./admin.ts";
 import { garde, routesAuth } from "./auth.ts";
 import { routesExploitation } from "./exploitation.ts";
 import { DOSSIER_TABLEAU_DEFAUT, routesTableau } from "./tableau.ts";
+import { routesEtat } from "./etat.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -59,6 +60,9 @@ export function construire(config: Config, base: Base,
 
   // Tableau de bord (ADR 0014 §5) : fichiers statiques, même origine, CSP stricte.
   routesTableau(app, config.dossierTableau === undefined ? DOSSIER_TABLEAU_DEFAUT : config.dossierTableau);
+
+  // Page d'état publique (ADR 0015 §6) : composants génériques, aucune donnée de propriétaire.
+  routesEtat(app, config.etatsNoeuds ?? []);
 
   // Comptes : inscription, connexion, session, TOTP (ADR 0014 §1 à §3).
   routesAuth(app, base, config.cles?.marchands ?? null);

@@ -1,0 +1,33 @@
+# WAKATNET — essai de restauration automatisé (SPEC §10.1 ; ADR 0015 §5).
+# Ticket : .scratch/phase-5-haute-disponibilite/issues/04-sauvegardes.md
+# Restaure la dernière sauvegarde dans un répertoire temporaire, contrôle le grand livre contre la
+# base vivante, puis efface tout. Échec ⇒ unité en échec, vue par la supervision.
+[Unit]
+Description=WAKATNET : essai mensuel de restauration
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+TimeoutStartSec=6h
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/opt/wakatnet/infra/noeud/essai-restauration.sh
+ReadWritePaths=/var/lib/wakatnet /var/log/pgbackrest /var/spool/pgbackrest /tmp
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

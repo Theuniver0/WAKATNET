@@ -1,0 +1,39 @@
+# WAKATNET — collecteur de santé du nœud, alertes Telegram au changement d'état (ADR 0015 §6).
+# Ticket : .scratch/phase-5-haute-disponibilite/issues/05-supervision.md
+[Unit]
+Description=WAKATNET : santé du nœud et alertes
+After=postgresql.service freeradius.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=50s
+# freerad : seul à pouvoir LIRE le spool (0700) et les compteurs de silence (0750). L'écriture lui
+# est retirée par ReadOnlyPaths : le collecteur ne peut ni vider ni altérer le spool.
+User=freerad
+Group=freerad
+ReadOnlyPaths=/var/log/freeradius /var/lib/wakatnet
+StateDirectory=wakatnet/sante
+StateDirectoryMode=0755
+# Fichier réservé à root, jamais versionné : WAKATNET_NOEUD, WAKATNET_SANTE_DATABASE_URL,
+# WAKATNET_TELEGRAM_JETON, WAKATNET_TELEGRAM_SALON.
+EnvironmentFile=/etc/wakatnet/sante.env
+ExecStart=/usr/bin/env NODE_ENV=production /usr/bin/node /opt/wakatnet/apps/api/src/sante.ts
+# `wg show` (netlink) exige CAP_NET_ADMIN : c'est la seule capacité donnée.
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+# AF_UNIX : PostgreSQL local et D-Bus (systemctl is-active) ; AF_NETLINK : WireGuard ; AF_INET* : Telegram.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK

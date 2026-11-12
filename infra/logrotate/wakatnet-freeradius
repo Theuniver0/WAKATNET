@@ -1,0 +1,17 @@
+# WAKATNET — rotation des compteurs de silence de FreeRADIUS (ADR 0009 §4 ; ADR 0015 §6).
+# Installé en /etc/logrotate.d/wakatnet-freeradius. Volume borné par le trafic : à 200 auth/s,
+# environ 30 Mo par heure de panne ; maxsize fait tourner un fichier qui grossit avant la nuit.
+# copytruncate : rlm_linelog garde le fichier ouvert ; un renommage écrirait dans l'ancien fichier.
+# Le collecteur de santé ne lit que les 5 dernières minutes : la rotation ne fausse pas sa mesure
+# au-delà d'une minute.
+/var/log/freeradius/wakatnet/*.log {
+	daily
+	maxsize 100M
+	rotate 14
+	compress
+	delaycompress
+	missingok
+	notifempty
+	copytruncate
+	su freerad freerad
+}

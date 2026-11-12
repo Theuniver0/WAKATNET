@@ -8,7 +8,7 @@
 
 | | Nœud A | Nœud B |
 |---|---|---|
-| Rôle normal | primaire : écritures, API, portail, tâches | réplique : authentification en secours, sauvegardes |
+| Rôle normal | primaire : écritures, API, portail, tâches, sauvegardes | réplique : authentification en secours |
 | `wg0` (routeurs) | `10.213.0.1` | `10.213.0.2` |
 | `wk-noeuds` (lien entre nœuds) | `10.213.255.1` | `10.213.255.2` |
 | `WAKATNET_PG_ACCT_HOSTS` | `127.0.0.1,10.213.255.2` | `127.0.0.1,10.213.255.1` |
@@ -107,6 +107,27 @@ Le spool doit se vider en quelques minutes.
 - Double authentification activée, moyen de paiement de secours, contact de facturation à jour.
 - Accès à la console de chaque nœud vérifié chaque trimestre : c'est elle qui permet l'étape 1 du §3.
 
-## 7. Restaurer une sauvegarde
+## 7. Sauvegardes et restauration
 
-Voir §5 de l'ADR 0015 et le ticket 04 ; la procédure détaillée et sa durée mesurée seront ajoutées ici.
+- Sauvegarde : `wakatnet-sauvegarde.timer`, chaque nuit à 2 h 30, sur le primaire (le script ne fait rien sur une réplique). Complète le dimanche, différentielle sinon. État : `/var/lib/wakatnet/sauvegarde.json`. Alerte au-delà de 26 h sans réussite.
+- Essai de restauration : `wakatnet-essai-restauration.timer`, le 3 de chaque mois. Résultat : `/var/lib/wakatnet/essai-restauration.json`. En cas d'échec, lire `journalctl -u wakatnet-essai-restauration` : un **écart du grand livre** (`ecriture:ID`) signale une ligne disparue ou modifiée depuis la sauvegarde. Le traiter comme un incident de sécurité, pas comme une panne.
+- Phrase de passe du dépôt : dans `/etc/pgbackrest/conf.d/secret.conf` **et** hors des nœuds. Sans elle, aucune restauration n'est possible.
+
+### Restaurer la base après une perte des deux nœuds
+
+1. Nouveau nœud installé par Ansible (§5), PostgreSQL arrêté, répertoire de données vide.
+2. Remettre `/etc/pgbackrest/conf.d/secret.conf` (copie hors site).
+3. Restaurer jusqu'à la fin des WAL archivés (perte bornée par `archive_timeout`, 60 s) :
+
+   ```bash
+   sudo -u postgres pgbackrest --stanza=wakatnet --type=default restore
+   ```
+
+4. Démarrer PostgreSQL, puis passer la fumée, puis le §1.
+5. Rejouer les spools des nœuds perdus s'ils sont récupérables (`/var/log/freeradius/radacct/wakatnet/`), puis reconstruire B (§4).
+
+**Mesuré** le 12/11/2026 sur le banc d'essai (`infra/noeud/essais/sauvegarde.sh`, base de 349 Mo : 100 000 tickets, 1,35 million de lignes d'`auth_log`) :
+- sauvegarde complète en 7,1 s ;
+- restauration jusqu'au point cohérent de la sauvegarde, instance ouverte, en 3,9 s.
+
+C'est un conteneur local avec un dépôt sur disque. Sur le nœud, le transfert depuis le stockage S3 dominera : à remesurer au premier essai mensuel.

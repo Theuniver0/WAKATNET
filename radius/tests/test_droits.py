@@ -87,6 +87,8 @@ ATTENDU = {
     "app.reversement_renvoi_permis(p_reference text, p_envois_vus integer)": {"wk_api"},
     "app.reversement_verdict(p_reference text, p_statut text, p_reference_fournisseur text)": {"wk_api"},
     "app.reversements_a_traiter(p_limite integer, p_age_min_s integer)": {"wk_api"},
+    # Phase 5, ticket 05 : mesures de santé du nœud (ADR 0015 §6).
+    "app.sante()": {"wk_sante"},
 }
 
 
@@ -95,7 +97,7 @@ def test_wk_radius_et_wk_acct_ne_touchent_aucune_table_ni_sequence():
         lignes = c.execute("""
             SELECT r.rolname, n.nspname || '.' || cl.relname
               FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace
-              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_replication'), ('wk_rewind')) r(rolname)
+              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_replication'), ('wk_rewind'), ('wk_sante')) r(rolname)
              WHERE cl.relkind IN ('r', 'p', 'v', 'm', 'S')
                AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
                AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
@@ -120,7 +122,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     with admin() as c:
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg'), ('wk_replication'), ('wk_rewind')) r(rolname)
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg'), ('wk_replication'), ('wk_rewind'), ('wk_sante')) r(rolname)
                                WHERE ns.nspname IN ('app', 'radius', 'ledger') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
@@ -143,7 +145,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
-                      ("wk_wg", "app.wg_pairs")]
+                      ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():
