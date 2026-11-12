@@ -50,6 +50,10 @@ Trois formes comparées (§14.4) :
 - `apps/dashboard` : React 18, Vite et TypeScript (pile D10), **sans bibliothèque de routage ni d'interface**. Un petit routeur sur le `#` de l'URL et du CSS écrit à la main suffisent.
 - Construit par `vite build`, puis servi par l'API sous `/tableau/` : **même origine** que l'API, d'où `SameSite=Strict` et aucune configuration CORS.
 - En-tête CSP stricte : `script-src 'self'`, sans `unsafe-inline`.
+- *Précisé à l'implémentation (ticket 08)* :
+  - les fichiers construits sont lus **une fois** au démarrage (`WAKATNET_TABLEAU_DIR`, par défaut `apps/dashboard/dist`) ; une requête ne sert que ce qui est en mémoire, et aucun chemin de requête ne touche le disque ;
+  - un chemin sans extension renvoie `index.html` (routeur sur le `#`) ; les fichiers de `assets/` sont marqués immuables ;
+  - CSP complète : `default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
 
 ## 6. Documents
 
@@ -74,5 +78,18 @@ Trois formes comparées (§14.4) :
 ## 9. Reversements (P10)
 
 - `app.payout` : référence unique (idempotence), montant, statut `CREATED → SENT → SUCCEEDED | FAILED`, et `EN_DOUTE` quand l'envoi a échoué par une coupure.
-- **Règle P10** : un reversement `EN_DOUTE` n'est **jamais** renvoyé sans un `verifyPayout()` qui répond « inconnu » ou « échoué » ; s'il répond « réussi », il est marqué réussi sans rien renvoyer.
+- **Règle P10** : un reversement `EN_DOUTE` n'est **jamais** renvoyé sans un `verifyPayout()` qui répond « inconnu » ; s'il répond « réussi », il est marqué réussi sans rien renvoyer.
+  - *Resserré à l'implémentation (relecture du code d'argent)* : la première rédaction permettait aussi un renvoi sur « échoué ». Retenu : « échoué » est un verdict **définitif** (`FAILED`), et un nouveau versement passe par un nouveau reversement, sous une nouvelle référence, par décision humaine. Un échec annoncé à tort ne peut donc pas mener à un double paiement.
+- *Précisé à l'implémentation (ticket 07)*, contre les deux courses qui mènent à un double envoi :
+  - **renvoi par comparaison-échange** : `reversement_renvoi_permis(référence, envois_vus)` n'accorde le renvoi que si `envois` n'a pas bougé ; deux traitements partis du même état ne peuvent pas renvoyer tous deux ;
+  - **âge minimal** : un reversement `EN_DOUTE` ou `SENT` n'est repris qu'après 120 s sans changement, bien plus que le délai d'un envoi (15 s). Sans cette garde, un traitement pourrait vérifier un ordre encore en route, lire « inconnu » et renvoyer. Ce plancher est posé **en base** : l'appelant ne peut pas le réduire ;
+  - **annulation** : à l'expiration du délai, la requête est annulée par un `AbortSignal`, pas seulement abandonnée. Un adaptateur réel (ticket 3.08) devra détruire la requête HTTP sur ce signal, et transmettre la référence comme clé d'idempotence au fournisseur ;
+  - **au plus 5 envois** : au-delà, le reversement reste `EN_DOUTE` pour une décision humaine ;
+  - un refus du fournisseur à l'envoi donne `FAILED`. Une erreur sur un reversement est rendue avec lui et n'arrête pas les suivants ;
+  - le drapeau `mode_b_autorise` est relu à la création et au traitement : le rabaisser **gèle** aussi les reversements en cours.
+- **Préalables à la levée du verrou**, non faits en phase 4 :
+  - un rôle de connexion dédié à la tâche des reversements (aujourd'hui `wk_api` peut appeler `reversement_verdict` : P10 n'est tenue que par le code de l'API) ;
+  - un montant calculé depuis le grand livre, et non fourni par l'appelant ;
+  - le plafond par opération, la double validation au-dessus d'un seuil et le gel sur écart de rapprochement (SPEC §8.3) ;
+  - une alerte sur un reversement bloqué (`SENT` sans réponse, ou plafond d'envois atteint).
 - Écritures du grand livre pour le mode B (dette envers le propriétaire, compte de transit) : **non écrites en phase 4**. Le mode B reste verrouillé, et son plan comptable sera arrêté avec le comptable. La mécanique P10 est prouvée seule, sans argent réel, sur le `MockProvider`.

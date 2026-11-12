@@ -2,6 +2,6 @@
   "name": "wakatnet",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/api"],
+  "workspaces": ["apps/api", "apps/dashboard"],
   "engines": { "node": ">=22.18 <23" }
 }

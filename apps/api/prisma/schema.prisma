@@ -104,6 +104,7 @@ model tenant {
   compte_marchand     compte_marchand?
   payment             payment[]
   payment_event       payment_event[]
+  payout              payout[]
   plan                plan[]
   point_of_sale       point_of_sale[]
   site                site[]
@@ -201,6 +202,7 @@ model payment {
   verifier_jusqu_au     DateTime        @db.Timestamptz(6)
   prochaine_verif_le    DateTime        @db.Timestamptz(6)
   detail                Json            @default("{}")
+  confirme_le           DateTime?       @db.Timestamptz(6)
   tenant                tenant          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   plan                  plan            @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   site                  site            @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
@@ -210,6 +212,7 @@ model payment {
   @@unique([tenant_id, soumission])
   @@index([prochaine_verif_le], map: "payment_a_verifier", where: raw("(statut = ANY (ARRAY['CREATED'::text, 'PENDING'::text, 'EXPIRED'::text, 'FAILED'::text]))"))
   @@index([site_id, numero_hmac], map: "payment_numero")
+  @@index([tenant_id, confirme_le], map: "payment_tenant_confirme_le", where: raw("(confirme_le IS NOT NULL)"))
   @@schema("app")
 }
 
@@ -330,5 +333,32 @@ model voucher_batch {
   point_of_sale                                    point_of_sale @relation(fields: [tenant_id, point_of_sale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, id])
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payout {
+  id                    BigInt   @id @default(autoincrement())
+  tenant_id             BigInt
+  reference             String   @unique
+  montant               BigInt
+  statut                String   @default("CREATED")
+  reference_fournisseur String?
+  envois                Int      @default(0)
+  cree_le               DateTime @default(now()) @db.Timestamptz(6)
+  maj_le                DateTime @default(now()) @db.Timestamptz(6)
+  tenant                tenant   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model plateforme_parametre {
+  cle    String   @id
+  valeur Boolean
+  note   String   @default("")
+  maj_le DateTime @default(now()) @db.Timestamptz(6)
+
   @@schema("app")
 }

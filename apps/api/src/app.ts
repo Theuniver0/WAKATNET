@@ -11,6 +11,7 @@ import { routesCompteMarchand, routesWebhook } from "./routes-paiement.ts";
 import { routesAdmin } from "./admin.ts";
 import { garde, routesAuth } from "./auth.ts";
 import { routesExploitation } from "./exploitation.ts";
+import { DOSSIER_TABLEAU_DEFAUT, routesTableau } from "./tableau.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -55,6 +56,9 @@ export function construire(config: Config, base: Base,
     }
     return rep.code(code).send({ erreur: code === 500 ? "erreur interne" : "requête invalide" });
   });
+
+  // Tableau de bord (ADR 0014 §5) : fichiers statiques, même origine, CSP stricte.
+  routesTableau(app, config.dossierTableau === undefined ? DOSSIER_TABLEAU_DEFAUT : config.dossierTableau);
 
   // Comptes : inscription, connexion, session, TOTP (ADR 0014 §1 à §3).
   routesAuth(app, base, config.cles?.marchands ?? null);

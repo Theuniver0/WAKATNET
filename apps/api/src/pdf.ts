@@ -41,10 +41,29 @@ function chaine(s: string): string {
 
 const n = (x: number) => (Math.round(x * 100) / 100).toString();
 
-/** Largeur approchée d'un texte en Helvetica (pour centrer ou aligner à droite). */
+// Chasses de Helvetica (AFM standard d'Adobe), en millièmes d'em, de l'espace (0x20) au tilde (0x7e).
+const CHASSES = [278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
+  556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
+  1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833, 722, 778,
+  667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556,
+  333, 556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556,
+  556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334, 260, 334, 584];
+
+function chasse(ch: string): number {
+  const c = ch.codePointAt(0)!;
+  if (c >= 0x20 && c <= 0x7e) return CHASSES[c - 0x20];
+  const b = ch.normalize("NFD")[0];                                  // é → e, À → A
+  const cb = b.codePointAt(0)!;
+  if (b !== ch && cb >= 0x20 && cb <= 0x7e) return CHASSES[cb - 0x20];
+  return 1000;                                                       // œ, €, … : majorant
+}
+
+/** Largeur d'un texte en Helvetica, en points. Majorant pour le gras (écart AFM ≤ 0,06 em par
+ *  caractère) : sert à couper et à tronquer sans jamais déborder d'un cadre. */
 export function largeur(s: string, taille: number, gras = false): number {
-  // Moyenne prudente : 0,56 em (normal), 0,6 em (gras) ; chiffres et majuscules ~0,6–0,72.
-  return winAnsi(s).length * taille * (gras ? 0.6 : 0.56);
+  let m = 0;
+  for (const ch of s.normalize("NFC")) m += chasse(ch) + (gras ? 60 : 0);
+  return (m * taille) / 1000;
 }
 
 export class Pdf {
@@ -136,6 +155,35 @@ export function dureeLisible(s: number | null): string {
   return `${Math.round(s / 60)} min`;
 }
 
+/** Découpe un texte en lignes d'au plus `max` points (mots entiers ; un mot trop long est coupé). */
+export function couper(s: string, taille: number, max: number, gras = false): string[] {
+  const lignes: string[] = [];
+  let courante = "";
+  for (const mot of s.split(/\s+/).filter(Boolean)) {
+    const essai = courante ? `${courante} ${mot}` : mot;
+    if (largeur(essai, taille, gras) <= max) { courante = essai; continue; }
+    if (courante) lignes.push(courante);
+    let reste = mot;
+    while (largeur(reste, taille, gras) > max) {
+      let n = reste.length - 1;
+      while (n > 1 && largeur(reste.slice(0, n), taille, gras) > max) n--;
+      lignes.push(reste.slice(0, n));
+      reste = reste.slice(n);
+    }
+    courante = reste;
+  }
+  if (courante) lignes.push(courante);
+  return lignes;
+}
+
+/** Une seule ligne d'au plus `max` points, tronquée par « … » au besoin. */
+export function tronquer(s: string, taille: number, max: number, gras = false): string {
+  if (largeur(s, taille, gras) <= max) return s;
+  let t = s;
+  while (t.length > 1 && largeur(`${t}…`, taille, gras) > max) t = t.slice(0, -1);
+  return `${t.trimEnd()}…`;
+}
+
 export type TicketPapier = { code: string; plan: string; prix: bigint; uptime: number | null; validite: number | null };
 
 /** Planche de tickets : 10 par page A4 (2 colonnes × 5 rangées), traits de découpe pointillés. */
@@ -147,13 +195,15 @@ export function planche(tickets: TicketPapier[], zone: string, pdv: string): Buf
     const col = i % 2, rang = Math.floor((i % 10) / 2);
     const x = marge + col * l, y = marge + rang * h;
     pdf.cadre(x, y, l, h, true);
-    pdf.texte(x + 14, y + 22, 11, zone, true);
-    pdf.texte(x + 14, y + 38, 9, `${t.plan} - ${franc(t.prix)}`);
+    const utile = l - 28;                                              // marges intérieures : rien ne déborde
+    pdf.texte(x + 14, y + 22, 11, tronquer(zone, 11, utile, true), true);
+    pdf.texte(x + 14, y + 38, 9, tronquer(`${t.plan} - ${franc(t.prix)}`, 9, utile));
     pdf.texteCentre(x + l / 2, y + 86, 26, t.code, true);
     const d = [t.uptime ? `${dureeLisible(t.uptime)} de connexion` : "", t.validite ? `valable ${dureeLisible(t.validite)}` : ""]
       .filter(Boolean).join(", ");
-    pdf.texte(x + 14, y + 112, 9, d);
-    pdf.texte(x + 14, y + 126, 8, `Connectez-vous au Wi-Fi, puis saisissez ce code. Point de vente : ${pdv}`);
+    pdf.texte(x + 14, y + 110, 9, tronquer(d, 9, utile));
+    const pied = [...couper("Connectez-vous au Wi-Fi, puis saisissez ce code.", 8, utile), ...couper(`Point de vente : ${pdv}`, 8, utile)];
+    pied.slice(0, 3).forEach((s, k) => pdf.texte(x + 14, y + 124 + 10 * k, 8, k === 2 && pied.length > 3 ? tronquer(`${s} ${pied.slice(3).join(" ")}`, 8, utile) : s));
   });
   return pdf.octets();
 }

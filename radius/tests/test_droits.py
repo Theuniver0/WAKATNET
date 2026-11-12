@@ -81,6 +81,12 @@ ATTENDU = {
     "app.admin_proprietaires(p_debut timestamp with time zone, p_fin timestamp with time zone)": {"wk_api"},
     "app.admin_recharger(p_tenant bigint, p_montant bigint, p_reference text, p_admin bigint)": {"wk_api"},
     "app.admin_regler(p_tenant bigint, p_suspendu boolean, p_commission_bps integer, p_plafond bigint, p_admin bigint)": {"wk_api"},
+    # Phase 4, ticket 07 : reversements du mode B, règle P10 (ADR 0014 §9).
+    "app.reversement_creer(p_tenant bigint, p_montant bigint, p_reference text)": {"wk_api"},
+    "app.reversement_avant_envoi(p_reference text)": {"wk_api"},
+    "app.reversement_renvoi_permis(p_reference text, p_envois_vus integer)": {"wk_api"},
+    "app.reversement_verdict(p_reference text, p_statut text, p_reference_fournisseur text)": {"wk_api"},
+    "app.reversements_a_traiter(p_limite integer, p_age_min_s integer)": {"wk_api"},
 }
 
 
@@ -128,7 +134,9 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_replanifier"),
                       ("wk_api", "app.paiement_retrouver"), ("wk_api", "app.paiement_transition"), ("wk_api", "app.paiements_a_verifier"),
                       ("wk_api", "app.paiements_expirer"), ("wk_api", "app.paiements_par_numero"), ("wk_api", "app.portail_forfaits"),
-                      ("wk_api", "app.portail_site"), ("wk_api", "app.releve"), ("wk_api", "app.session_fermer"),
+                      ("wk_api", "app.portail_site"), ("wk_api", "app.releve"), ("wk_api", "app.reversement_avant_envoi"),
+                      ("wk_api", "app.reversement_creer"), ("wk_api", "app.reversement_renvoi_permis"), ("wk_api", "app.reversement_verdict"),
+                      ("wk_api", "app.reversements_a_traiter"), ("wk_api", "app.session_fermer"),
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),
                       ("wk_api", "app.stats_ventes_papier"), ("wk_api", "app.synthese_argent"), ("wk_api", "app.tenant_courant"),
                       ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"), ("wk_api", "app.voucher_importer"),

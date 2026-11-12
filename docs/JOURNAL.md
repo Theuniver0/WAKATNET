@@ -799,3 +799,31 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/run.sh` : 117 tests, SUCCÈS. Ils couvrent l'authentification, les rôles, le cloisonnement par point de vente, la validité des PDF (table xref vérifiée objet par objet), le CSV (BOM, injection de formules), la synthèse égale au grand livre au franc près, et le super-admin ;
   - `apps/api/tests/e2e.sh` : SUCCÈS ;
   - `radius/tests/run.sh` : 282 passés, SUCCÈS.
+
+### Phase 4, tickets 07 et 08 : mode B verrouillé, P10, tableau de bord, parcours 1 à 5 (12/11/2026)
+
+- **Mode B et reversements** (migration 0025, `apps/api/src/reversements.ts`, `payout` et `verifyPayout` du MockProvider) :
+  - `settlement_mode = 'B'` est refusé par un déclencheur tant que le drapeau de plateforme est faux. Aucun rôle de connexion ne peut lire ni écrire ce drapeau. Il est relu à la création et au traitement, donc le rabaisser gèle aussi les reversements ;
+  - P10 : écriture `EN_DOUTE` avant l'appel, `verifyPayout()` avant tout renvoi, renvoi sur « inconnu » seulement, par comparaison-échange, 5 envois au plus, reprise après 120 s au moins (plancher posé en base), requête annulée à l'expiration du délai ;
+  - aucun appelant tant que le verrou tient. Les préalables à sa levée sont listés dans l'ADR 0014 §9 : rôle dédié, montant tiré du grand livre, plafonds du SPEC §8.3.
+- **Tableau de bord** (`apps/dashboard`, React 18 et Vite, écrit par un sous-agent puis relu et intégré) :
+  - servi par l'API sous `/tableau/` (`apps/api/src/tableau.ts`) : fichiers lus une fois au démarrage, CSP sans `unsafe-inline` ;
+  - parcours 1, 2, 4 et 5 joués dans Chromium par `tests/e2e/tableau.ts`, avec audit axe-core 4.14.0 de 11 écrans et contrôle des PDF par `pdftotext`.
+- **Relecture du code d'argent par un second agent (règle 4)** : aucun point bloquant, quatre importants, tous corrigés et testés :
+  - I1 : la garde d'âge était réglable par l'appelant et le délai abandonnait la requête sans l'annuler ;
+  - I2 : une erreur sur un reversement arrêtait tout le tour ;
+  - I3 : le drapeau n'était pas relu à la création ;
+  - I4 : **une vente en ligne était datée par `payment.maj_le`**, que `paiement_retrouver` remet à l'heure courante, et pouvait quitter le relevé déjà remis de son mois. Migration 0026 : colonne `confirme_le`, posée une fois par déclencheur.
+  - Corrigés aussi : une date impossible (`2026-02-30`) était décalée sans erreur, et un `payout()` « inconnu » était classé `SENT`.
+  - Laissés, consignés : une écriture `correction` ne sera pas rattachée à sa nature (latent, aucune n'est écrite aujourd'hui), et la ligne « tickets papier activés » ne compte pas les tickets importés.
+  - P10 est **resserrée** : l'ADR permettait un renvoi sur « échoué », ce qui devient un verdict définitif.
+- **Trouvé par l'e2e**, invisible aux tests de l'API :
+  - `POST /v1/sites` répondait 500 : Prisma relit la ligne insérée, ce que le droit par colonne refuse. Corrigé par une insertion explicite, et un test a été ajouté ;
+  - le ticket papier portait « Ticket Wi-Fi » au lieu du nom du site ;
+  - la phrase du bas du ticket débordait sur le ticket voisin. Les largeurs sont désormais les chasses AFM de Helvetica, et un test de propriété prouve qu'aucune ligne coupée ne dépasse.
+- **Preuves**, depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 134 tests, SUCCÈS ;
+  - `apps/api/tests/e2e.sh` : achat et parcours 1, 2, 4 et 5, SUCCÈS ; axe-core ne relève aucune violation sur 11 écrans ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
+  - shellcheck ne relève rien sur les scripts modifiés.
+- **Restent bloqués** : G-ARGENT, qui attend l'adaptateur réel (ticket 3.08) et `docs/CONFORMITE.md` ; les mentions fiscales et la numérotation de la facture ([À CONFIRMER]) ; les écritures du grand livre pour le mode B.

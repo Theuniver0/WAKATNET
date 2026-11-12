@@ -26,6 +26,8 @@ export type Config = {
   /** Clés de chiffrement des comptes marchands et du HMAC des numéros (ADR 0013 §8, §9) ;
    *  absentes : les routes de paiement répondent 503. Jamais en base. */
   cles: { marchands: Buffer; hmac: Buffer } | null;
+  /** Fichiers construits du tableau de bord (WAKATNET_TABLEAU_DIR) ; absent : apps/dashboard/dist. */
+  dossierTableau?: string | null;
 };
 
 import { lireCle } from "./chiffrement.ts";
@@ -52,7 +54,8 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPortail)) {
     throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
-  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles };
+  const dossierTableau = env.WAKATNET_TABLEAU_DIR || undefined;
+  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, ...(dossierTableau ? { dossierTableau } : {}) };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

@@ -5,6 +5,7 @@ FROM node:22.23.0-bookworm-slim@sha256:d9f850096136edbc402debdd8729579a288aac645
 WORKDIR /depot
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/dashboard/package.json apps/dashboard/package.json
 RUN npm ci --no-audit --no-fund
 COPY packages/payments packages/payments
 COPY apps/api apps/api

@@ -15,12 +15,19 @@
 //   09  succès d'un montant ILLISIBLE (décimal) : A8, MISMATCH
 //   autres : comme 00.
 // Exige WAKATNET_MOCK=1 (et jamais NODE_ENV=production).
+//
+// Reversements (P10), scénario lu dans le DERNIER chiffre du montant :
+//   …1  ordre reçu et REFUSÉ (destination invalide) : rien n'est payé
+//   …3  première tentative LENTE : ne répond qu'à l'annulation (délai expiré), sans être arrivée
+//   …7  l'ordre ARRIVE chez le fournisseur, puis la réponse se perd (coupure après envoi)
+//   …9  la première tentative n'arrive jamais (coupure avant envoi), les suivantes passent
+//   autres : réussite immédiate
 // Les webhooks sont signés HMAC-SHA-256 du corps brut avec le secret du compte marchand
 // (en-tête x-mock-signature). INTERDIT en production.
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import {
   FournisseurIndisponible, PaiementRefuse, SignatureInvalide,
-  type Capacites, type DemandePaiement, type EtatPaiement, type EvenementWebhook, type FournisseurPaiement, type ResultatPaiement,
+  type Capacites, type DemandeReversement, type StatutReversement, type DemandePaiement, type EtatPaiement, type EvenementWebhook, type FournisseurPaiement, type ResultatPaiement,
 } from "./fournisseur.ts";
 
 export type LivreurWebhook = (enTetes: Record<string, string>, corps: Buffer) => Promise<void>;
@@ -29,6 +36,8 @@ type Enregistrement = { demande: DemandePaiement; refF: string; statut: EtatPaie
 
 /** État partagé par toutes les instances d'un même secret (un compte marchand = un secret). */
 const PAIEMENTS = new Map<string, Enregistrement>();
+/** Reversements REÇUS par le fournisseur simulé (une entrée par ordre reçu) et tentatives. */
+const REVERSEMENTS = new Map<string, { recus: number; tentatives: number; ref: string; refuse: boolean }>();
 
 export class MockProvider implements FournisseurPaiement {
   readonly id = "mock";
@@ -47,7 +56,7 @@ export class MockProvider implements FournisseurPaiement {
   }
 
   capacites(): Capacites {
-    return { operateurs: ["orange_bf", "moov_bf"], flux: ["ussd_otp", "push"], reversement: false, montantMin: 1 };
+    return { operateurs: ["orange_bf", "moov_bf"], flux: ["ussd_otp", "push"], reversement: true, montantMin: 1 };
   }
 
   private cle(reference: string) { return `${this.secret}:${reference}`; }
@@ -87,6 +96,34 @@ export class MockProvider implements FournisseurPaiement {
     if (sc === "09") return { reference, referenceFournisseur: e.refF, statut: "SUCCEEDED", montant: e.montant + 0.5, devise: "XOF" };
     return { reference, referenceFournisseur: e.refF, statut: e.statut, montant: e.montant, devise: "XOF" };
   }
+
+  async payout(d: DemandeReversement): Promise<{ referenceFournisseur: string; statut: StatutReversement }> {
+    const cle = this.cle(d.reference);
+    const e = REVERSEMENTS.get(cle) ?? { recus: 0, tentatives: 0, ref: `MOCKPO-${randomUUID().slice(0, 8)}`, refuse: false };
+    REVERSEMENTS.set(cle, e);
+    e.tentatives++;
+    const sc = d.montant % 10;
+    if (sc === 9 && e.tentatives === 1) throw new FournisseurIndisponible("mock : coupure AVANT l'envoi");
+    if (sc === 3 && e.tentatives === 1) {
+      await new Promise<void>((_, ko) => {
+        if (d.signal?.aborted) ko(new FournisseurIndisponible("mock : annulé"));
+        d.signal?.addEventListener("abort", () => ko(new FournisseurIndisponible("mock : annulé avant d'arriver")), { once: true });
+      });
+    }
+    if (sc === 1) { e.refuse = true; throw new PaiementRefuse("mock : destination refusée"); }
+    e.recus++;                                            // chaque ordre PAYÉ est compté : P10 exige recus ≤ 1
+    if (sc === 7 && e.tentatives === 1) throw new FournisseurIndisponible("mock : coupure APRÈS l'envoi (réponse perdue)");
+    return { referenceFournisseur: e.ref, statut: "SUCCEEDED" };
+  }
+
+  async verifyPayout(reference: string): Promise<{ statut: StatutReversement; referenceFournisseur?: string }> {
+    const e = REVERSEMENTS.get(this.cle(reference));
+    if (e?.refuse) return { statut: "FAILED", referenceFournisseur: e.ref };
+    return e && e.recus > 0 ? { statut: "SUCCEEDED", referenceFournisseur: e.ref } : { statut: "INCONNU" };
+  }
+
+  /** Nombre d'ordres reçus pour une référence (preuve de P10 : jamais plus d'un). */
+  recus(reference: string): number { return REVERSEMENTS.get(this.cle(reference))?.recus ?? 0; }
 
   signer(corps: Buffer): string { return createHmac("sha256", this.secret).update(corps).digest("hex"); }
 
