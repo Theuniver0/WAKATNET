@@ -37,7 +37,8 @@ await app.listen({ port: 0, host: "127.0.0.1" });
 const PORTAIL = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
 
 const v = await vendeur(app, "bout en bout");
-await sql(URL_ADMIN, "UPDATE app.site SET hotspot_hotes = '{localhost}' WHERE id = $1", [v.site]);
+// Hôte du faux hotspot, avec son port (non standard) : seule forme admise d'un port explicite.
+const pretHotes = (port: number) => sql(URL_ADMIN, "UPDATE app.site SET hotspot_hotes = ARRAY[$2] WHERE id = $1", [v.site, `localhost:${port}`]);
 const idRouteur = await routeur(v.tenant, v.site);
 await sql(URL_ADMIN, "INSERT INTO radius.router_secret (router_id, secret) VALUES ($1, repeat('s', 32))", [idRouteur]);
 const [{ ip }] = await sql<{ ip: string }>(URL_ADMIN, "SELECT host(overlay_ip) AS ip FROM app.router WHERE id = $1", [idRouteur]);
@@ -63,7 +64,9 @@ const hotspot = createServer(async (req, res) => {
     .replaceAll("$(error-esc)", "").replaceAll("$(mac-esc)", encodeURIComponent("AA:BB:CC:00:11:22")).replaceAll("$(ip)", "10.5.50.20");
   res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page);
 });
-const HOTSPOT = `http://localhost:${await ecouter(hotspot)}`;
+const portHotspot = await ecouter(hotspot);
+await pretHotes(portHotspot);
+const HOTSPOT = `http://localhost:${portHotspot}`;
 
 const navigateur = await chromium.launch();
 let echec = false;

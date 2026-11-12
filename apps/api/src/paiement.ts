@@ -15,6 +15,8 @@ import { chiffrer, dechiffrer, hmacNumero } from "./chiffrement.ts";
 import { creerFournisseur, type ClesMarchand } from "./fournisseurs.ts";
 
 export const DELAI_CHARGE_MS = 15_000;
+/** verify() aussi est borné : un fournisseur muet ne doit jamais bloquer la tâche périodique (revue). */
+export const DELAI_VERIFY_MS = 10_000;
 
 export type Cles = { marchands: Buffer; hmac: Buffer };
 
@@ -55,7 +57,7 @@ export class ServicePaiement {
     jetonAppareil: Buffer; soumission: string;
   }): Promise<
     | { statut: "cree" | "deja"; reference: string; statutPaiement: string; message?: string }
-    | { statut: "site_inconnu" | "forfait_inconnu" | "vente_suspendue" | "sans_compte_marchand" | "numero_invalide" }
+    | { statut: "site_inconnu" | "forfait_inconnu" | "vente_suspendue" | "sans_compte_marchand" | "numero_invalide" | "trop_de_demandes" }
   > {
     const numero = normaliserNumero(e.numero);
     if (numero === null) return { statut: "numero_invalide" };
@@ -104,7 +106,7 @@ export class ServicePaiement {
   async rapprocher(reference: string, tenantId: bigint, fournisseur?: FournisseurPaiement, origine = "verify"): Promise<string> {
     const f = fournisseur ?? await this.fournisseurDuProprietaire(tenantId);
     if (f === null) return "sans_compte_marchand";
-    const etat = await f.verify(reference);
+    const etat = await avecDelai(f.verify(reference), DELAI_VERIFY_MS);
     if (etat.reference !== reference) throw new Error("verify : référence inattendue");
     if (etat.statut === "SUCCEEDED") {
       // A8 : montant du fournisseur normalisé en XOF entier ; illisible → MISMATCH (montant -1).
@@ -118,7 +120,7 @@ export class ServicePaiement {
 
   // ---------------------------------------------------------------- webhook (route publique)
   async webhook(fournisseurId: string, webhookId: string, enTetes: Record<string, string | string[] | undefined>,
-                corps: Buffer): Promise<{ code: 200 | 401 | 404; corps: object }> {
+                corps: Buffer): Promise<{ code: 200 | 400 | 401 | 404; corps: object }> {
     const [compte] = await this.base.$queryRaw<{ tenant_id: bigint; cles: Buffer }[]>`
       SELECT tenant_id, cles FROM app.compte_marchand_par_webhook(${fournisseurId}, ${webhookId})`;
     if (!compte) return { code: 404, corps: { erreur: "inconnu" } };
@@ -129,6 +131,11 @@ export class ServicePaiement {
     } catch (e) {
       if (e instanceof SignatureInvalide) return { code: 401, corps: { erreur: "signature invalide" } };   // P5 : aucun effet
       throw e;
+    }
+    // Valeurs du fournisseur bornées avant toute écriture : une valeur hors contrainte ne doit pas
+    // devenir une erreur 500 (revue).
+    if (evt.idEvenement.length < 1 || evt.idEvenement.length > 200 || !/^wk_[A-Za-z0-9_-]{22}$/.test(evt.reference)) {
+      return { code: 400, corps: { erreur: "événement invalide" } };
     }
     await this.base.$queryRaw`SELECT app.paiement_evenement(${fournisseurId}, ${evt.idEvenement}, ${compte.tenant_id},
                                                             ${evt.reference}, ${corps})`;

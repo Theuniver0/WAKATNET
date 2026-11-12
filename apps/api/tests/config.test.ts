@@ -22,6 +22,7 @@ test("le jeton d'enrôlement est masqué dans le chemin journalisé", () => {
   assert.equal(cheminMasque("/enroll/abcDEF123-_"), "/enroll/***");
   assert.equal(cheminMasque("/enroll/abc?x=1"), "/enroll/***?x=1");
   assert.equal(cheminMasque("/v1/sites"), "/v1/sites");
+  assert.equal(cheminMasque("/webhooks/mock/abcdefghijklmnopqrstuvwx"), "/webhooks/mock/***");
 });
 
 test("WAKATNET_NOEUDS : un ou deux nœuds bien formés, sinon refus de démarrer", () => {

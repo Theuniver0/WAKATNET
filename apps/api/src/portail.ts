@@ -76,7 +76,11 @@ export function lienConnexion(lien: string, hotesSite: string[], code: string, o
   let u: URL;
   try { u = new URL(lien); } catch { return null; }
   if ((u.protocol !== "http:" && u.protocol !== "https:") || u.username || u.password) return null;
-  if (!hotesSite.map((h) => h.toLowerCase()).includes(u.hostname.toLowerCase())) return null;
+  // La page de connexion du hotspot, et rien d'autre du même hôte (revue : un autre port ou un autre
+  // chemin du routeur recevrait le code). Port par défaut, sauf si l'hôte enregistré le précise.
+  const hotes = hotesSite.map((h) => h.toLowerCase());
+  const ok = u.port === "" ? hotes.includes(u.hostname.toLowerCase()) : hotes.includes(u.host.toLowerCase());
+  if (!ok || u.pathname !== "/login") return null;
   u.search = "";
   u.hash = "";
   u.searchParams.set("username", code);
@@ -115,7 +119,7 @@ function duree(s: number | null): string {
 // ------------------------------------------------------------------ jeton d'appareil
 function lireCookie(req: FastifyRequest): Buffer | null {
   const c = req.headers.cookie ?? "";
-  const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]{43})`).exec(c);
+  const m = new RegExp(`(?:^|;\\s*)${COOKIE}=([A-Za-z0-9_-]{43})(?:;|$)`).exec(c);
   return m ? Buffer.from(m[1], "base64url") : null;
 }
 
@@ -264,6 +268,9 @@ export function routesPortail(app: FastifyInstance, base: Base, service: Service
                                       otp: op === "orange_bf" ? otp : undefined, jetonAppareil: empreinte(jetonAppareil(req, rep)),
                                       soumission: String(b.soumission) });
       if (r.statut === "numero_invalide") return envoyer(rep, formulaire(req.params.site, c, plan, "Numéro invalide : 8 chiffres."), 422);
+      if (r.statut === "trop_de_demandes") {
+        return envoyer(rep, formulaire(req.params.site, c, plan, "Trop de demandes pour ce numéro : patientez quelques minutes."), 429);
+      }
       if (r.statut !== "cree" && r.statut !== "deja") {
         return envoyer(rep, formulaire(req.params.site, c, plan, "L'achat en ligne est momentanément indisponible ici."), 409);
       }
@@ -292,9 +299,14 @@ ${lien ? `<a class="btn" href="${esc(lien)}">Se connecter maintenant</a><p class
         return envoyer(rep, page("Ticket", `<h1>Paiement reçu</h1><p>Ce ticket a été acheté depuis un autre appareil.</p>
 <a class="btn" href="/p/${esc(req.params.site)}/retrouver${esc(suffixe(c))}">Retrouver mon ticket</a>`));
       }
-      if (e.statut === "FAILED" || e.statut === "MISMATCH") {
-        return envoyer(rep, page("Paiement non abouti", `<h1>Paiement non abouti</h1><p>Aucun montant ne vous a été facturé pour ce ticket. Vous pouvez réessayer.</p>
-<a class="btn" href="/p/${esc(req.params.site)}/forfaits${esc(suffixe(c))}">Réessayer</a>`));
+      if (e.statut === "MISMATCH") {
+        // Le fournisseur a confirmé un débit d'un AUTRE montant : ni ticket, ni « rien facturé » (revue).
+        return envoyer(rep, page("Paiement en vérification", `<h1>Paiement en vérification</h1><p>Le montant reçu ne correspond pas au forfait. Aucun ticket n'a été créé ; le gérant de la zone Wi-Fi va vérifier. Gardez le SMS de votre opérateur.</p>
+<a class="btn sec" href="/p/${esc(req.params.site)}${esc(suffixe(c))}">Retour</a>`));
+      }
+      if (e.statut === "FAILED") {
+        return envoyer(rep, page("Paiement non abouti", `<h1>Paiement non abouti</h1><p>L'opérateur n'a pas confirmé ce paiement. Si vous avez tout de même été débité, revenez sur cette page : le ticket apparaîtra dès sa confirmation.</p>
+<a class="btn" href="/p/${esc(req.params.site)}/forfaits${esc(suffixe(c))}">Réessayer</a><a class="btn sec" href="${ici}">Actualiser</a>`));
       }
       const panne = req.query.m === "panne" ? `<p class="erreur">Le service de paiement ne répond pas. Patientez ou réessayez dans quelques minutes.</p>` : "";
       if (e.statut === "EXPIRED") {

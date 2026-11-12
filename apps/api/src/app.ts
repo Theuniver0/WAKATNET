@@ -22,7 +22,7 @@ declare module "fastify" {
 
 /** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal. */
 export function cheminMasque(url: string): string {
-  return url.replace(/^\/enroll\/[^/?#]*/, "/enroll/***");
+  return url.replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
 }
 
 export function construire(config: Config, base: Base,
@@ -39,6 +39,19 @@ export function construire(config: Config, base: Base,
     bodyLimit: 64 * 1024,
   });
   app.decorateRequest("tenantId", 0n);
+
+  // Erreurs : journalisées en entier, rendues sans détail (texte de la base, adresse, fournisseur).
+  // Sur le portail, une page HTML ; ailleurs, un JSON générique (revue de fin de phase 3).
+  app.setErrorHandler((err, req, rep) => {
+    const sc = (err as { statusCode?: unknown }).statusCode;
+    const code = typeof sc === "number" && sc >= 400 && sc < 500 ? sc : 500;
+    if (code === 500) req.log.error({ err }, "erreur interne");
+    if (req.url.startsWith("/p/")) {
+      return rep.code(code).type("text/html; charset=utf-8").header("cache-control", "no-store")
+        .send(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Erreur</title></head><body style="font-family:system-ui,sans-serif;padding:1rem"><h1>Service momentanément indisponible</h1><p>Réessayez dans quelques instants.</p></body></html>`);
+    }
+    return rep.code(code).send({ erreur: code === 500 ? "erreur interne" : "requête invalide" });
+  });
 
   // Routes du propriétaire : identité de développement seulement (ADR 0012 §7).
   app.register(async (proprietaire) => {

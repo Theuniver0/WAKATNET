@@ -108,7 +108,11 @@ export function etape1(urlPublique: string, jeton: string, expireLe: Date): stri
   :local prof [/ip hotspot get $s profile]
   :local pid [/ip hotspot profile find where name=$prof]
   :if ([/ip hotspot profile get $pid use-radius] = true) do={ $fin; :error "WAKATNET : le profil hotspot $prof utilise deja RADIUS. Rien n'a ete modifie." }
-  :set ($hs->[:len $hs]) {"serveur"=[/ip hotspot get $s name]; "profil"=$prof; "use_radius"=[/ip hotspot profile get $pid use-radius]; "html_directory"=[/ip hotspot profile get $pid html-directory]; "radius_accounting"=[/ip hotspot profile get $pid radius-accounting]; "radius_interim_update"=[:tostr [/ip hotspot profile get $pid radius-interim-update]]; "adresse"=[:tostr [/ip hotspot profile get $pid hotspot-address]]; "dns"=[/ip hotspot profile get $pid dns-name]}
+  :local adr ""
+  :local dns ""
+  :do { :set adr [:tostr [/ip hotspot profile get $pid hotspot-address]] } on-error={}
+  :do { :set dns [:tostr [/ip hotspot profile get $pid dns-name]] } on-error={}
+  :set ($hs->[:len $hs]) {"serveur"=[/ip hotspot get $s name]; "profil"=$prof; "use_radius"=[/ip hotspot profile get $pid use-radius]; "html_directory"=[/ip hotspot profile get $pid html-directory]; "radius_accounting"=[/ip hotspot profile get $pid radius-accounting]; "radius_interim_update"=[:tostr [/ip hotspot profile get $pid radius-interim-update]]; "adresse"=$adr; "dns"=$dns}
 }
 :if ([:len $hs] = 0) do={ $fin; :error "WAKATNET : aucun serveur hotspot sur ce routeur. Configurez d'abord le hotspot. Rien n'a ete modifie." }
 

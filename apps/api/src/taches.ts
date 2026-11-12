@@ -8,12 +8,24 @@ import type { ServicePaiement } from "./paiement.ts";
 
 export type Bilan = { expires: number; verifies: number; erreurs: number; frais: number; purges: number };
 
-export async function tour(base: Base, service: ServicePaiement, journal: (m: string) => void = () => {}): Promise<Bilan> {
+/** Budget d'un tour : bien en deçà de TimeoutStartSec (55 s), pour finir proprement. */
+export const BUDGET_TOUR_MS = 40_000;
+
+export async function tour(base: Base, service: ServicePaiement, journal: (m: string) => void = () => {},
+                           budgetMs = BUDGET_TOUR_MS): Promise<Bilan> {
+  const fin = Date.now() + budgetMs;
+  // Frais papier et purge D'ABORD : une file de paiements à vérifier ne doit jamais les affamer (revue).
+  const [{ n: frais }] = await base.$queryRaw<{ n: number }[]>`SELECT app.frais_papier_prelever(500) AS n`;
+  const [{ n: purges }] = await base.$queryRaw<{ n: number }[]>`SELECT app.numeros_purger() AS n`;
   const [{ n: expires }] = await base.$queryRaw<{ n: number }[]>`SELECT app.paiements_expirer() AS n`;
   const a = await base.$queryRaw<{ reference: string; tenant_id: bigint }[]>`
     SELECT reference, tenant_id FROM app.paiements_a_verifier(200)`;
   let verifies = 0, erreurs = 0;
   for (const p of a) {
+    if (Date.now() >= fin) { journal(`budget du tour atteint : ${a.length - verifies - erreurs} paiement(s) au tour suivant`); break; }
+    // Replanifié AVANT l'appel : un tour interrompu (fournisseur muet, arrêt de systemd) ne laisse
+    // jamais ce paiement en tête de file pour les tours suivants (revue).
+    await base.$executeRaw`SELECT app.paiement_replanifier(${p.reference})`;
     try {
       const s = await service.rapprocher(p.reference, p.tenant_id, undefined, "rapprochement");
       verifies++;
@@ -21,12 +33,8 @@ export async function tour(base: Base, service: ServicePaiement, journal: (m: st
     } catch (e) {
       erreurs++;
       journal(`paiement=${p.reference} erreur=« ${e instanceof Error ? e.message.split("\n")[0] : String(e)} »`);
-    } finally {
-      await base.$executeRaw`SELECT app.paiement_replanifier(${p.reference})`;
     }
   }
-  const [{ n: frais }] = await base.$queryRaw<{ n: number }[]>`SELECT app.frais_papier_prelever(500) AS n`;
-  const [{ n: purges }] = await base.$queryRaw<{ n: number }[]>`SELECT app.numeros_purger() AS n`;
   return { expires, verifies, erreurs, frais, purges };
 }
 

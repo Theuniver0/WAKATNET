@@ -64,6 +64,9 @@ function sql(requete: string, variables: Record<string, string>): Promise<string
       if (code !== 0) rejeter(new Error(`psql (${code}) : ${erreur.trim()}`));
       else resoudre(sortie.split("\n").filter((l) => l !== "").map((l) => l.split("\t")));
     });
+    // Même garde que l'émetteur : un psql mort avant de lire (connexion refusée) ne doit pas
+    // provoquer d'EPIPE non rattrapé ; son code de sortie fait foi.
+    p.stdin.on("error", () => {});
     p.stdin.end(requete);
   });
 }
