@@ -57,6 +57,12 @@ export const REGLES: Regle[] = [
   // ADR 0017 (revue M4) : les adresses de l'overlay ne reviennent jamais ; prévenir avant qu'il soit plein.
   { id: "overlay_plein", titre: "Overlay rempli à plus de 80 % (adresses de routeurs, révoqués compris)",
     active: (v) => (v("overlay_utilise") ?? 0) > 0.8 * 254 * 254 },
+  // ADR 0019 : plafond global de 200 e-mails par 24 h (80 % : envoi en masse probable, ou croissance à prévoir) ;
+  // plafond de 100 routeurs enrôlés par jour pour les comptes non validés.
+  { id: "courriels", titre: "Plus de 160 e-mails en 24 h (plafond 200 : envois bientôt suspendus)",
+    active: (v) => (v("courriels_24h") ?? 0) >= 160 },
+  { id: "plafond_enrolement", titre: "Plafond quotidien d'enrôlements des comptes non validés atteint (100)",
+    active: (v) => (v("enrolements_non_valides_24h") ?? 0) >= 100 },
   { id: "ip_routeurs", titre: "wg-agent ne note plus l'IP publique des routeurs (budget de paiement des hotspots perdu)",
     active: (v) => v("en_recuperation") === 0 && (v("routeurs_actifs") ?? 0) > 0 && v("routeurs_ip_recente") === 0 },
   { id: "replication_a", titre: "Le nœud B ne réplique plus", active: (v) => v("en_recuperation") === 0 && v("replicas_en_flux") === 0 },

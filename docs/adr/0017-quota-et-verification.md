@@ -33,6 +33,8 @@
 
 ## Avant de brancher un fournisseur d'e-mail (relecture de la migration 0033)
 
+**Remplies par l'ADR 0019 et la migration 0034** (fournisseur : Brevo).
+
 M4 n'est **fermé que tant que la vérification se fait à la main**. Avec un lien par e-mail, un domaine « catch-all » donne autant de comptes vérifiés que voulu. Conditions à remplir dans le même changement que l'adaptateur :
 - quota par défaut bas (1 ou 2) pour un compte vérifié par lien ; 10 seulement après validation du super-admin ;
 - plafond global d'enrôlements par jour, et refus au-delà d'environ 90 % de l'overlay, sauf pour les comptes validés par le super-admin ;

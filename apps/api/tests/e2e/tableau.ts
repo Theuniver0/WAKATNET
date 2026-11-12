@@ -92,9 +92,30 @@ try {
   await titre(page, "Créer un compte");
   await auditer(page, "Créer un compte");
   await page.getByLabel("Nom de votre zone Wi-Fi").fill("Wifi du Maquis Wend-Kuni");
-  await page.getByLabel("Adresse e-mail").fill(email);
+  await page.getByLabel("Adresse e-mail", { exact: true }).fill(email);
   await page.getByLabel("Mot de passe").fill(MDP_TEST);
   await page.getByRole("button", { name: "Créer mon compte" }).click();
+  // ADR 0019 : aucune session à l'inscription ; le lien de confirmation, puis la connexion.
+  await page.getByText(/un lien de confirmation reçu par e-mail|ouvrez le lien de confirmation/).waitFor();
+  const message = expediteur.messages.find((m) => m.a === email);
+  assert.ok(message, "lien de confirmation envoyé à l'inscription");
+  const jetonVerif = /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(message.texte)![1];
+  await page.goto(`${TABLEAU}#/connexion`);
+  await titre(page, "Connexion");
+  await page.getByLabel("Adresse e-mail", { exact: true }).fill(email);
+  await page.getByLabel("Mot de passe").fill(MDP_TEST);
+  await page.getByRole("button", { name: "Se connecter" }).click();
+  await page.getByText(/pas encore confirmée/).waitFor();          // refus avant confirmation, message générique
+  await page.goto(`${TABLEAU}#/verifier?j=${jetonVerif}`);
+  await titre(page, "Confirmer votre adresse e-mail");
+  await auditer(page, "Confirmer votre adresse e-mail");
+  await page.getByRole("button", { name: "Confirmer mon adresse" }).click();
+  await page.getByText(/Adresse confirmée/).waitFor();
+  await page.getByRole("button", { name: "Se connecter" }).click();
+  await titre(page, "Connexion");
+  await page.getByLabel("Adresse e-mail", { exact: true }).fill(email);
+  await page.getByLabel("Mot de passe").fill(MDP_TEST);
+  await page.getByRole("button", { name: "Se connecter" }).click();
   await titre(page, "Tableau de bord");
   await auditer(page, "Tableau de bord");
   const [{ tenant }] = await sql<{ tenant: string }>(URL_ADMIN, "SELECT tenant_id::text AS tenant FROM app.utilisateur WHERE email = $1", [email]);
@@ -104,23 +125,6 @@ try {
   await page.getByLabel("Nom du site").fill("Maquis Wend-Kuni");
   await page.getByRole("button", { name: "Ajouter le site" }).click();
   await page.getByRole("heading", { name: "Maquis Wend-Kuni" }).waitFor();
-  // Revue de sécurité M4 (ADR 0017) : adresse non vérifiée, raccordement refusé, avec la marche à suivre.
-  await page.getByRole("heading", { name: "Adresse e-mail à confirmer" }).waitFor();
-  await page.getByRole("button", { name: "Raccorder un routeur" }).click();
-  await page.getByText(/Adresse e-mail non vérifiée/).waitFor();
-  await auditer(page, "Sites et routeurs (adresse à confirmer)");
-  const message = expediteur.messages.find((m) => m.a === email);
-  assert.ok(message, "lien de vérification envoyé à l'inscription");
-  const jetonVerif = /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(message.texte)![1];
-  await page.goto(`${TABLEAU}#/verifier?j=${jetonVerif}`);
-  await titre(page, "Confirmer votre adresse e-mail");
-  await auditer(page, "Confirmer votre adresse e-mail");
-  await page.getByRole("button", { name: "Confirmer mon adresse" }).click();
-  await page.getByText(/Adresse confirmée/).waitFor();
-  await page.getByRole("button", { name: "Aller au tableau de bord" }).click();
-  await titre(page, "Sites et routeurs");
-  await page.getByRole("heading", { name: "Maquis Wend-Kuni" }).waitFor();
-  assert.equal(await page.getByRole("heading", { name: "Adresse e-mail à confirmer" }).count(), 0, "bandeau retiré");
   await page.getByRole("button", { name: "Raccorder un routeur" }).click();
   const commande = (await page.locator("pre").first().textContent()) ?? "";
   assert.match(commande, /\/tool fetch/, `commande d'enrôlement à coller : ${commande}`);
@@ -128,7 +132,7 @@ try {
   await auditer(page, "Sites et routeurs");
   const redirection = await telecharger(page, page.getByRole("link", { name: "Page de connexion du hotspot", exact: true }));
   assert.match((await redirection.body()).toString("utf8"), /<html/i);
-  console.log("ok : parcours 1 — compte créé, site déclaré, adresse confirmée par le lien, commande d'enrôlement affichée");
+  console.log("ok : parcours 1 — compte créé sans session, connexion refusée avant confirmation, lien suivi, connexion, site déclaré, commande d'enrôlement affichée");
 
   // ======================================================= parcours 2 : créer ses forfaits
   await page.getByRole("link", { name: "Forfaits", exact: true }).click();
@@ -155,7 +159,7 @@ try {
   await page.getByRole("button", { name: "Ajouter le point de vente" }).click();
   await page.locator('section[aria-labelledby="titre-pdv"] li').first().waitFor();
   const emailVendeur = `vendeur-${randomBytes(4).toString("hex")}@exemple.bf`;
-  await page.getByLabel("Adresse e-mail").fill(emailVendeur);
+  await page.getByLabel("Adresse e-mail", { exact: true }).fill(emailVendeur);
   await page.getByLabel("Rôle").selectOption({ label: "Vendeur" });
   await page.getByLabel("Point de vente", { exact: true }).selectOption({ label: "Boutique du marché" });
   await page.getByLabel("Mot de passe provisoire").fill(MDP_TEST);
@@ -204,7 +208,7 @@ try {
   await pv.goto(`${TABLEAU}#/connexion`);
   await titre(pv, "Connexion");
   await auditer(pv, "Connexion");
-  await pv.getByLabel("Adresse e-mail").fill(emailVendeur);
+  await pv.getByLabel("Adresse e-mail", { exact: true }).fill(emailVendeur);
   await pv.getByLabel("Mot de passe").fill(MDP_TEST);
   await pv.getByRole("button", { name: "Se connecter" }).click();
   await titre(pv, "Tableau de bord");
@@ -226,7 +230,7 @@ try {
   const pc = await ctxC.newPage();
   surveiller(pc, erreursNavigateur);
   await pc.goto(`${TABLEAU}#/connexion`);
-  await pc.getByLabel("Adresse e-mail").fill(email);
+  await pc.getByLabel("Adresse e-mail", { exact: true }).fill(email);
   await pc.getByLabel("Mot de passe").fill(MDP_TEST);
   await pc.getByRole("button", { name: "Se connecter" }).click();
   await titre(pc, "Tableau de bord");
@@ -260,7 +264,7 @@ try {
   const pa = await ctxA.newPage();
   surveiller(pa, erreursNavigateur);
   await pa.goto(`${TABLEAU}#/connexion`);
-  await pa.getByLabel("Adresse e-mail").fill(emailP5);
+  await pa.getByLabel("Adresse e-mail", { exact: true }).fill(emailP5);
   await pa.getByLabel("Mot de passe").fill(MDP_TEST);
   await pa.getByRole("button", { name: "Se connecter" }).click();
   await titre(pa, "Tableau de bord");
@@ -292,7 +296,7 @@ try {
   const ps = await ctxS.newPage();
   surveiller(ps, erreursNavigateur);
   await ps.goto(`${TABLEAU}#/connexion`);
-  await ps.getByLabel("Adresse e-mail").fill(emailAdmin);
+  await ps.getByLabel("Adresse e-mail", { exact: true }).fill(emailAdmin);
   await ps.getByLabel("Mot de passe").fill(MDP_TEST);
   await ps.getByRole("button", { name: "Se connecter" }).click();
   await ps.getByRole("button", { name: "Valider" }).waitFor();

@@ -12,8 +12,16 @@ const adresse = () => `auth-${randomBytes(5).toString("hex")}@exemple.bf`;
 const cookieDe = (r: { headers: Record<string, unknown> }) => String([r.headers["set-cookie"]].flat()[0] ?? "");
 const jetonDe = (r: { headers: Record<string, unknown> }) => /wk_session=([A-Za-z0-9_-]{43})/.exec(cookieDe(r))?.[1] ?? "";
 
-const inscrire = (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") =>
-  app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, payload: { nom: "Zone test", email, mot_de_passe } });
+// Une source par inscription : la limite de 5 inscriptions par heure et par source (ADR 0019) ne gêne pas les tests.
+const sourceAuHasard = () => `10.${randomBytes(1)[0]}.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
+const inscrireBrut = (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") =>
+  app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: sourceAuHasard(), payload: { nom: "Zone test", email, mot_de_passe } });
+/** Inscription, puis adresse confirmée (comme par le lien) : la connexion est alors permise. */
+const inscrire = async (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") => {
+  const r = await inscrireBrut(app, email, mot_de_passe);
+  await sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now() WHERE email = lower($1)", [email]);
+  return r;
+};
 const connecter = (app: App, email: string, mot_de_passe: string) =>
   app.inject({ method: "POST", url: "/v1/connexion", headers: CSRF, payload: { email, mot_de_passe } });
 
@@ -39,17 +47,28 @@ test("TOTP : vecteurs de la RFC 6238 (SHA-1) et tolérance d'un pas", () => {
   assert.equal(totpPas(s, "12345", maintenant), null);
 });
 
-test("inscription : cookie de session sûr ; adresse déjà prise 409 ; mot de passe court 422 ; sans en-tête anti-CSRF 403", async () => {
+test("inscription (ADR 0019) : aucune session ; même réponse adresse libre ou prise (F9) ; connexion refusée avant confirmation, même message", async () => {
   await avecApp(async (app) => {
     const email = adresse();
-    const r = await inscrire(app, email);
-    assert.equal(r.statusCode, 201);
-    const c = cookieDe(r);
+    const r = await inscrireBrut(app, email);
+    assert.equal(r.statusCode, 202);
+    assert.equal(r.headers["set-cookie"], undefined, "aucune session à l'inscription");
+    const deja = await inscrireBrut(app, email.toUpperCase());
+    assert.equal(deja.statusCode, 202);
+    assert.equal(deja.body, r.body, "réponse identique : rien ne dit que l'adresse existe");
+    const [{ n: comptes }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.utilisateur WHERE email = lower($1)", [email]);
+    assert.equal(comptes, 1);
+    // Avant confirmation : refus, avec le message d'un mauvais mot de passe.
+    const avant = await connecter(app, email, "un-mot-de-passe-long");
+    assert.equal(avant.statusCode, 401);
+    assert.equal(avant.body, (await connecter(app, adresse(), "un-mot-de-passe-long")).body);
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now() WHERE email = lower($1)", [email]);
+    const ok = await connecter(app, email, "un-mot-de-passe-long");
+    assert.equal(ok.statusCode, 200);
+    const c = cookieDe(ok);
     for (const attr of ["HttpOnly", "Secure", "SameSite=Strict", "Path=/"]) assert.ok(c.includes(attr), attr);
-    const moi = await app.inject({ url: "/v1/moi", headers: entetesJeton(jetonDe(r)) });
-    assert.equal(moi.json().role, "proprietaire");
-    assert.equal((await inscrire(app, email.toUpperCase())).statusCode, 409);
-    assert.equal((await inscrire(app, adresse(), "court")).statusCode, 422);
+    assert.equal((await app.inject({ url: "/v1/moi", headers: entetesJeton(jetonDe(ok)) })).json().role, "proprietaire");
+    assert.equal((await inscrireBrut(app, adresse(), "court")).statusCode, 422);
     const sans = await app.inject({ method: "POST", url: "/v1/inscription", payload: { nom: "x", email: adresse(), mot_de_passe: "un-mot-de-passe-long" } });
     assert.equal(sans.statusCode, 403);
     const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.utilisateur WHERE mot_de_passe LIKE '%un-mot-de-passe%'");

@@ -1,7 +1,31 @@
 import { useState, type FormEvent } from "react";
 import { envoyer } from "./api.ts";
 import { aller } from "./routeur.ts";
-import { Alerte, Champ, Ecran, useAction } from "./ui.tsx";
+import { Alerte, Champ, Ecran, Info, useAction } from "./ui.tsx";
+
+/** Lien de confirmation perdu (ADR 0019) : renvoi sans session, réponse toujours identique. */
+function Renvoi() {
+  const [email, setEmail] = useState("");
+  const { erreur, info, occupe, lancer } = useAction();
+  const envoi = (e: FormEvent) => {
+    e.preventDefault();
+    void lancer(async () => {
+      const r = await envoyer<{ message: string }>("/v1/verification/renvoyer", { email }, { sans401: true });
+      return r.message;
+    });
+  };
+  return (
+    <details className="carte">
+      <summary>Je n'ai pas reçu le lien de confirmation</summary>
+      <form onSubmit={envoi}>
+        <Champ libelle="Adresse e-mail du compte" type="email" valeur={email} onChange={setEmail} requis autoComplete="username" />
+        <button type="submit" className="secondaire" disabled={occupe}>Renvoyer le lien</button>
+      </form>
+      <Alerte message={erreur} />
+      <Info message={info} />
+    </details>
+  );
+}
 
 export function Connexion({ apres }: { apres: () => Promise<void> }) {
   const [email, setEmail] = useState("");
@@ -24,21 +48,24 @@ export function Connexion({ apres }: { apres: () => Promise<void> }) {
         <button type="submit" disabled={occupe}>Se connecter</button>
       </form>
       <p><a href="#/inscription">Créer un compte</a></p>
+      <Renvoi />
     </Ecran>
   );
 }
 
-export function Inscription({ apres }: { apres: () => Promise<void> }) {
+// ADR 0019 : l'inscription n'ouvre pas de session et répond pareil que l'adresse soit libre ou non (F9). La suite :
+// le lien reçu par e-mail, puis la connexion.
+export function Inscription(_props: { apres: () => Promise<void> }) {
   const [nom, setNom] = useState("");
   const [email, setEmail] = useState("");
   const [mdp, setMdp] = useState("");
-  const { erreur, occupe, lancer } = useAction();
+  const { erreur, info, occupe, lancer } = useAction();
   const envoi = (e: FormEvent) => {
     e.preventDefault();
     void lancer(async () => {
-      await envoyer("/v1/inscription", { nom, email, mot_de_passe: mdp }, { sans401: true });
-      await apres();
-      aller("/");
+      const r = await envoyer<{ message: string }>("/v1/inscription", { nom, email, mot_de_passe: mdp }, { sans401: true });
+      setMdp("");
+      return r.message;
     });
   };
   return (
@@ -51,6 +78,7 @@ export function Inscription({ apres }: { apres: () => Promise<void> }) {
         <Alerte message={erreur} />
         <button type="submit" disabled={occupe}>Créer mon compte</button>
       </form>
+      <Info message={info} />
       <p><a href="#/connexion">J'ai déjà un compte</a></p>
     </Ecran>
   );

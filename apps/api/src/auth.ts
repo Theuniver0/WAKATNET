@@ -5,7 +5,7 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest }
 import type { Base } from "./base.ts";
 import { chiffrer, dechiffrer } from "./chiffrement.ts";
 import { cleSource } from "./cle-ip.ts";
-import { messageVerification, type Expediteur } from "./courriel.ts";
+import { messageAvis, messageVerification, type Expediteur } from "./courriel.ts";
 
 export type Role = "super_admin" | "proprietaire" | "gerant" | "vendeur";
 export type Utilisateur = { id: bigint; tenantId: bigint | null; pdvId: bigint | null; role: Role; email: string; totpOk: boolean };
@@ -180,12 +180,41 @@ async function envoyerVerification(base: Base, courriel: { expediteur: Expediteu
   try {
     const jeton = randomBytes(32).toString("base64url");
     const [{ email }] = await base.$queryRaw<{ email: string | null }[]>`SELECT app.verification_creer(${utilisateur}, ${empreinte(jeton)}) AS email`;
-    if (email === null) return false;
-    await courriel.expediteur.envoyer(messageVerification(email, `${courriel.urlTableau}#/verifier?j=${jeton}`));
+    if (email === null || !(await courrielPermis(base, journal))) return false;
+    // Envoi en arrière-plan (relecture ADR 0019) : la durée de la réponse ne dépend pas de l'aller-retour vers Brevo.
+    courriel.expediteur.envoyer(messageVerification(email, `${courriel.urlTableau}#/verifier?j=${jeton}`))
+      .catch(() => journal.error("envoi du lien de vérification échoué"));
     return true;
   } catch {
     journal.error("envoi du lien de vérification échoué");
     return false;
+  }
+}
+
+// ADR 0019 (F9) : un seul message pour tout échec de connexion, adresse non confirmée comprise.
+const ECHEC_CONNEXION = "Adresse ou mot de passe incorrect, ou adresse pas encore confirmée (lien reçu par e-mail).";
+const REPONSE_INSCRIPTION = "Si cette adresse n'a pas encore de compte, il vient d'être créé : ouvrez le lien de confirmation reçu par e-mail, puis connectez-vous.";
+const REPONSE_RENVOI = "Si un compte attend la confirmation de cette adresse, un nouveau lien vient d'être envoyé.";
+
+/** Plafond global de 200 e-mails par 24 h (ADR 0019, relecture) : au-delà, rien ne part, et l'alerte « courriels » le
+ *  signale. */
+async function courrielPermis(base: Base, journal: FastifyBaseLogger): Promise<boolean> {
+  const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.courriel_reserver() AS ok`;
+  if (!ok) journal.error("plafond global d'e-mails atteint : envoi abandonné");
+  return ok;
+}
+
+/** Avis à une adresse déjà inscrite (ADR 0019) ; mêmes plafonds que les liens ; jamais d'erreur vers l'appelant. */
+async function envoyerAvis(base: Base, courriel: { expediteur: Expediteur | null; urlTableau: string },
+                           utilisateur: bigint, journal: FastifyBaseLogger): Promise<void> {
+  if (courriel.expediteur === null) return;
+  try {
+    const [{ email }] = await base.$queryRaw<{ email: string | null }[]>`SELECT app.avis_compte_existant(${utilisateur}) AS email`;
+    if (email !== null && (await courrielPermis(base, journal))) {
+      courriel.expediteur.envoyer(messageAvis(email, courriel.urlTableau)).catch(() => journal.error("envoi de l'avis de compte existant échoué"));
+    }
+  } catch {
+    journal.error("envoi de l'avis de compte existant échoué");
   }
 }
 
@@ -196,18 +225,30 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
       if (!csrfOk(req)) return rep.code(403).send({ erreur: "en-tête X-Wakatnet-Requete manquant" });
     });
 
-    // Inscription d'un propriétaire (accès ouvert, ADR 0001 §5).
+    // Inscription d'un propriétaire (accès ouvert, ADR 0001 §5). ADR 0019 : aucune session, et la même réponse que
+    // l'adresse soit libre ou déjà inscrite (F9). Un compte neuf reçoit le lien ; une adresse déjà inscrite, un avis.
+    // Le mot de passe est haché dans les deux cas, avant la base (pas d'écart de durée révélateur).
     pub.post<{ Body: { nom?: unknown; email?: unknown; mot_de_passe?: unknown } }>("/v1/inscription", async (req, rep) => {
       const { nom, email, mot_de_passe } = req.body ?? {};
       if (typeof nom !== "string" || nom.trim().length < 1 || nom.length > 120) return rep.code(422).send({ erreur: "nom de 1 à 120 caractères" });
-      if (typeof email !== "string" || !EMAIL.test(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
+      if (typeof email !== "string" || email.length > 254 || !EMAIL.test(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
       if (!mdpAcceptable(mot_de_passe)) return rep.code(422).send({ erreur: "mot de passe de 10 caractères au moins" });
+      const empreinteMdp = await hacher(mot_de_passe);
       const [r] = await base.$queryRaw<{ statut: string; utilisateur_id: bigint | null }[]>`
-        SELECT statut, utilisateur_id FROM app.inscription(${nom.trim()}, ${email}, ${await hacher(mot_de_passe)})`;
-      if (r.statut !== "cree") return rep.code(409).send({ erreur: "adresse déjà utilisée" });
-      poserSession(rep, await ouvrirSession(base, r.utilisateur_id!));
-      await envoyerVerification(base, courriel, r.utilisateur_id!, req.log);
-      return rep.code(201).send({ ok: true });
+        SELECT statut, utilisateur_id FROM app.inscription_demander(${nom.trim()}, ${email}, ${empreinteMdp}, ${cleSource(req.ip, cleHmac, new Date(), 48)})`;
+      if (r.statut === "trop") return rep.code(429).send({ erreur: "Trop d'inscriptions depuis cette connexion : réessayez dans une heure." });
+      if (r.statut === "cree") await envoyerVerification(base, courriel, r.utilisateur_id!, req.log);
+      else if (r.statut === "existe" && r.utilisateur_id !== null) await envoyerAvis(base, courriel, r.utilisateur_id, req.log);
+      return rep.code(202).send({ ok: true, message: REPONSE_INSCRIPTION });
+    });
+
+    // Lien perdu (ADR 0019) : renvoi sans session, réponse toujours identique ; 5 par heure et par source.
+    pub.post<{ Body: { email?: unknown } }>("/v1/verification/renvoyer", async (req, rep) => {
+      const email = req.body?.email;
+      if (typeof email !== "string" || email.length > 254 || !EMAIL.test(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
+      const [{ u }] = await base.$queryRaw<{ u: bigint | null }[]>`SELECT app.renvoi_demander(${email}, ${cleSource(req.ip, cleHmac, new Date(), 48)}) AS u`;
+      if (u !== null) await envoyerVerification(base, courriel, u, req.log);
+      return rep.code(202).send({ ok: true, message: REPONSE_RENVOI });
     });
 
     // Lien de vérification suivi (ADR 0017) : public. La page du tableau de bord demande un clic avant cet appel,
@@ -240,7 +281,7 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
     pub.post<{ Body: { email?: unknown; mot_de_passe?: unknown } }>("/v1/connexion", async (req, rep) => {
       const { email, mot_de_passe } = req.body ?? {};
       if (typeof email !== "string" || typeof mot_de_passe !== "string" || email.length > 254 || mot_de_passe.length > 200) {
-        return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
+        return rep.code(401).send({ erreur: ECHEC_CONNEXION });
       }
       const appareil = lireAppareil(req);
       const [{ essai }] = await base.$queryRaw<{ essai: bigint | null }[]>`
@@ -250,7 +291,7 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
         SELECT utilisateur_id, mot_de_passe, actif FROM app.connexion_lire(${email})`;
       const bon = await verifier(mot_de_passe, l.mot_de_passe ?? (await empreinteFactice()));
       // Échec : la réservation reste et compte. Réussite : elle est effacée.
-      if (!bon || l.utilisateur_id === null || !l.actif) return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
+      if (!bon || l.utilisateur_id === null || !l.actif) return rep.code(401).send({ erreur: ECHEC_CONNEXION });
       const jetonAppareil = appareil ?? randomBytes(32).toString("base64url");
       await base.$executeRaw`SELECT app.connexion_reussie(${essai}, ${empreinte(jetonAppareil)})`;
       poserSession(rep, await ouvrirSession(base, l.utilisateur_id));

@@ -11,7 +11,7 @@ export function Verifier() {
   const confirmer = () => void lancer(async () => {
     await envoyer("/v1/verification/confirmer", { jeton }, { sans401: true });
     setFait(true);
-    return "Adresse confirmée. Vous pouvez raccorder vos routeurs.";
+    return "Adresse confirmée. Connectez-vous pour continuer.";
   });
   return (
     <Ecran titre="Confirmer votre adresse e-mail">
@@ -19,7 +19,7 @@ export function Verifier() {
       {!fait ? (
         <button type="button" onClick={confirmer} disabled={occupe || !/^[A-Za-z0-9_-]{43}$/.test(jeton)}>Confirmer mon adresse</button>
       ) : (
-        <button type="button" className="secondaire" onClick={() => { window.location.hash = "#/sites"; window.location.reload(); }}>Aller au tableau de bord</button>
+        <button type="button" className="secondaire" onClick={() => { window.location.hash = "#/connexion"; window.location.reload(); }}>Se connecter</button>
       )}
       <Alerte message={erreur} />
       <Info message={info} />

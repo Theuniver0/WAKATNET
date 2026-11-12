@@ -1004,3 +1004,40 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `infra/noeud/essais/sauvegarde.sh` : SUCCÈS ;
   - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes ; ansible-lint, profil production, sans remarque.
 - **Non vérifié** : B2 lui-même (en-têtes exigés par un bucket verrouillé, prix, nom de région). D'où l'exercice de mise en service.
+
+### Fournisseur d'e-mail : Brevo, et les protections de l'ADR 0017 (12/11/2026)
+
+- **Demande** de Yacouba : « tranche le fournisseur d'e-mail ». Décision : `docs/adr/0019-fournisseur-email.md`.
+- **Sources consultées** :
+  - Brevo : 300 e-mails par jour gratuits, API v3 stable, données en France et en Allemagne ;
+  - Scaleway TEM : API encore en `v1alpha1` ;
+  - Mailjet : convient, sans avantage sur Brevo ;
+  - Postmark et Resend : données aux États-Unis ;
+  - Amazon SES : gratuit seulement la première année.
+- **Adaptateur** `ExpediteurBrevo` (`fetch`, sans dépendance) :
+  - la clé ne passe que dans l'en-tête ;
+  - aucune redirection suivie, corps des réponses jamais lu, délai de 10 s ;
+  - réglage `WAKATNET_COURRIEL=brevo` ; sans lui, aucun envoi.
+- **Conditions de l'ADR 0017, remplies** (migration 0034) :
+  - inscription sans session, à réponse identique (ferme **F9**) ;
+  - connexion refusée avant confirmation, avec le message d'un mauvais mot de passe ;
+  - renvoi du lien sans session ;
+  - limites par source (/48 en IPv6) ;
+  - quota de 2 pour un compte neuf, 10 après validation ;
+  - pour les comptes non validés : plafond de 100 routeurs enrôlés par jour, et arrêt à 90 % de l'overlay.
+- **Relu par un second agent** ; corrigés :
+  - un tiers bloquait un compte neuf en 5 inscriptions : avis compté à part, 1 par jour ;
+  - envoi en masse vers des tiers : plafond global de 200 e-mails par jour, alerte `courriels` ;
+  - adresse occupée pour toujours : libérée après 7 jours sans confirmation, rien n'est effacé ;
+  - quota de 2 contourné par les comptes existants ;
+  - ancienne API qui rouvrait F9 : `app.inscription` retirée à `wk_api` ;
+  - plafond global épuisé par des jetons jamais consommés : il compte désormais les routeurs enrôlés ;
+  - baisser le quota validait le compte ;
+  - minutage : l'envoi part en arrière-plan ;
+  - redirection qui aurait emporté la clé ;
+  - suivi des clics de Brevo à désactiver (consigné).
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 184 tests, SUCCÈS. Dont l'adaptateur contre un faux serveur, la réponse identique (adresse libre ou prise), la connexion refusée avant confirmation, les limites par source, le quota de 2, le plafond global, le seuil des 90 % (overlay rempli pour de bon, puis vidé), la libération d'adresse et le plafond d'e-mails ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS. Inscription sans session, connexion refusée, lien suivi, connexion, raccordement ; axe-core : 13 écrans.
+- **Non vérifié** : Brevo lui-même (délivrabilité vers Gmail et Outlook depuis le Burkina, mention de marque sur l'offre gratuite, restriction des clés par IP, DPA).

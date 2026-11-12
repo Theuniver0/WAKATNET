@@ -30,6 +30,8 @@ export type Config = {
   dossierTableau?: string | null;
   /** Fichiers d'état des nœuds écrits par le collecteur (WAKATNET_ETATS_NOEUDS, séparés par des virgules). */
   etatsNoeuds?: string[];
+  /** Envoi d'e-mails (ADR 0019) : Brevo, clé et expéditeur ; absent : aucun envoi, le super-admin valide les adresses. */
+  courriel?: { fournisseur: "brevo"; cle: string; de: string; nom: string };
   /** Proxy inverse de confiance (ADR 0016 §2 : nginx local) ; absent : aucune confiance dans X-Forwarded-For. */
   trustProxy?: string;
 };
@@ -64,8 +66,17 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // Sans lui, derrière nginx, toutes les requêtes viennent de 127.0.0.1 : les limites par source (M2, M7)
   // retomberaient en silence sur une seule source. Refusé en production (relecture de la migration 0031).
   if (trustProxy === undefined && env.NODE_ENV === "production") throw new ConfigInvalide("WAKATNET_TRUST_PROXY requis en production (ADR 0016 §2)");
+  // ADR 0019 : WAKATNET_COURRIEL=brevo exige la clé (EnvironmentFile, jamais en argument) et l'expéditeur.
+  let courriel: Config["courriel"];
+  if (env.WAKATNET_COURRIEL) {
+    if (env.WAKATNET_COURRIEL !== "brevo") throw new ConfigInvalide("WAKATNET_COURRIEL : « brevo » seulement (ADR 0019)");
+    const cle = env.WAKATNET_BREVO_CLE ?? "", de = env.WAKATNET_COURRIEL_DE ?? "";
+    if (!/^[A-Za-z0-9_-]{20,200}$/.test(cle)) throw new ConfigInvalide("WAKATNET_BREVO_CLE manquante ou invalide");
+    if (!/^[^@\s]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$/i.test(de)) throw new ConfigInvalide("WAKATNET_COURRIEL_DE : adresse de l'expéditeur");
+    courriel = { fournisseur: "brevo", cle, de, nom: env.WAKATNET_COURRIEL_NOM || "WAKATNET" };
+  }
   const etatsNoeuds = (env.WAKATNET_ETATS_NOEUDS ?? "/var/lib/wakatnet/sante/etat.json").split(",").filter(Boolean);
-  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
+  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(courriel ? { courriel } : {}), ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;
