@@ -11,6 +11,8 @@
 //   05  succès d'un montant différent (+5 F)                           (P4)
 //   06  fournisseur en panne : charge() lève FournisseurIndisponible   (P8)
 //   07  reste PENDING jusqu'à confirmer() (succès tardif, après expiration : P7)
+//   08  verify() ne répond jamais (fournisseur muet : la tâche périodique ne doit pas s'y bloquer)
+//   09  succès d'un montant ILLISIBLE (décimal) : A8, MISMATCH
 //   autres : comme 00.
 // Exige WAKATNET_MOCK=1 (et jamais NODE_ENV=production).
 // Les webhooks sont signés HMAC-SHA-256 du corps brut avec le secret du compte marchand
@@ -66,7 +68,7 @@ export class MockProvider implements FournisseurPaiement {
     PAIEMENTS.set(this.cle(d.reference), e);
     if (sc === "04") await this.envoyer(d.reference, 1);              // P2 : avant la réponse
     else if (sc === "03") setImmediate(() => void this.envoyer(d.reference, 5));
-    else if (sc !== "02" && sc !== "07") setImmediate(() => void this.envoyer(d.reference, 1));
+    else if (sc !== "02" && sc !== "07" && sc !== "08") setImmediate(() => void this.envoyer(d.reference, 1));
     return { referenceFournisseur: e.refF, statut: "PENDING" };
   }
 
@@ -80,6 +82,9 @@ export class MockProvider implements FournisseurPaiement {
   async verify(reference: string): Promise<EtatPaiement> {
     const e = PAIEMENTS.get(this.cle(reference));
     if (!e) return { reference, statut: "PENDING", montant: 0, devise: "XOF" };
+    const sc = MockProvider.scenario(e.demande.numero);
+    if (sc === "08") return new Promise<EtatPaiement>(() => {});   // muet, pour toujours
+    if (sc === "09") return { reference, referenceFournisseur: e.refF, statut: "SUCCEEDED", montant: e.montant + 0.5, devise: "XOF" };
     return { reference, referenceFournisseur: e.refF, statut: e.statut, montant: e.montant, devise: "XOF" };
   }
 

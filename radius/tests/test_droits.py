@@ -42,7 +42,6 @@ ATTENDU = {
     # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
     "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
     # Phase 3 (ADR 0013 §11) : tout ce qui touche à l'argent passe par ces fonctions ; rien sur ledger.
-    "app.credits_solde(p_tenant bigint)": {"wk_api"},
     "app.compte_marchand_enregistrer(p_fournisseur text, p_cles bytea)": {"wk_api"},
     "app.compte_marchand_par_webhook(p_fournisseur text, p_webhook_id text)": {"wk_api"},
     "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
@@ -100,7 +99,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.compte_marchand_du_proprietaire"),
                       ("wk_api", "app.compte_marchand_enregistrer"), ("wk_api", "app.compte_marchand_par_webhook"),
-                      ("wk_api", "app.credits_solde"), ("wk_api", "app.enroll_register"),
+                      ("wk_api", "app.enroll_register"),
                       ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"),
                       ("wk_api", "app.paiement_etat"), ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"),

@@ -242,3 +242,97 @@ test("MockProvider : refusé sans autorisation explicite (relecture argent M4)",
     process.env.WAKATNET_MOCK = avant;
   }
 });
+
+test("A8 : versXof n'accepte que des entiers XOF sûrs", async () => {
+  const { versXof } = await import("../../../packages/payments/src/index.ts");
+  assert.equal(versXof(1000), 1000);
+  assert.equal(versXof("1000"), 1000);
+  assert.equal(versXof(0), 0);
+  for (const mauvais of [1000.5, -1, "1000.5", "1e3", " 1000", "01000", "", null, undefined, Number.MAX_SAFE_INTEGER + 1, NaN, "abc", {}]) {
+    assert.throws(() => versXof(mauvais), TypeError, String(mauvais));
+  }
+});
+
+test("A8 : montant illisible du fournisseur (décimal) → MISMATCH, ni ticket ni écriture", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "A8 illisible");
+    const r = await creer(app, v, "09");
+    if (r.statut !== "cree") assert.fail(r.statut);
+    await attendreStatut(r.reference, "MISMATCH");
+    const p = await statut(r.reference);
+    assert.equal(p.voucher_id, null);
+    assert.equal(await transactionsDe(p.id), 0);
+  });
+});
+
+test("forfait FIGÉ à l'achat : modifié avant la confirmation, le ticket donne ce qui a été payé", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "forfait figé");
+    const r = await creer(app, v, "07");
+    if (r.statut !== "cree") assert.fail(r.statut);
+    await sql(URL_ADMIN, "UPDATE app.plan SET prix_xof = 999, uptime_limit_s = 60 WHERE id = $1", [v.plan]);
+    new MockProvider(v.secret, null).confirmer(r.reference);
+    assert.equal(await app.paiement!.rapprocher(r.reference, BigInt(v.tenant)), "SUCCEEDED");
+    const [t] = await sql<{ f_prix_xof: string; f_uptime_limit_s: number }>(URL_ADMIN,
+      "SELECT v.f_prix_xof::text, v.f_uptime_limit_s FROM app.voucher v JOIN app.payment p ON p.voucher_id = v.id WHERE p.reference = $1", [r.reference]);
+    assert.deepEqual(t, { f_prix_xof: "200", f_uptime_limit_s: 3600 });
+  });
+});
+
+test("limites de demandes : 3 par numéro et par site sur 10 min, 5 par appareil", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "limites demandes");
+    const num = numero("07");
+    const essais = [];
+    for (let i = 0; i < 4; i++) {
+      essais.push(await app.paiement!.creer({ sitePublic: v.publicId, planId: BigInt(v.plan), operateur: "moov_bf", numero: num,
+                                              jetonAppareil: jeton(), soumission: soumission() }));
+    }
+    assert.deepEqual(essais.map((e) => e.statut), ["cree", "cree", "cree", "trop_de_demandes"]);
+    const j = jeton();
+    const parAppareil = [];
+    for (let i = 0; i < 6; i++) {
+      parAppareil.push((await app.paiement!.creer({ sitePublic: v.publicId, planId: BigInt(v.plan), operateur: "moov_bf",
+                                                    numero: numero("07"), jetonAppareil: j, soumission: soumission() })).statut);
+    }
+    assert.deepEqual(parAppareil, ["cree", "cree", "cree", "cree", "cree", "trop_de_demandes"]);
+  });
+});
+
+test("rechargement : idempotent sur sa référence ; alerte « crédits bas » une seule fois sous 20 %", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "rechargement", { recharge: 0, prix: 1000 });
+    for (let i = 0; i < 3; i++) await sql(URL_ADMIN, "SELECT app.credits_recharger($1, 500, $2)", [v.tenant, `ref-idem-${v.tenant}`]);
+    assert.equal(await credits(v.tenant), 500n, "trois appels, un seul rechargement");
+    // 1 vente à 1 000 F : commission 100 F, solde 400 F = 80 % : pas d'alerte ; 4 ventes de plus : 0 F.
+    for (let i = 0; i < 5; i++) {
+      const r = await creer(app, v, "00");
+      if (r.statut !== "cree") assert.fail(r.statut);
+      await attendreStatut(r.reference, "SUCCEEDED");
+    }
+    assert.equal(await credits(v.tenant), 0n);
+    const a = await sql(URL_ADMIN, "SELECT 1 FROM app.audit_log WHERE tenant_id = $1 AND action = 'alerte_credits_bas'", [v.tenant]);
+    assert.equal(a.length, 1);
+  });
+});
+
+test("erreurs internes : jamais de détail dans la réponse (portail en HTML, ailleurs en JSON)", async () => {
+  const { construire } = await import("../src/app.ts");
+  const { ouvrirBase } = await import("../src/base.ts");
+  const { config } = await import("./aide.ts");
+  const base = ouvrirBase(config().urlBase);
+  const app = construire(config(), base, { journal: false });
+  app.get("/p/essai-erreur/x", async () => { throw new Error("Can't reach database server at 10.0.0.9:5432 secret-interne"); });
+  app.get("/v1/essai-erreur", async () => { throw new Error("Raw query failed secret-interne"); });
+  try {
+    for (const url of ["/p/essai-erreur/x", "/v1/essai-erreur"]) {
+      const r = await app.inject({ url, headers: { "x-wakatnet-tenant": "1" } });
+      assert.ok(r.statusCode >= 400);
+      assert.ok(!r.body.includes("secret-interne") && !r.body.includes("10.0.0.9"), r.body);
+    }
+    assert.match((await app.inject({ url: "/p/essai-erreur/x" })).headers["content-type"] as string, /text\/html/);
+  } finally {
+    await app.close();
+    await base.$disconnect();
+  }
+});

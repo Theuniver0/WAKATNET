@@ -197,7 +197,12 @@ export function routesRouteur(app: FastifyInstance, config: Config, base: Base):
     if (ligne.statut !== "enrole") return rep.code(503).send({ erreur: "plus aucune adresse libre dans l'overlay" });
     req.log.info({ routeur: ligne.router_id!.toString(), overlay_ip: ligne.overlay_ip }, "routeur enrôlé");
     // Hôtes de connexion du hotspot → cibles admises de l'auto-connexion du portail (ADR 0013 §10).
-    await base.$executeRaw`SELECT app.site_hotes_depuis_inventaire(${ligne.router_id!})`;
+    // Jamais bloquant : le routeur est déjà enrôlé, son étape 2 (et son secret) doit partir (revue).
+    try {
+      await base.$executeRaw`SELECT app.site_hotes_depuis_inventaire(${ligne.router_id!})`;
+    } catch (e) {
+      req.log.warn({ err: e, routeur: ligne.router_id!.toString() }, "hôtes du hotspot non relevés");
+    }
     return rep.type("text/plain; charset=utf-8").send(etape2({
       overlayIp: ligne.overlay_ip!, secret: ligne.secret!, noeuds: config.noeuds, inventaire: inscription.inventaire,
     }));

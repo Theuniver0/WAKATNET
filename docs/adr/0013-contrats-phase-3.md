@@ -145,3 +145,50 @@ Un second agent, qui n'a pas écrit le code, a relu le code d'argent. Ses consta
   - M2 : A5 repose sur le code de l'API, qui n'appelle `paiement_transition(..., 'SUCCEEDED')` qu'après `verify()`. Un rôle distinct pour le portail public viendra avec le worker ;
   - M5 : une récupération réussie rattache le ticket au nouvel appareil, et l'ancien perd l'accès. C'est voulu : on peut changer de téléphone. L'espace de 4 caractères, limité à 5 essais par 15 min, suppose des références d'opérateur alphanumériques ; **[LABO]** à vérifier sur un vrai paiement (ADR 0005 §1) ;
   - M7 : le propriétaire des tables peut retirer les déclencheurs. L'ajout seul tient contre tout rôle de connexion et contre toute écriture ; contre un administrateur de la base, c'est la sauvegarde chiffrée et son rapprochement (phase 5) qui protègent.
+
+## 13. Revue de fin de phase 3 (trois relectures, 12/11/2026)
+
+Trois agents qui n'ont pas écrit le code ont relu la phase : normes du dépôt, conformité à la spec, bugs et failles. Aucun bloquant. Corrections, dans la migration 0022 (les migrations 0019 à 0021 sont fusionnées, donc immuables) et dans le code :
+
+- **`verify()` sans délai**, signalé par les trois relectures. Un fournisseur muet faisait tuer chaque tour et affamait tous les paiements. Corrections :
+  - `verify()` est borné à 10 s ;
+  - le paiement est replanifié **avant** l'appel ;
+  - chaque tour a un budget de 40 s ;
+  - les frais papier et la purge passent en tête du tour.
+
+  Prouvé par le scénario 08 du mock (`verify()` qui ne répond jamais).
+- **Demandes de paiement sans limite** (§10.1). On pouvait harceler un numéro de demandes de validation (push Moov). Limites désormais : 3 par numéro et par site sur 10 min, 5 par appareil sur 10 min, et 30 par site et par minute, sérialisées par verrou.
+  - Pas de limite par IP : les clients d'un même site sortent derrière la même adresse NAT du routeur.
+- **Erreurs internes** : un gestionnaire d'erreurs journalise l'erreur et ne rend aucun détail. Le portail reçoit une page HTML.
+- **Relevé des hôtes du hotspot** : recalculé depuis les routeurs actifs du site, plafonné à 32, et **non bloquant** pour l'enrôlement.
+- **Page `MISMATCH`** : « paiement en vérification », jamais « rien ne vous a été facturé ». Page `FAILED` : « si vous avez été débité, revenez ».
+- **Forfait figé à l'achat** : le ticket créé à la confirmation, jusqu'à 24 h plus tard, reprend la copie du forfait prise au moment du paiement.
+- **Auto-connexion** : en plus de l'hôte, le port par défaut et le chemin `/login` sont exigés.
+- **Mineurs** :
+  - le webhook refuse un identifiant d'événement ou une référence hors forme (400) ;
+  - la référence du fournisseur est bornée à 128 caractères ;
+  - l'identifiant de webhook est masqué dans les journaux ;
+  - `credits_solde` et la lecture directe des paiements sont retirés à `wk_api` jusqu'à leur usage (phase 4) ;
+  - les tentatives de récupération sont purgées après 24 h, et chaque purge est inscrite au journal d'audit ;
+  - les lectures `hotspot-address` et `dns-name` sont protégées par `on-error` dans le script ;
+  - `NODE_ENV=production` est posé sur la ligne d'exécution, et la minuterie passe à `OnUnitActiveSec` ;
+  - `e2e.sh` passe ses mots de passe par fichier, jamais en argument.
+- **Tests ajoutés** :
+  - A8 (`versXof`, et le scénario 09, montant illisible → `MISMATCH`) ;
+  - forfait figé ;
+  - limites de demandes ;
+  - rechargement idempotent et alerte « crédits bas » unique ;
+  - erreurs internes sans détail ;
+  - cloisonnement du portail entre deux sites ;
+  - poids des pages de ticket, d'échec et de vérification ;
+  - propriété « N tours → un frais par ticket ».
+
+**Précisions, sans changement de code :**
+- **Noms** : l'interface du §7.3 est rendue en français : `FournisseurPaiement` (`PaymentProvider`), `capacites()` (`capabilities()`), `reversement` (`payout`). `payout?` et `verifyPayout?` relèvent du mode B, qui est verrouillé : ils seront ajoutés avec lui.
+- **Plafond du découvert** : la vente en ligne est permise tant que `solde ≥ −plafond_decouvert`. « Plafond atteint » (ADR 0001) s'entend donc comme « dépassé ». Avec un plafond de 0, un propriétaire à solde nul peut encore vendre, et sa première commission le met en découvert.
+- **Import Mikhmon au plafond** : il n'est pas refusé. Ces tickets existent déjà et ont déjà été vendus ; l'ADR 0002 ne bloque que la **génération** de nouveaux lots (phase 4).
+- **`credit_topup`** (§9) n'est pas une table distincte. Un rechargement est une transaction du grand livre de nature `recharge`, avec sa référence ; il est aussi inscrit au journal d'audit. La table viendra avec le rechargement en ligne.
+- **Notés, non faits** :
+  - pas de `tenant_id` sur `recuperation_tentative` (le site l'implique) ;
+  - le contrôle « au plafond, le ticket existant est accepté » passe par `radius.authorize` en SQL, pas par FreeRADIUS : c'est la même fonction, et la matrice T couvre FreeRADIUS ;
+  - commits regroupant plusieurs tickets et branche unique : livraison décidée par Yacouba.

@@ -99,6 +99,10 @@ function unEnvoi(radclient: string, fichierSecret: string, cible: Cible, demande
     p.stderr.on("data", (d) => { erreur += d; });
     p.on("error", (e) => { clearTimeout(garde); rejeter(e); });
     p.on("close", (code) => { clearTimeout(garde); resoudre({ sortie, erreur, code }); });
+    // radclient peut mourir avant d'avoir lu son entrée (dictionnaire illisible, par exemple) :
+    // l'EPIPE qui en résulte ne doit pas faire planter le processus ; le code de sortie fait foi
+    // (constaté le 12/11/2026, test_t09 « panne de radclient », course rare).
+    p.stdin.on("error", () => {});
     p.stdin.end(attributs(demande));
   });
 }

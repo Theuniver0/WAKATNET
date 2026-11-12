@@ -747,3 +747,17 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `hotspot-address` et `dns-name` ;
   - références d'opérateur alphanumériques (récupération).
 - **G-ARGENT n'est pas franchie** : il faut le ticket 08 en bac à sable et `docs/CONFORMITE.md` rempli.
+
+### Revue complète de la phase 3 et corrections (12/11/2026)
+
+- Demande de Yacouba : « full review and fix », après la fusion de la PR n°22.
+- Trois relectures en parallèle, par trois agents qui n'avaient pas écrit le code : normes du dépôt, conformité à la spec, bugs et failles. Aucun bloquant. Plusieurs constats importants, dont un relevé par les trois : `verify()` n'avait pas de délai, si bien qu'un fournisseur muet aurait bloqué toute la tâche périodique.
+- Corrections : migration `0022_app_revue_phase3.sql` (redéfinition des fonctions concernées, les migrations 0019 à 0021 étant immuables) et code. Le détail est dans l'ADR 0013 §13.
+- **Trouvé en rejouant la matrice** : `test_t09.py::test_panne_de_radclient_visible_et_session_non_marquee` a échoué une fois. Le défaut vient de la phase 1 et ne dépend pas de la phase 3 : `radclient` qui meurt avant d'avoir lu son entrée provoque un `EPIPE` non rattrapé, et Node plante sans le message attendu.
+  - **Reproduit de façon déterministe** : un enfant ferme son entrée pendant qu'on lui écrit 1 Mo. Sans garde : `EPIPE`, 3 fois sur 3. Avec garde : code de sortie 1, 3 fois sur 3.
+  - **Corrigé** dans `infra/coupure/emetteur.ts` et `infra/coupure/coupure.ts` (`psql`) : une erreur sur l'entrée de l'enfant est ignorée, et son code de sortie fait foi.
+- **Preuves**, toutes depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 102 tests, SUCCÈS ;
+  - `apps/api/tests/e2e.sh` : Chromium, achat, auto-connexion et P6, SUCCÈS ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
+  - shellcheck ne relève rien.

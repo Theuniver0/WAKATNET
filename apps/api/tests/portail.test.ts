@@ -34,11 +34,12 @@ test("lien d'auto-connexion : seulement vers un hôte du hotspot relevé à l'en
   assert.equal(lienConnexion(L, hotes, "AB3K9MZQ", "http://exemple.bf/"),
     "http://10.5.50.1/login?username=AB3K9MZQ&password=AB3K9MZQ&dst=http%3A%2F%2Fexemple.bf%2F");
   assert.ok(lienConnexion("https://LOGIN.wifi/login", hotes, "X"));
-  for (const mauvais of ["http://10.5.50.77/", "http://203.0.113.5/login", "https://pirate.example/login", "javascript:alert(1)",
+  for (const mauvais of ["http://10.5.50.77/", "http://10.5.50.1:8291/login", "http://10.5.50.1/x", "http://10.5.50.1/login/../winbox", "http://203.0.113.5/login", "https://pirate.example/login", "javascript:alert(1)",
                          "http://user:pass@10.5.50.1/login", "http://10.5.50.1.pirate.example/", "ftp://10.5.50.1/", "", "http://256.1.1.1/"]) {
     assert.equal(lienConnexion(mauvais, hotes, "X"), null, mauvais);
   }
   assert.equal(lienConnexion(L, [], "X"), null, "aucun hôte relevé : code affiché seulement");
+  assert.ok(lienConnexion("http://10.5.50.1:8080/login", ["10.5.50.1:8080"], "X"), "port explicite s'il est enregistré tel quel");
 });
 
 test("messages : les causes de refus deviennent des phrases utiles (§7.1)", () => {
@@ -192,5 +193,54 @@ test("retrouver : 30 requêtes PARALLÈLES ne font que 5 tentatives (verrou, rel
     assert.equal(essais.filter((r) => r.statusCode === 429).length, 25);
     const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.recuperation_tentative t JOIN app.site s ON s.id = t.site_id WHERE s.public_id = $1", [v.publicId]);
     assert.equal(n, 5);
+  });
+});
+
+test("cloisonnement du portail : un achat du site A n'est ni proposé, ni retrouvable, ni payable depuis le site B", async () => {
+  await avecApp(async (app) => {
+    const A = await vendeur(app, "portail site A");
+    const B = await vendeur(app, "portail site B");
+    const num = numero("00");
+    const f = await app.inject({ url: `/p/${A.publicId}/payer?plan=${A.plan}` });
+    const cookie = cookieDe(f);
+    const soumission = /name="soumission" value="([A-Za-z0-9_-]+)"/.exec(f.body)![1];
+    const h = { cookie, "content-type": "application/x-www-form-urlencoded" };
+    const r = await app.inject({ method: "POST", url: `/p/${A.publicId}/payer`, headers: h,
+      payload: new URLSearchParams({ plan: A.plan, soumission, operateur: "moov_bf", numero: num }).toString() });
+    const ref = /\/achat\/(wk_[A-Za-z0-9_-]{22})/.exec(String(r.headers.location))![1];
+    await attendreStatut(ref, "SUCCEEDED");
+    const [{ rf }] = await sql<{ rf: string }>(URL_ADMIN, "SELECT reference_fournisseur AS rf FROM app.payment WHERE reference = $1", [ref]);
+    // Même appareil (cookie commun à /p) sur le site B : rien n'est proposé.
+    assert.ok(!(await app.inject({ url: `/p/${B.publicId}`, headers: { cookie } })).body.includes(ref));
+    // Retrouver sur le site B avec le bon numéro et le bon suffixe : introuvable.
+    assert.equal((await app.inject({ method: "POST", url: `/p/${B.publicId}/retrouver`, headers: h,
+      payload: `numero=${num}&suffixe=${rf.slice(-4)}` })).statusCode, 404);
+    // Payer sur le site B un forfait du propriétaire A : renvoi vers les forfaits de B, aucun paiement.
+    const x = await app.inject({ method: "POST", url: `/p/${B.publicId}/payer`, headers: h,
+      payload: new URLSearchParams({ plan: A.plan, soumission: "Z".repeat(24), operateur: "moov_bf", numero: numero("00") }).toString() });
+    assert.equal(x.statusCode, 303);
+    assert.match(String(x.headers.location), new RegExp(`/p/${B.publicId}/forfaits`));
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.payment WHERE tenant_id = $1", [B.tenant]);
+    assert.equal(n, 0);
+  });
+});
+
+test("poids des autres pages : ticket, paiement non abouti, en vérification, code affiché", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "portail poids");
+    const pages: string[] = [];
+    for (const sc of ["00", "01", "05"]) {
+      const { ref, cookie } = await acheter(app, v, sc);
+      await new Promise((x) => setTimeout(x, 200));
+      pages.push((await app.inject({ url: `/p/${v.publicId}/achat/${ref}${ctx}`, headers: { cookie } })).body);
+    }
+    pages.push((await app.inject({ method: "POST", url: `/p/${v.publicId}/ticket`, headers: { "content-type": "application/x-www-form-urlencoded" },
+                                   payload: "code=AB3K9MZQ" })).body);
+    assert.match(pages[0], /Paiement reçu/);
+    assert.match(pages[1], /n'a pas confirmé/);
+    assert.match(pages[2], /en vérification/);
+    assert.ok(!pages[2].includes("Aucun montant"), "MISMATCH : jamais « rien facturé »");
+    // Aucune ressource CHARGÉE de l'extérieur ; le bouton « Se connecter » vers le hotspot est un lien, pas une ressource.
+    for (const p of pages) assert.ok(Buffer.byteLength(p) < 100 * 1024 && !/src="https?:\/\//.test(p) && !/<link/.test(p));
   });
 });

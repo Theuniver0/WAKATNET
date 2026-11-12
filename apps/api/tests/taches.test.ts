@@ -142,3 +142,38 @@ test("numéro du payeur en clair purgé à sa date (ADR 0005 §2) ; HMAC et form
     assert.equal(p.hmac, true);
   });
 });
+
+test("fournisseur muet sur verify() : le tour reste borné, replanifie, et traite les autres paiements", async () => {
+  await avecApp(async (app, base) => {
+    const v = await vendeur(app, "fournisseur muet");
+    const muet = await creer(app, v, "08");
+    const normal = await creer(app, v, "02");
+    if (muet.statut !== "cree" || normal.statut !== "cree") assert.fail("création");
+    await sql(URL_ADMIN, "UPDATE app.payment SET prochaine_verif_le = now() - interval '1 hour' WHERE reference = $1", [muet.reference]);
+    await echeance(normal.reference);
+    const debut = Date.now();
+    const b = await tour(base, app.paiement!, () => {}, 30_000);
+    assert.ok(Date.now() - debut < 15_000, `tour borné par le délai de verify (${Date.now() - debut} ms)`);
+    assert.equal(b.erreurs, 1);
+    assert.equal((await statut(normal.reference)).statut, "SUCCEEDED", "le paiement suivant n'est pas affamé");
+    const [{ d }] = await sql<{ d: number }>(URL_ADMIN,
+      "SELECT round(extract(epoch FROM prochaine_verif_le - now()))::int AS d FROM app.payment WHERE reference = $1", [muet.reference]);
+    assert.ok(d > 280, "le paiement muet est replanifié, plus en tête de file");
+  });
+});
+
+test("propriété : N tours de la tâche → un seul frais par ticket papier activé", async () => {
+  const fc = (await import("fast-check")).default;
+  await avecApp(async (app, base) => {
+    const v = await vendeur(app, "frais propriété", { prix: 300 });
+    await fc.assert(fc.asyncProperty(fc.integer({ min: 1, max: 4 }), fc.integer({ min: 1, max: 3 }), async (tickets, tours) => {
+      const avant = await credits(v.tenant);
+      for (let i = 0; i < tickets; i++) {
+        const [{ c }] = await sql<{ c: string }>(URL_ADMIN, "SELECT app.voucher_creer($1, $2) AS c", [v.tenant, v.plan]);
+        await sql(URL_ADMIN, "UPDATE app.voucher SET activated_at = now() WHERE tenant_id = $1 AND code = $2", [v.tenant, c]);
+      }
+      for (let i = 0; i < tours; i++) await tour(base, app.paiement!);
+      assert.equal(await credits(v.tenant), avant - 30n * BigInt(tickets));
+    }), { numRuns: 8 });
+  });
+});
