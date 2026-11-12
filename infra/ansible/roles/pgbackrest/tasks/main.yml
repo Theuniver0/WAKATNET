@@ -1,0 +1,33 @@
+# pgBackRest (ADR 0015 §5) : même configuration sur les deux nœuds ; la sauvegarde ne tourne que sur le
+# primaire (sauvegarder.sh). Secrets (phrase de passe, clés S3) : /etc/pgbackrest/conf.d/secret.conf.
+- name: Paquet pgBackRest
+  ansible.builtin.apt:
+    name: pgbackrest
+    state: present
+
+- name: Répertoires
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+  loop: [/etc/pgbackrest/conf.d, /var/log/pgbackrest, /var/spool/pgbackrest]
+
+- name: Configuration (sans secret)
+  ansible.builtin.template:
+    src: pgbackrest.conf.j2
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: postgres
+    group: postgres
+    mode: "0640"
+
+- name: Fichier de secrets de pgBackRest (créé à la main, postgres 0600)
+  ansible.builtin.stat:
+    path: /etc/pgbackrest/conf.d/secret.conf
+  register: pgbackrest_secret
+
+- name: Exiger le fichier de secrets
+  ansible.builtin.assert:
+    that: pgbackrest_secret.stat.exists and pgbackrest_secret.stat.mode == "0600" and pgbackrest_secret.stat.pw_name == "postgres"
+    fail_msg: "/etc/pgbackrest/conf.d/secret.conf absent ou mal protégé (repo1-cipher-pass, clés S3 ; copie hors site obligatoire)."

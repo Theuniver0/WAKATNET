@@ -1,0 +1,123 @@
+# FreeRADIUS du nœud (ADR 0004 point 5, ADR 0006, ADR 0009). Configuration de PRODUCTION recopiée
+# telle quelle depuis infra/freeradius/ (celle que la matrice T teste). Secrets : fichier créé à la main.
+- name: Dépôt officiel de l'éditeur de FreeRADIUS
+  when: freeradius_depot | length > 0
+  block:
+    - name: Clé de signature du dépôt (fournie dans le dépôt de contrôle, vérifiée à la main)
+      ansible.builtin.copy:
+        src: "{{ freeradius_depot.cle_locale }}"
+        dest: /usr/share/keyrings/freeradius.asc
+        mode: "0644"
+    - name: Source du dépôt (format deb822)
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/freeradius.sources
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: {{ freeradius_depot.url }}
+          Suites: {{ freeradius_depot.suite }}
+          Components: {{ freeradius_depot.composant }}
+          Signed-By: /usr/share/keyrings/freeradius.asc
+
+- name: Paquets FreeRADIUS
+  ansible.builtin.apt:
+    name: "{{ freeradius_paquets }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Version installée
+  ansible.builtin.command: freeradius -v
+  register: freeradius_v
+  changed_when: false
+
+# E-FR-1 : >= 3.2.10, et JAMAIS 3.2.9 (lecteur detail cassé, #5870).
+- name: Garde de version (jamais 3.2.9, au moins {{ freeradius_version_min }})
+  vars:
+    freeradius_version: "{{ freeradius_v.stdout | regex_search('Version ([0-9.]+)', '\\1') | first }}"
+  ansible.builtin.assert:
+    that:
+      - freeradius_version is version(freeradius_version_min, '>=')
+      - freeradius_version != "3.2.9"
+    fail_msg: >-
+      FreeRADIUS {{ freeradius_version }} refusé (exigé : >= {{ freeradius_version_min }}, jamais 3.2.9).
+      Déclarer le dépôt officiel de l'éditeur dans freeradius_depot (ADR 0004 point 5).
+
+- name: Fichier de secrets de FreeRADIUS (créé à la main, root:freerad 0640)
+  ansible.builtin.stat:
+    path: /etc/wakatnet/freeradius.secrets
+  register: freeradius_secrets
+
+- name: Exiger le fichier de secrets
+  ansible.builtin.assert:
+    that: freeradius_secrets.stat.exists and freeradius_secrets.stat.mode in ["0600", "0640"]
+    fail_msg: "/etc/wakatnet/freeradius.secrets absent ou trop ouvert (WAKATNET_PG_RADIUS_PASSWORD, WAKATNET_PG_ACCT_PASSWORD)."
+
+- name: Configuration de production (infra/freeradius)
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/infra/freeradius/{{ item }}"
+    dest: "{{ freeradius_conf_dir }}/{{ item }}"
+    owner: root
+    group: freerad
+    mode: "0640"
+    directory_mode: "0750"
+  loop: [radiusd.conf, clients.conf, sites-enabled/, mods-enabled/]
+  notify: Redémarrer FreeRADIUS
+
+# La matrice T monte sites-enabled et mods-enabled EN ENTIER : les sites et modules par défaut du paquet
+# (default, inner-tunnel, eap…) ne doivent pas rester actifs à côté des nôtres.
+- name: Contenu actuel de sites-enabled et mods-enabled
+  ansible.builtin.find:
+    paths: ["{{ freeradius_conf_dir }}/sites-enabled", "{{ freeradius_conf_dir }}/mods-enabled"]
+    file_type: any
+  register: freeradius_actifs
+
+- name: Retirer ce qui n'est pas dans infra/freeradius
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ freeradius_actifs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: >-
+    (item.path | basename) not in (lookup('ansible.builtin.fileglob', wakatnet_depot ~ '/infra/freeradius/sites-enabled/*', wantlist=True)
+                                   + lookup('ansible.builtin.fileglob', wakatnet_depot ~ '/infra/freeradius/mods-enabled/*', wantlist=True))
+                                  | map('basename') | list
+  notify: Redémarrer FreeRADIUS
+
+- name: Variables non secrètes du nœud
+  ansible.builtin.template:
+    src: freeradius.env.j2
+    dest: /etc/wakatnet/freeradius.env
+    mode: "0644"
+  notify: Redémarrer FreeRADIUS
+
+- name: Garde de démarrage
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/infra/freeradius/verifier-env.sh"
+    dest: /usr/local/sbin/wakatnet-verifier-env
+    mode: "0755"
+
+- name: Unité FreeRADIUS complétée (environnement et garde)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/freeradius.service.d/wakatnet.conf
+    mode: "0644"
+    content: |
+      # WAKATNET (Ansible) : environnement du nœud, secrets, garde de démarrage (verifier-env.sh).
+      [Service]
+      EnvironmentFile=/etc/wakatnet/freeradius.env
+      EnvironmentFile=/etc/wakatnet/freeradius.secrets
+      ExecStartPre=/usr/local/sbin/wakatnet-verifier-env
+  notify: [Recharger systemd, Redémarrer FreeRADIUS]
+
+- name: Rotation des compteurs de silence
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/infra/logrotate/wakatnet-freeradius"
+    dest: /etc/logrotate.d/wakatnet-freeradius
+    mode: "0644"
+
+- name: FreeRADIUS actif au démarrage
+  ansible.builtin.systemd_service:
+    name: freeradius
+    enabled: true
+    state: started

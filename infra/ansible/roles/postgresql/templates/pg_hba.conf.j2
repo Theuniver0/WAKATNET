@@ -1,0 +1,10 @@
+# WAKATNET — accès à PostgreSQL du nœud {{ wakatnet_noeud }} (ADR 0015 §1). Géré par Ansible.
+# TYPE  BASE         UTILISATEUR      ADRESSE                       MÉTHODE
+local   all          postgres                                       peer
+local   all          all                                            scram-sha-256
+host    wakatnet     all              127.0.0.1/32                  scram-sha-256
+# L'autre nœud, par wk-noeuds seulement : réplication, retour en réplique (pg_rewind), rejeu de
+# l'accounting (wk_acct, ADR 0015 §2).
+host    replication  wk_replication   {{ wk_noeuds_pair_ip }}/32    scram-sha-256
+host    wakatnet     wk_rewind        {{ wk_noeuds_pair_ip }}/32    scram-sha-256
+host    wakatnet     wk_acct          {{ wk_noeuds_pair_ip }}/32    scram-sha-256

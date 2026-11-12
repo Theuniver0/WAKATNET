@@ -1,0 +1,26 @@
+# WAKATNET — variables communes des nœuds (ADR 0004, 0015). Versions épinglées.
+wakatnet_racine: /opt/wakatnet
+wakatnet_depot: "{{ playbook_dir }}/../.."          # dépôt du nœud de contrôle
+
+postgresql_version: 16
+# Debian 13 livre PostgreSQL 17 : la 16 (même version que les tests, ADR 0008) vient du dépôt PGDG.
+postgresql_depot_pgdg: true
+postgresql_pgdg_cle_locale: "{{ playbook_dir }}/cles/pgdg.asc"   # clé de signature, vérifiée à la main
+postgresql_conf_dir: "/etc/postgresql/{{ postgresql_version }}/main"
+postgresql_data_dir: "/var/lib/postgresql/{{ postgresql_version }}/main"
+# Reconstruire une réplique EFFACE son répertoire de données : jamais par défaut (ADR 0015 §3).
+postgresql_reconstruire_replique: false
+
+# FreeRADIUS : paquets officiels de l'éditeur (ADR 0004 point 5). Dépôt [À CONFIRMER] : sans lui,
+# les paquets de la distribution sont trop anciens (Debian 13 : 3.2.7 ; Ubuntu 24.04 : 3.2.5) et
+# la garde de version refuse l'installation.
+freeradius_depot: {}
+freeradius_paquets: [freeradius, freeradius-postgresql]
+freeradius_conf_dir: /etc/freeradius
+freeradius_version_min: "3.2.10"
+
+wk_noeuds_port: 51821
+
+node_version: "22.23.0"
+# SHASUMS256.txt de nodejs.org, relevé le 12/11/2026.
+node_sha256: "14d7de44f235534799f8b171a4050d9a6a4bc99c87e053a25d3d54afa580aa20"

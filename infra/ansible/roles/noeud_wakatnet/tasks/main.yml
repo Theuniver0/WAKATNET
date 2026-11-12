@@ -1,0 +1,117 @@
+# Code et tâches de WAKATNET sur le nœud (ADR 0015 §7) : Node 22 officiel, scripts de nœud, unités,
+# schéma (migrer.sh, sur le primaire). Secrets : fichiers /etc/wakatnet/*.env créés à la main.
+- name: Node officiel, empreinte vérifiée, version {{ node_version }}
+  ansible.builtin.get_url:
+    url: "https://nodejs.org/dist/v{{ node_version }}/node-v{{ node_version }}-linux-x64.tar.xz"
+    dest: "/var/cache/node-v{{ node_version }}-linux-x64.tar.xz"
+    checksum: "sha256:{{ node_sha256 }}"
+    mode: "0644"
+
+- name: Installer Node (le paquet de la distribution ne retire pas les types TypeScript, ADR 0010)
+  ansible.builtin.unarchive:
+    src: "/var/cache/node-v{{ node_version }}-linux-x64.tar.xz"
+    dest: /usr/local
+    remote_src: true
+    extra_opts: [--strip-components=1]
+    creates: "/usr/local/lib/node_modules/npm/package.json"
+
+- name: Lien /usr/bin/node (chemin des unités)
+  ansible.builtin.file:
+    src: /usr/local/bin/node
+    dest: /usr/bin/node
+    state: link
+
+- name: Répertoires
+  ansible.builtin.file:
+    path: "{{ item.chemin }}"
+    state: directory
+    owner: "{{ item.proprietaire }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { chemin: "{{ wakatnet_racine }}", proprietaire: root, mode: "0755" }
+    - { chemin: /etc/wakatnet, proprietaire: root, mode: "0750" }
+    - { chemin: /var/lib/wakatnet, proprietaire: postgres, mode: "0755" }
+    - { chemin: /var/log/wakatnet, proprietaire: root, mode: "0750" }
+
+- name: Code du dépôt (infra, API, paquet de paiement)
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/{{ item }}"
+    dest: "{{ wakatnet_racine }}/{{ item }}"
+    mode: preserve
+  loop: [infra/, apps/api/src/, apps/api/prisma/, apps/api/package.json, apps/api/prisma.config.ts, apps/api/tsconfig.json,
+         packages/payments/, package.json, package-lock.json]
+  notify: [Installer les dépendances de l'API, Générer le client Prisma]
+
+- name: Dépendances et client Prisma à jour avant d'activer les unités
+  ansible.builtin.meta: flush_handlers
+
+- name: Fichiers d'environnement (créés à la main, jamais par Ansible)
+  ansible.builtin.stat:
+    path: "/etc/wakatnet/{{ item }}"
+  loop: [api.env, coa.env, maint.env, sante.env, wg-agent.env, pg-roles.env]
+  register: noeud_wakatnet_env
+
+- name: Exiger les fichiers d'environnement, réservés à root
+  ansible.builtin.assert:
+    that: item.stat.exists and item.stat.pw_name == "root" and item.stat.mode in ["0600", "0640"]
+    fail_msg: "{{ item.item }} absent ou trop ouvert dans /etc/wakatnet (root, 0600)."
+  loop: "{{ noeud_wakatnet_env.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Scripts de maintenance (installés comme les unités les attendent)
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/infra/maintenance/{{ item }}.sh"
+    dest: "/usr/local/sbin/{{ item }}"
+    mode: "0755"
+  loop: [wakatnet-fantomes, wakatnet-purge]
+
+- name: Unités systemd
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /etc/systemd/system/
+    mode: "0644"
+  with_fileglob: ["{{ wakatnet_depot }}/infra/systemd/wakatnet-*"]
+  notify: Recharger systemd
+
+- name: Appliquer le rechargement de systemd avant d'activer
+  ansible.builtin.meta: flush_handlers
+
+# Toutes les tâches tournent sur les deux nœuds : chacune ne fait rien sur une réplique (T13).
+- name: Minuteries et services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop: [wakatnet-wg-agent.service, wakatnet-taches.timer, wakatnet-coupure.timer, wakatnet-fantomes.timer,
+         wakatnet-purge.timer, wakatnet-sante.timer, wakatnet-sauvegarde.timer, wakatnet-essai-restauration.timer]
+
+- name: Base wakatnet (primaire)
+  when: wakatnet_role == "primaire"
+  become: true
+  become_user: postgres
+  ansible.builtin.command:
+    argv: [psql, -X, -q, -tA, -d, postgres, -c,
+           "SELECT 1 FROM pg_database WHERE datname = 'wakatnet'"]
+  register: noeud_wakatnet_base
+  changed_when: false
+
+- name: Créer la base wakatnet
+  when: wakatnet_role == "primaire" and noeud_wakatnet_base.stdout != "1"
+  become: true
+  become_user: postgres
+  ansible.builtin.command: createdb wakatnet
+  changed_when: true
+
+# root lit les mots de passe des rôles (fichier root 0600) ; migrer.sh tourne en tant que postgres et
+# les lit dans son environnement (\getenv), jamais sur une ligne de commande.
+- name: Schéma (migrer.sh), sur le primaire seulement
+  when: wakatnet_role == "primaire"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    set -a; . /etc/wakatnet/pg-roles.env; set +a
+    PGUSER=postgres PGDATABASE=wakatnet runuser -u postgres -- bash {{ wakatnet_racine }}/infra/sql/migrer.sh
+  args:
+    executable: /bin/bash
+  register: noeud_wakatnet_migrations
+  changed_when: "'application :' in noeud_wakatnet_migrations.stdout"

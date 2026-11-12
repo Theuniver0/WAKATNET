@@ -1,0 +1,12 @@
+# WAKATNET — lien entre nœuds (ADR 0015 §1). Géré par Ansible : ne pas modifier à la main.
+# Aucune clé privée ici : PostUp la lit dans /etc/wireguard/wk-noeuds.key (root, 0600).
+[Interface]
+Address = {{ wk_noeuds_ip }}/32
+ListenPort = {{ wk_noeuds_port }}
+PostUp = wg set %i private-key /etc/wireguard/wk-noeuds.key
+
+[Peer]
+PublicKey = {{ wk_noeuds_pair_cle_publique }}
+Endpoint = {{ wk_noeuds_pair_ip_publique }}:{{ wk_noeuds_port }}
+AllowedIPs = {{ wk_noeuds_pair_ip }}/32
+PersistentKeepalive = 25

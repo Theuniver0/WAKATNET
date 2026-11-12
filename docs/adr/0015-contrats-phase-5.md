@@ -121,7 +121,9 @@ Trois formes comparées :
   - `pgbackrest` ;
   - `noeud_wakatnet` : unités systemd, `wg-agent`, Node 22 officiel, API en conteneur.
 - **Les secrets ne passent jamais par Ansible** : les fichiers de secrets sont créés à la main sur le nœud (§13, règle 5). Les rôles vérifient leur **présence**, jamais leur contenu.
-- Preuve : `ansible-playbook --syntax-check`, `ansible-lint`, puis une exécution réelle sur des conteneurs Debian 13 avec systemd, deux fois (idempotence : aucun changement au second passage).
+- Preuve : `ansible-playbook --syntax-check`, `ansible-lint`, puis une exécution réelle sur des conteneurs avec systemd, deux fois (idempotence : aucun changement au second passage).
+  - *Précisé à l'implémentation (ticket 06)* : les conteneurs sont des **Ubuntu 24.04**, faute d'accès aux dépôts Debian depuis l'environnement de développement. Le rejeu sur Debian 13 revient à la VM de Yacouba (§8).
+  - Garde ajoutée : un nœud déclaré réplique qui n'en est pas une n'est effacé que sur demande explicite (`postgresql_reconstruire_replique=true`).
 - Mises à jour un nœud à la fois, B d'abord (§10.3) ; la procédure est dans `docs/RUNBOOK.md`.
 
 ## 8. Ce que la phase 5 ne prouve pas ici

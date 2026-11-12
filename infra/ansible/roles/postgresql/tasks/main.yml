@@ -1,0 +1,105 @@
+# PostgreSQL du nœud (ADR 0015 §1) : primaire ou réplique en flux. Aucun mot de passe ici : ceux des
+# rôles sont posés par migrer.sh (fichier /etc/wakatnet/pg-roles.env, créé à la main) ; la réplique lit
+# le sien dans ~postgres/.pgpass (créé à la main).
+- name: Dépôt PGDG pour Debian 13, PostgreSQL {{ postgresql_version }}
+  when: postgresql_depot_pgdg | bool
+  block:
+    - name: Clé de signature PGDG (fournie dans le dépôt de contrôle, vérifiée à la main)
+      ansible.builtin.copy:
+        src: "{{ postgresql_pgdg_cle_locale }}"
+        dest: /usr/share/keyrings/pgdg.asc
+        mode: "0644"
+    - name: Source PGDG (format deb822)
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/pgdg.sources
+        mode: "0644"
+        content: |
+          Types: deb
+          URIs: https://apt.postgresql.org/pub/repos/apt
+          Suites: {{ ansible_facts['distribution_release'] }}-pgdg
+          Components: main
+          Signed-By: /usr/share/keyrings/pgdg.asc
+
+- name: Paquets de PostgreSQL {{ postgresql_version }}
+  ansible.builtin.apt:
+    name: ["postgresql-{{ postgresql_version }}", "postgresql-client-{{ postgresql_version }}"]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Réglages WAKATNET (conf.d)
+  ansible.builtin.template:
+    src: wakatnet.conf.j2
+    dest: "{{ postgresql_conf_dir }}/conf.d/60-wakatnet.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: Redémarrer PostgreSQL
+
+- name: "Accès (pg_hba.conf) : local, et l'autre nœud par wk-noeuds seulement"
+  ansible.builtin.template:
+    src: pg_hba.conf.j2
+    dest: "{{ postgresql_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: Recharger PostgreSQL
+
+- name: État de la réplique
+  ansible.builtin.stat:
+    path: "{{ postgresql_data_dir }}/standby.signal"
+  register: postgresql_standby
+
+# Clôture par la procédure (ADR 0015 §3) : un nœud déclaré réplique mais sans standby.signal est un
+# ancien primaire ou une installation neuve. On ne l'efface JAMAIS sans demande explicite.
+- name: Refuser de transformer un primaire en réplique sans demande explicite
+  ansible.builtin.assert:
+    that: postgresql_standby.stat.exists or postgresql_reconstruire_replique | bool
+    fail_msg: >-
+      {{ inventory_hostname }} est déclaré réplique mais n'en est pas une. Ancien primaire : lancer
+      infra/noeud/rejoindre-en-replique.sh (RUNBOOK §4). Installation neuve : relancer avec
+      -e postgresql_reconstruire_replique=true (EFFACE le répertoire de données de ce nœud).
+  when: wakatnet_role == "replique"
+
+- name: Construire la réplique (pg_basebackup depuis le primaire, slot noeud_b)
+  when: wakatnet_role == "replique" and not postgresql_standby.stat.exists
+  block:
+    - name: Le fichier de mots de passe de la réplication existe (~postgres/.pgpass, 0600)
+      ansible.builtin.stat:
+        path: /var/lib/postgresql/.pgpass
+      register: postgresql_pgpass
+    - name: Exiger ~postgres/.pgpass
+      ansible.builtin.assert:
+        that: postgresql_pgpass.stat.exists and postgresql_pgpass.stat.mode == "0600"
+        fail_msg: "~postgres/.pgpass absent ou mal protégé (ligne wk_replication du primaire, mode 0600)."
+    - name: Arrêter PostgreSQL
+      ansible.builtin.systemd_service:
+        name: postgresql
+        state: stopped
+    - name: Vider le répertoire de données (demande explicite)
+      ansible.builtin.file:
+        path: "{{ postgresql_data_dir }}"
+        state: absent
+    - name: Copie de base depuis le primaire
+      become: true
+      become_user: postgres
+      ansible.builtin.command:
+        argv: [pg_basebackup, -h, "{{ wk_noeuds_pair_ip }}", -U, wk_replication, -D, "{{ postgresql_data_dir }}",
+               -R, -S, noeud_b, -X, stream, -c, fast]
+        creates: "{{ postgresql_data_dir }}/standby.signal"
+
+- name: PostgreSQL actif au démarrage
+  ansible.builtin.systemd_service:
+    name: postgresql
+    enabled: true
+    state: started
+
+- name: "Primaire : slot de réplication du nœud B"
+  when: wakatnet_role == "primaire"
+  become: true
+  become_user: postgres
+  ansible.builtin.command:
+    argv: [psql, -X, -q, -tA, -c, "SELECT count(pg_create_physical_replication_slot('noeud_b')) FROM (SELECT 1) x
+            WHERE NOT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'noeud_b')"]
+  register: postgresql_slot
+  changed_when: postgresql_slot.stdout == "1"
