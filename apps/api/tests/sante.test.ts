@@ -155,3 +155,9 @@ test("règle ip_routeurs (migration 0032) : sur le primaire, routeurs actifs san
   assert.equal(r.active(v({ en_recuperation: 0, routeurs_actifs: 0, routeurs_ip_recente: 0 })), false, "aucun routeur : rien à dire");
   assert.equal(r.active(v({ en_recuperation: 1, routeurs_actifs: 3, routeurs_ip_recente: 0 })), false, "réplique : l'agent n'y écrit pas");
 });
+
+test("règle overlay_plein (ADR 0017) : plus de 80 % des 64 516 adresses de l'overlay prises", () => {
+  const r = REGLES.find((x) => x.id === "overlay_plein")!;
+  assert.equal(r.active((n) => (n === "overlay_utilise" ? 51_612 : undefined)), false);
+  assert.equal(r.active((n) => (n === "overlay_utilise" ? 51_613 : undefined)), true);
+});

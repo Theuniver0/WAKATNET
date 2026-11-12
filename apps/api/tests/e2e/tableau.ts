@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { construire } from "../../src/app.ts";
 import { base32Encoder, chiffrerTotp, hotp, pasTotp } from "../../src/auth.ts";
 import { ouvrirBase } from "../../src/base.ts";
+import { ExpediteurMemoire } from "../../src/courriel.ts";
 import { CLES, config, empreinteTest, MDP_TEST, routeur, session, sql, URL_ADMIN } from "../aide.ts";
 import { attendreStatut, jeton, numero, soumission, vendeur } from "../aide-paiement.ts";
 
@@ -34,7 +35,9 @@ const { chromium } = createRequire(import.meta.url)("playwright") as
 const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 
 const base = ouvrirBase(config().urlBase);
-const app = construire(config(), base, { journal: false });     // dossierTableau par défaut : apps/dashboard/dist
+// Expéditeur en mémoire (ADR 0017) : le lien de vérification de l'adresse est lu ici, puis suivi dans le navigateur.
+const expediteur = new ExpediteurMemoire();
+const app = construire(config(), base, { journal: false, expediteur });     // dossierTableau par défaut : apps/dashboard/dist
 await app.listen({ port: 0, host: "127.0.0.1" });
 // « localhost » : contexte sûr pour Chromium, le cookie Secure de session y est accepté.
 const ORIGINE = `http://localhost:${(app.server.address() as { port: number }).port}`;
@@ -101,6 +104,23 @@ try {
   await page.getByLabel("Nom du site").fill("Maquis Wend-Kuni");
   await page.getByRole("button", { name: "Ajouter le site" }).click();
   await page.getByRole("heading", { name: "Maquis Wend-Kuni" }).waitFor();
+  // Revue de sécurité M4 (ADR 0017) : adresse non vérifiée, raccordement refusé, avec la marche à suivre.
+  await page.getByRole("heading", { name: "Adresse e-mail à confirmer" }).waitFor();
+  await page.getByRole("button", { name: "Raccorder un routeur" }).click();
+  await page.getByText(/Adresse e-mail non vérifiée/).waitFor();
+  await auditer(page, "Sites et routeurs (adresse à confirmer)");
+  const message = expediteur.messages.find((m) => m.a === email);
+  assert.ok(message, "lien de vérification envoyé à l'inscription");
+  const jetonVerif = /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(message.texte)![1];
+  await page.goto(`${TABLEAU}#/verifier?j=${jetonVerif}`);
+  await titre(page, "Confirmer votre adresse e-mail");
+  await auditer(page, "Confirmer votre adresse e-mail");
+  await page.getByRole("button", { name: "Confirmer mon adresse" }).click();
+  await page.getByText(/Adresse confirmée/).waitFor();
+  await page.getByRole("button", { name: "Aller au tableau de bord" }).click();
+  await titre(page, "Sites et routeurs");
+  await page.getByRole("heading", { name: "Maquis Wend-Kuni" }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "Adresse e-mail à confirmer" }).count(), 0, "bandeau retiré");
   await page.getByRole("button", { name: "Raccorder un routeur" }).click();
   const commande = (await page.locator("pre").first().textContent()) ?? "";
   assert.match(commande, /\/tool fetch/, `commande d'enrôlement à coller : ${commande}`);
@@ -108,7 +128,7 @@ try {
   await auditer(page, "Sites et routeurs");
   const redirection = await telecharger(page, page.getByRole("link", { name: "Page de connexion du hotspot", exact: true }));
   assert.match((await redirection.body()).toString("utf8"), /<html/i);
-  console.log("ok : parcours 1 — compte créé, site déclaré, commande d'enrôlement affichée");
+  console.log("ok : parcours 1 — compte créé, site déclaré, adresse confirmée par le lien, commande d'enrôlement affichée");
 
   // ======================================================= parcours 2 : créer ses forfaits
   await page.getByRole("link", { name: "Forfaits", exact: true }).click();

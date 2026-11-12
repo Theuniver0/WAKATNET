@@ -16,11 +16,13 @@ export function routesAdmin(app: FastifyInstance, base: Base): void {
       const p = periode(req.query);
       if (p === null) return rep.code(422).send({ erreur: "période invalide" });
       const l = await base.$queryRaw<{ tenant_id: bigint; nom: string; suspendu: boolean; commission_bps: number; plafond_decouvert: bigint;
-        solde_credits_xof: bigint; ventes_en_ligne_xof: bigint; commissions_xof: bigint; frais_papier_xof: bigint }[]>`
+        solde_credits_xof: bigint; ventes_en_ligne_xof: bigint; commissions_xof: bigint; frais_papier_xof: bigint;
+        quota_routeurs: number; routeurs_enroles: bigint; email_verifie: boolean }[]>`
         SELECT * FROM app.admin_proprietaires(${p.debut}, ${p.fin})`;
       return l.map((x) => ({ id: x.tenant_id.toString(), nom: x.nom, suspendu: x.suspendu, commission_bps: x.commission_bps,
         plafond_decouvert_xof: Number(x.plafond_decouvert), solde_credits_xof: Number(x.solde_credits_xof),
-        ventes_en_ligne_xof: Number(x.ventes_en_ligne_xof), commissions_xof: Number(x.commissions_xof), frais_papier_xof: Number(x.frais_papier_xof) }));
+        ventes_en_ligne_xof: Number(x.ventes_en_ligne_xof), commissions_xof: Number(x.commissions_xof), frais_papier_xof: Number(x.frais_papier_xof),
+        quota_routeurs: x.quota_routeurs, routeurs_enroles: Number(x.routeurs_enroles), email_verifie: x.email_verifie }));
     });
 
     // Rechargement des crédits : idempotent sur la référence (celle du reçu Mobile Money, par exemple).
@@ -40,6 +42,23 @@ export function routesAdmin(app: FastifyInstance, base: Base): void {
       }
       return rep.code(201).send({ ok: true });
     });
+
+    // Revue de sécurité M4 (ADR 0017) : quota d'enrôlement, et validation de l'adresse du propriétaire.
+    adm.put<{ Params: { id: string }; Body: { quota_routeurs?: unknown; valider_email?: unknown } }>(
+      "/admin/v1/proprietaires/:id/acces", async (req, rep) => {
+        if (!estIdentifiant(req.params.id)) return rep.code(404).send({ erreur: "propriétaire inconnu" });
+        const { quota_routeurs, valider_email } = req.body ?? {};
+        if (quota_routeurs !== undefined && !(typeof quota_routeurs === "number" && Number.isInteger(quota_routeurs) && quota_routeurs >= 0 && quota_routeurs <= 10_000)) {
+          return rep.code(422).send({ erreur: "quota de routeurs : entier de 0 à 10 000" });
+        }
+        if (valider_email !== undefined && valider_email !== true) return rep.code(422).send({ erreur: "valider_email : true seulement" });
+        if (quota_routeurs === undefined && valider_email === undefined) return rep.code(422).send({ erreur: "rien à changer" });
+        const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`
+          SELECT app.admin_acces(${BigInt(req.params.id)}, ${(quota_routeurs as number | undefined) ?? null}::integer,
+                                 ${valider_email === true}, ${req.utilisateur!.id}) AS ok`;
+        if (!ok) return rep.code(404).send({ erreur: "propriétaire inconnu" });
+        return { ok: true };
+      });
 
     adm.put<{ Params: { id: string }; Body: { suspendu?: unknown; commission_bps?: unknown; plafond_decouvert_xof?: unknown } }>(
       "/admin/v1/proprietaires/:id", async (req, rep) => {

@@ -1,5 +1,6 @@
 // WAKATNET — aides des tests de l'API. PostgreSQL réel (§14.4 : faux aux frontières seulement).
 // Variables posées par tests/run.sh : URL admin (données de test) et URL wk_api (code testé).
+import type { Expediteur } from "../src/courriel.ts";
 import { createHash, randomBytes } from "node:crypto";
 
 // MockProvider : autorisé explicitement pour les tests seulement (packages/payments/src/mock.ts).
@@ -45,8 +46,9 @@ const SESSIONS = new Map<string, string>();
 export async function session(tenant: string | null, role: string, pdv: string | null = null, email?: string): Promise<{ jeton: string; utilisateur: string }> {
   const adresse = email ?? `test-${process.pid}-${randomBytes(6).toString("hex")}@exemple.bf`;
   const [u] = await sql<{ id: string }>(URL_ADMIN,
-    `INSERT INTO app.utilisateur (tenant_id, point_of_sale_id, role, email, mot_de_passe, totp_secret)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text`,
+    // Adresse réputée vérifiée (ADR 0017) : les tests de la vérification la remettent à NULL eux-mêmes.
+    `INSERT INTO app.utilisateur (tenant_id, point_of_sale_id, role, email, mot_de_passe, totp_secret, email_verifie_le)
+     VALUES ($1, $2, $3, $4, $5, $6, now()) RETURNING id::text`,
     [tenant, pdv, role, adresse, await empreinteTest(), role === "super_admin" ? Buffer.alloc(40) : null]);
   const jeton = randomBytes(32).toString("base64url");
   await sql(URL_ADMIN, "SELECT app.session_ouvrir($1, $2)", [u.id, createHash("sha256").update(jeton).digest()]);
@@ -64,7 +66,8 @@ export const entetesJeton = (jeton: string) => ({ cookie: `wk_session=${jeton}`,
 
 /** Un propriétaire neuf avec un site, un compte et une session. */
 export async function proprietaire(nom: string): Promise<{ tenant: string; site: string }> {
-  const [t] = await sql<{ id: string }>(URL_ADMIN, "INSERT INTO app.tenant (nom) VALUES ($1) RETURNING id::text", [nom]);
+  // Quota d'enrôlement large (ADR 0017) : les tests de l'enrôlement créent de nombreux jetons ; ceux du quota le baissent.
+  const [t] = await sql<{ id: string }>(URL_ADMIN, "INSERT INTO app.tenant (nom, quota_routeurs) VALUES ($1, 10000) RETURNING id::text", [nom]);
   SESSIONS.set(t.id, (await session(t.id, "proprietaire")).jeton);
   const [s] = await sql<{ id: string }>(URL_ADMIN,
     "INSERT INTO app.site (tenant_id, nom) VALUES ($1, $2) RETURNING id::text", [t.id, `site de ${nom}`]);
@@ -93,9 +96,9 @@ export function config(surcharge: Partial<Config> = {}): Config {
 }
 
 export async function avecApp<T>(travail: (app: ReturnType<typeof construire>, base: Base) => Promise<T>,
-                                 conf: Config = config()): Promise<T> {
+                                 conf: Config = config(), options: { expediteur?: Expediteur } = {}): Promise<T> {
   const base = ouvrirBase(conf.urlBase);
-  const app = construire(conf, base, { journal: false });
+  const app = construire(conf, base, { journal: false, ...options });
   try {
     return await travail(app, base);
   } finally {

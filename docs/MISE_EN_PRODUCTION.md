@@ -51,6 +51,8 @@ Garder hors des nœuds, dans un coffre :
    ```
 
    Scanner une seule fois l'URI `otpauth://` affichée.
+
+   Tant qu'aucun fournisseur d'e-mail n'est branché (ADR 0017 §3), chaque propriétaire inscrit attend que le super-admin valide son adresse (Administration, **Valider l'adresse**), après l'avoir vérifiée par un autre moyen (téléphone). Sans cela, il ne peut pas raccorder de routeur.
 7. Sauvegarde, sur A :
 
    ```bash

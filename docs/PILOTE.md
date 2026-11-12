@@ -33,7 +33,8 @@
 | LABO-16 et LABO-09 sur CHR : bascule réelle d'un routeur vers B, `timeout` | Non fait | Yacouba |
 | **B chez un second hébergeur**, T13 rejoué, promotion rejouée (ADR 0004 §3) | Non fait | Yacouba |
 | Scripts RouterOS joués sur CHR, sur un routeur vierge **et** sur un routeur déjà configuré (§13, règle 6) | Non fait (`docs/AUDIT_SCRIPTS_ROUTEROS.md`) | Yacouba |
-| Décisions de la revue de sécurité : quotas d'enrôlement (M4), fournisseur S3 avec verrouillage (M8) | Ouvert | Yacouba |
+| Décisions de la revue de sécurité : quotas d'enrôlement et vérification de l'adresse (M4) | Fait (ADR 0017) ; fournisseur d'e-mail à choisir, en attendant le super-admin valide chaque propriétaire | — |
+| Fournisseur S3 avec verrouillage (M8) | Ouvert | Yacouba |
 
 ## 3. Étape A : le site de Telecom Universel
 

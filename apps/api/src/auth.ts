@@ -1,10 +1,11 @@
 // WAKATNET — comptes, sessions, rôles, TOTP (ADR 0014 §1 à §3).
 // Ticket : .scratch/phase-4-exploitation/issues/02-comptes-auth.md
 import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Base } from "./base.ts";
 import { chiffrer, dechiffrer } from "./chiffrement.ts";
 import { cleSource } from "./cle-ip.ts";
+import { messageVerification, type Expediteur } from "./courriel.ts";
 
 export type Role = "super_admin" | "proprietaire" | "gerant" | "vendeur";
 export type Utilisateur = { id: bigint; tenantId: bigint | null; pdvId: bigint | null; role: Role; email: string; totpOk: boolean };
@@ -168,7 +169,28 @@ export async function ouvrirSession(base: Base, utilisateurId: bigint): Promise<
   return jeton;
 }
 
-export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buffer | null, cleHmac: Buffer | null = null): void {
+/** Vérification de l'adresse (ADR 0017) : nouveau lien pour ce propriétaire, envoyé si un expéditeur existe.
+ *  Rend false sans expéditeur, adresse déjà vérifiée, ou 3 liens dans l'heure. Jamais d'erreur vers l'appelant
+ *  pour un envoi échoué : l'inscription ne doit pas en dépendre. */
+async function envoyerVerification(base: Base, courriel: { expediteur: Expediteur | null; urlTableau: string },
+                                   utilisateur: bigint, journal: FastifyBaseLogger): Promise<boolean> {
+  if (courriel.expediteur === null) return false;
+  // Relecture C4 et C5 : une erreur de la base ou du fournisseur ne fait jamais échouer l'inscription, et son
+  // message (qui pourrait citer l'adresse ou le lien) n'est pas journalisé.
+  try {
+    const jeton = randomBytes(32).toString("base64url");
+    const [{ email }] = await base.$queryRaw<{ email: string | null }[]>`SELECT app.verification_creer(${utilisateur}, ${empreinte(jeton)}) AS email`;
+    if (email === null) return false;
+    await courriel.expediteur.envoyer(messageVerification(email, `${courriel.urlTableau}#/verifier?j=${jeton}`));
+    return true;
+  } catch {
+    journal.error("envoi du lien de vérification échoué");
+    return false;
+  }
+}
+
+export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buffer | null, cleHmac: Buffer | null = null,
+                           courriel: { expediteur: Expediteur | null; urlTableau: string } = { expediteur: null, urlTableau: "" }): void {
   app.register(async (pub) => {
     pub.addHook("onRequest", async (req, rep) => {
       if (!csrfOk(req)) return rep.code(403).send({ erreur: "en-tête X-Wakatnet-Requete manquant" });
@@ -184,7 +206,32 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
         SELECT statut, utilisateur_id FROM app.inscription(${nom.trim()}, ${email}, ${await hacher(mot_de_passe)})`;
       if (r.statut !== "cree") return rep.code(409).send({ erreur: "adresse déjà utilisée" });
       poserSession(rep, await ouvrirSession(base, r.utilisateur_id!));
+      await envoyerVerification(base, courriel, r.utilisateur_id!, req.log);
       return rep.code(201).send({ ok: true });
+    });
+
+    // Lien de vérification suivi (ADR 0017) : public. La page du tableau de bord demande un clic avant cet appel,
+    // car les antivirus de messagerie ouvrent les liens (un GET ne consomme rien).
+    pub.post<{ Body: { jeton?: unknown } }>("/v1/verification/confirmer", async (req, rep) => {
+      const j = req.body?.jeton;
+      if (typeof j !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(j)) return rep.code(404).send({ erreur: "lien invalide ou expiré" });
+      const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.verification_consommer(${empreinte(j)}) AS ok`;
+      if (!ok) return rep.code(404).send({ erreur: "lien invalide ou expiré" });
+      return { ok: true };
+    });
+
+    // Nouveau lien, à la demande du propriétaire connecté.
+    pub.post("/v1/verification/envoyer", async (req, rep) => {
+      const u = await utilisateurDe(base, req);
+      if (u === null) return rep.code(401).send({ erreur: "connexion requise" });
+      if (u.role !== "proprietaire") return rep.code(403).send({ erreur: "réservé au propriétaire" });
+      if (courriel.expediteur === null) {
+        return rep.code(503).send({ erreur: "L'envoi d'e-mails n'est pas encore en service : Telecom Universel valide votre adresse sur demande." });
+      }
+      if (!(await envoyerVerification(base, courriel, u.id, req.log))) {
+        return rep.code(429).send({ erreur: "Adresse déjà vérifiée, ou trop de liens demandés : réessayez dans une heure." });
+      }
+      return rep.code(202).send({ ok: true });
     });
 
     // Connexion : même réponse que le compte existe ou non ; 5 essais par adresse et par source (ou par appareil
@@ -221,8 +268,10 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
     pub.get("/v1/moi", async (req, rep) => {
       const u = await utilisateurDe(base, req);
       if (u === null) return rep.code(401).send({ erreur: "connexion requise" });
+      const [{ verifie }] = await base.$queryRaw<{ verifie: boolean | null }[]>`
+        SELECT app.session_email_verifie(${empreinte(lireCookie(req)!)}) AS verifie`;
       return { id: u.id.toString(), role: u.role, email: u.email, tenant_id: u.tenantId?.toString() ?? null,
-               point_of_sale_id: u.pdvId?.toString() ?? null, totp_ok: u.totpOk };
+               point_of_sale_id: u.pdvId?.toString() ?? null, totp_ok: u.totpOk, email_verifie: verifie === true };
     });
 
     // TOTP du super-admin : valide la session pour les routes /admin (ADR 0014 §3).

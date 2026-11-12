@@ -102,6 +102,10 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
       // RLS : un site d'un autre propriétaire est invisible ici, donc 404.
       const site = await tx.site.findUnique({ where: { id: BigInt(req.params.site) }, select: { id: true } });
       if (site === null) return null;
+      // Revue de sécurité M4 (ADR 0017) : adresse vérifiée, et quota (routeurs enrôlés, révoqués compris, plus
+      // jetons ouverts). Le verrou par propriétaire tient jusqu'à l'insertion du jeton, dans cette transaction.
+      const [{ statut }] = await tx.$queryRaw<{ statut: string }[]>`SELECT app.enrolement_autorise(${req.utilisateur!.id}) AS statut`;
+      if (statut !== "ok") return statut;
       const [ligne] = await tx.$queryRaw<{ id: bigint; expire_le: Date }[]>`
         INSERT INTO app.enrollment_token (tenant_id, site_id, empreinte, expire_le)
         VALUES (${req.tenantId}, ${site.id}, ${empreinte(jeton)}, now() + make_interval(mins => ${DUREE_JETON_MIN}))
@@ -113,6 +117,12 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
       return ligne;
     });
     if (cree === null) return rep.code(404).send({ erreur: "site inconnu" });
+    if (cree === "non_verifie") {
+      return rep.code(403).send({ erreur: "Adresse e-mail non vérifiée : confirmez-la (lien reçu par e-mail) ou demandez sa validation à Telecom Universel." });
+    }
+    if (typeof cree === "string") {
+      return rep.code(409).send({ erreur: "Quota de routeurs atteint (routeurs raccordés, révoqués compris) : demandez une hausse à Telecom Universel." });
+    }
     return rep.code(201).send({ commande: commande(config.urlPublique, jeton), expire_le: cree.expire_le.toISOString() });
   });
 

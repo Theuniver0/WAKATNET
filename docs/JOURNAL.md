@@ -947,3 +947,33 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `radius/tests/run.sh test_droits.py` : 12 passés ;
   - `apps/api/tests/e2e.sh` : SUCCÈS.
 - **Non prouvé** : l'hypothèse de terrain (les clients d'un hotspot sortent vers le portail par l'IP du tunnel du routeur) sur un vrai MikroTik et un vrai opérateur. À vérifier au pilote : la règle `ip_routeurs` et `paiement_demande.routeur` le montrent.
+
+### Revue de sécurité M4 : quota d'enrôlement et vérification de l'adresse (12/11/2026)
+
+- **Demande** de Yacouba : « tranche M4 : quota de routeurs et vérification de l'e-mail ». Décision : `docs/adr/0017-quota-et-verification.md`.
+- **Constaté en lisant le code** :
+  - un enrôlement s'obtient sans routeur (jeton, puis clé tirée au hasard) et consomme une adresse de l'overlay jamais réemployée ;
+  - un quota sur les seuls routeurs actifs ne protège donc de rien, et un quota par compte, sans vérification de l'adresse, se contourne en ouvrant d'autres comptes.
+- **Fait** (migration 0033) :
+  - quota par propriétaire, 10 par défaut, réglable par le super-admin ; il compte les routeurs enrôlés, révoqués compris, et les jetons ouverts, sous verrou ;
+  - raccorder un routeur exige une adresse vérifiée, par un lien (jeton de 256 bits, 24 h, usage unique, consommé au clic seulement ; 3 liens par heure, 5 en tout) ou par le super-admin ;
+  - envoi d'e-mails derrière une interface : aucun fournisseur choisi, donc validation par le super-admin pendant le pilote ;
+  - alerte `overlay_plein` à 80 % ;
+  - écrans : bandeau « Adresse e-mail à confirmer » avec « Renvoyer le lien », page « Confirmer mon adresse », Administration (état de l'adresse, « Valider l'adresse », quota).
+- **Relu par un second agent** : M4 est fermé tant que la vérification se fait à la main. Corrigés :
+  - C2 : envoi répété d'e-mails à l'adresse d'un tiers ;
+  - C3 : comptes ouverts avant la migration ;
+  - C4 : message d'erreur du fournisseur dans le journal ;
+  - C5 : inscription en échec si l'envoi échoue ;
+  - C6 : purge des liens.
+  
+  C1 (adresses jetables une fois le lien en service) devient une liste de conditions dans l'ADR, à remplir avant de brancher un fournisseur.
+- **Trouvé en l'éprouvant** :
+  - une table sans clé primaire rendait `prisma db pull` instable. Clé ajoutée ; deux régénérations donnent le même fichier ;
+  - une régénération sur un schéma devenu invalide échouait sans rien dire, car sa sortie était masquée : schéma repris de la version commitée.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 174 tests, SUCCÈS. Dont : quota avec routeur révoqué et jeton expiré ; 12 commandes parallèles pour un quota de 4, donc 4 acceptées ; adresse non vérifiée (403) ; lien d'inscription suivi ; lien rejoué ou expiré ; limites de 3 par heure et 5 en tout ; validation par le super-admin, auditée ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS. Le parcours 1 suit le lien dans le navigateur avant d'obtenir la commande d'enrôlement ; axe-core : 14 écrans sans violation sérieuse.
+- **Guide du pilote** mis à jour (étape 1, dépannage), PDF régénéré (6 pages).
+- **Reste** : F9 accepté pour l'instant ; fournisseur d'e-mail à choisir (Yacouba), avec les conditions de l'ADR 0017.

@@ -9,13 +9,14 @@ import { Lots } from "./Lots.tsx";
 import { PointsDeVente } from "./PointsDeVente.tsx";
 import { aller, useChemin } from "./routeur.ts";
 import { Sites } from "./Sites.tsx";
+import { Verifier } from "./Verifier.tsx";
 import { Alerte } from "./ui.tsx";
 
 type Page = { chemin: string; libelle: string; roles: Role[]; rendu: (moi: Moi) => ReactElement };
 
 const PAGES: Page[] = [
   { chemin: "/", libelle: "Tableau de bord", roles: ["proprietaire", "gerant", "vendeur"], rendu: (m) => <Accueil moi={m} /> },
-  { chemin: "/sites", libelle: "Sites et routeurs", roles: ["proprietaire"], rendu: () => <Sites /> },
+  { chemin: "/sites", libelle: "Sites et routeurs", roles: ["proprietaire"], rendu: (m) => <Sites moi={m} /> },
   { chemin: "/forfaits", libelle: "Forfaits", roles: ["proprietaire", "gerant", "vendeur"], rendu: (m) => <Forfaits moi={m} /> },
   { chemin: "/points-de-vente", libelle: "Points de vente", roles: ["proprietaire"], rendu: () => <PointsDeVente /> },
   { chemin: "/lots", libelle: "Tickets papier", roles: ["proprietaire", "gerant", "vendeur"], rendu: (m) => <Lots moi={m} /> },
@@ -25,6 +26,7 @@ const PAGES: Page[] = [
 
 /** Écran réellement affiché, selon la connexion et le rôle. */
 function effectif(chemin: string, moi: Moi | null): string {
+  if (chemin === "/verifier") return "/verifier";          // lien de vérification (ADR 0017) : connecté ou non
   if (moi === null) return chemin === "/inscription" ? "/inscription" : "/connexion";
   if (moi.role === "super_admin") {
     if (!moi.totp_ok) return "/totp";
@@ -65,6 +67,7 @@ export function App() {
   const pages = moi ? PAGES.filter((p) => p.roles.includes(moi.role)) : [];
   let contenu: ReactElement;
   if (moi === undefined) contenu = <p role="status">Chargement…</p>;
+  else if (cible === "/verifier") contenu = <Verifier />;
   else if (moi === null) contenu = cible === "/inscription" ? <Inscription apres={charger} /> : <Connexion apres={charger} />;
   else if (cible === "/totp") contenu = <Totp apres={charger} />;
   else contenu = PAGES.find((p) => p.chemin === cible)?.rendu(moi) ?? <Accueil moi={moi} />;

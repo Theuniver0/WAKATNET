@@ -15,7 +15,8 @@
 ## 1. Créer son compte
 
 1. Ouvrir `https://api.DOMAINE/tableau/`, puis **Créer mon compte** : nom de la zone Wi-Fi, adresse, mot de passe.
-2. **Sites et routeurs** : saisir le nom du site (par exemple « Maquis du marché »), puis **Ajouter le site**.
+2. **Confirmer son adresse e-mail** : ouvrir le lien reçu par e-mail, puis **Confirmer mon adresse**. Tant qu'aucun envoi d'e-mail n'est en service, Telecom Universel valide l'adresse à la demande. Sans adresse confirmée, le raccordement d'un routeur est refusé (ADR 0017).
+3. **Sites et routeurs** : saisir le nom du site (par exemple « Maquis du marché »), puis **Ajouter le site**.
 
 ## 2. Raccorder le routeur
 
@@ -53,6 +54,8 @@
 | Constat | Cause probable | Que faire |
 |---|---|---|
 | La commande répond « jeton expiré » ou « déjà utilisé » | Plus de 30 minutes, ou commande déjà collée | Cliquer de nouveau sur **Raccorder un routeur** |
+| **Raccorder un routeur** répond « Adresse e-mail non vérifiée » | Adresse pas encore confirmée | Ouvrir le lien reçu (ou **Renvoyer le lien**), ou demander la validation à Telecom Universel |
+| **Raccorder un routeur** répond « Quota de routeurs atteint » | 10 routeurs par compte par défaut, révoqués compris | Demander une hausse du quota à Telecom Universel |
 | Le routeur n'apparaît pas | Pas d'Internet sortant, ou RouterOS antérieur à 7.15 | `/ping 1.1.1.1`, puis `/system resource print` |
 | Les clients voient « serveur sans réponse » | Tunnel coupé | `/interface wireguard peers print` : l'échange doit dater de moins de 3 minutes |
 | Code refusé alors qu'il est valable | Routeur d'un autre site, ou forfait limité à un site | Vérifier le site du forfait |

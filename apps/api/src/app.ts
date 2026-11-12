@@ -10,6 +10,7 @@ import { routesPortail } from "./portail.ts";
 import { routesCompteMarchand, routesWebhook } from "./routes-paiement.ts";
 import { routesAdmin } from "./admin.ts";
 import { garde, routesAuth } from "./auth.ts";
+import type { Expediteur } from "./courriel.ts";
 import { routesExploitation } from "./exploitation.ts";
 import { DOSSIER_TABLEAU_DEFAUT, routesTableau } from "./tableau.ts";
 import { routesEtat } from "./etat.ts";
@@ -31,7 +32,7 @@ export function cheminMasque(url: string): string {
 }
 
 export function construire(config: Config, base: Base,
-                           options: { journal?: boolean; flux?: NodeJS.WritableStream; service?: ServicePaiement } = {}): FastifyInstance {
+                           options: { journal?: boolean; flux?: NodeJS.WritableStream; service?: ServicePaiement; expediteur?: Expediteur } = {}): FastifyInstance {
   const service = options.service ?? (config.cles ? new ServicePaiement(base, config.cles) : null);
   const app = Fastify({
     logger: options.journal === false ? false : {
@@ -68,7 +69,8 @@ export function construire(config: Config, base: Base,
   routesEtat(app, config.etatsNoeuds ?? []);
 
   // Comptes : inscription, connexion, session, TOTP (ADR 0014 §1 à §3).
-  routesAuth(app, base, config.cles?.marchands ?? null, config.cles?.hmac ?? null);
+  routesAuth(app, base, config.cles?.marchands ?? null, config.cles?.hmac ?? null,
+             { expediteur: options.expediteur ?? null, urlTableau: `${config.urlPublique}/tableau/` });
 
   // Routes du propriétaire (et, route par route, du gérant ou du vendeur) : session obligatoire.
   app.register(async (proprietaire) => {
