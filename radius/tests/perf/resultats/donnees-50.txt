@@ -1,0 +1,11 @@
+ tickets_crees 
+---------------
+        100000
+(1 row)
+
+ routeurs | tickets | sessions_ouvertes | lignes_auth_log 
+----------+---------+-------------------+-----------------
+       50 |  100000 |              1000 |         1350000
+(1 row)
+
+chargé en 39 s

@@ -492,3 +492,29 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
     - écarts de signature avec l'ADR 0006 déclarés.
 - **Décision à valider par Yacouba** (ADR 0010) : accès à la base par `psql` jusqu'à la phase 2 ; états finaux (`nak`, `abandon`) définitifs.
 - **Piste B** : T9 sur CHR (coupure réelle, Stop reçu, port réel de `/radius incoming`).
+
+### Ticket 10 : mesure de performance (12/11/2026)
+
+- **Livré** : `radius/tests/perf/` contient :
+  - `perf.sh` (orchestration, phases rejouables) et `compose.perf.yml` (épinglage des CPU, `lifetime` de production) ;
+  - `donnees.sql` (50 ou 500 routeurs, 100 000 tickets, `auth_log` sur 90 jours) ;
+  - `charge.py` (générateur CHAP avec Message-Authenticator, réponses vérifiées, modes Accept, Reject et Interim) ;
+  - `durees.py`, `preparer.py`, `vidage.py`, `plans.sql`, `attaque*.sql` ;
+  - `RAPPORT.md` et les résultats bruts. Les journaux portant des codes ne sont pas versionnés.
+- **Machine** : 4 vCPU au total ; serveur sur 3 cœurs, générateur sur 1. C'est plus sévère que le §5.6, qui vise 4 vCPU pour le serveur seul.
+- **Mesuré** :
+  - 200 auth/s sans perte (p95 de 3,8 ms vu du routeur), sans perte jusqu'à 400/s, premières pertes à 800/s ;
+  - p95 d'`authorize` côté serveur : 1,73 ms ; `post_auth` : 2,0 ms ;
+  - une heure de panne (30 000 Interim) : Accounting-Response à 0,64 ms au p95 base arrêtée, rattrapée en 108 s (environ 280 enregistrements par seconde) ;
+  - 500 routeurs : 200/s sans perte, y compris 6 min après la création des clients ; création des clients à un par seconde, soit environ 9 min de reprise.
+- **Trouvé, mesuré et signalé** (RAPPORT §7) :
+  - sous attaque par devinette sur un routeur, avec des statistiques non rafraîchies, `authorize` passe par l'index par routeur et filtre la MAC ;
+  - son coût croît alors avec les échecs récents : 16,5 ms à 50 000, **44 ms à 100 000** ;
+  - trois pistes de correction sont proposées, **à trancher par Yacouba dans un ADR**.
+- **Hypothèse infirmée** : la limite d'environ 300 routeurs par nœud, que j'attendais de `rate_limit` combiné à `lifetime = 300`, ne se voit pas à 500 routeurs. La cause n'est pas établie ; à reprendre avec L8.
+- **Erreurs corrigées pendant la mesure** :
+  - `PYTHONPATH` des scripts ;
+  - cibles exportées **avant** l'arrêt de la base ;
+  - Interim envoyés d'abord sur le port 1812 au lieu de 1813. Ce premier rattrapage, de 0,6 s, ne valait rien et a été remplacé ;
+  - Reject inattendus en mode Accept expliqués par le jeu de données.
+- **Revue** : outillage de test seulement, sans code de production. Pas de revue indépendante pour ce ticket ; à faire avec la revue de fin de phase 1.
