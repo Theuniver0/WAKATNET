@@ -1,0 +1,7 @@
+# Une ligne par Disconnect-Request ou CoA-Request accepté. TEST seulement : le code du ticket
+# (User-Name) est jetable et le fichier reste dans le conteneur de test.
+linelog recu {
+	filename = $ENV{FAUXNAS_JOURNAL}
+	permissions = 0644
+	format = "type=%{Packet-Type} src=%{Packet-Src-IP-Address} port=%{Packet-Dst-Port} user=%{User-Name} sid=%{Acct-Session-Id} debit=%{%{Mikrotik-Rate-Limit}:-aucun} ma=%{%{Message-Authenticator}:-absent}"
+}

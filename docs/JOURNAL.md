@@ -455,3 +455,66 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - base figée : 50 silences en 4,1 s, accounting à 1,1 ms au pire sur 16 mesures couvrant toute l'attente.
 - **Vert** : `run.sh` depuis une pile neuve, 240 passed, étapes des tickets 04 et 08 réussies, trace T10, aucune ligne Login, aucune requête de FreeRADIUS dans le journal de PostgreSQL, aucun secret, `SUCCÈS`.
 - **Non commité** : le commit a été refusé deux fois par le contrôle des permissions de la session ; en attente de l'accord de Yacouba.
+
+### Ticket 09 : Disconnect et CoA (12/11/2026)
+
+- PR n°16 (revue du ticket 08) fusionnée par Yacouba. Branche repartie de `main`.
+- **Prototypes avant le code** (jetables, faits dans l'image de test) :
+  - faux NAS FreeRADIUS : Disconnect-ACK et CoA-ACK avec Message-Authenticator ; sans Message-Authenticator, le paquet est jeté. En revanche, un mauvais secret n'est journalisé qu'au premier envoi, les renvois étant traités comme doublons : un compteur Python est nécessaire ;
+  - `radclient` 3.2.10 : `-r 0` n'envoie rien, `-r 3` et `-r 5` n'envoient que 2 paquets. L'émetteur fait donc ses retentatives lui-même ; une réponse à l'authentificateur faux est rejetée ;
+  - le Node d'Ubuntu 26.04 ne retire pas les types TypeScript : le binaire officiel (22.23.0) est utilisé ;
+  - une route locale à source forcée fait partir les paquets de l'adresse de nœud du test.
+- **Livré** :
+  - migration `radius/0011` (`wk_coa`, `sessions_to_cut`, `coa_target`, `mark_cut`) ;
+  - `infra/coupure/` (émetteur et déclencheur) ;
+  - unités `wakatnet-coupure` ;
+  - faux NAS FreeRADIUS et compteur ;
+  - `test_t09.py` et `test_t09_sql.py` ;
+  - ADR 0010.
+- **Rouge** : 13 échecs et 10 erreurs, code de production mis de côté.
+- **Vert** : `run.sh` depuis une pile neuve, 263 passed. T12 : Disconnect reçu 2,3 s après l'Interim (tour d'une seconde en test ; 30 s en production).
+- **Revue** en deux axes (Spec et Standards, robustesse), constats vérifiés. Retenus et corrigés :
+  - **important, famine** : le tri par date d'inscription remettait les sessions muettes en tête à chaque tour, et l'unité s'arrête à 25 s. Corrigé par le budget de temps d'un tour et l'ordre « jamais tentée d'abord » ;
+  - **important, port** : tous les routeurs de test avaient 1700, donc un port codé en dur passait. Un routeur passe maintenant à 3799 dans un test ;
+  - **important, configuration illisible** : toutes les sessions passaient à `abandon` sans aucun envoi. Le déclencheur sort désormais en 1 avant tout envoi ;
+  - **important, panne de `radclient`** : elle passait pour un routeur muet. Elle est maintenant visible, et la session n'est pas marquée ;
+  - **important, erreur de base** : elle arrêtait le tour. Elle est maintenant isolée par session ; nœud en lecture seule : aucun envoi (non testé) ;
+  - **important, NAK** : il terminait la coupure sans alerte. Il donne maintenant une alerte `coupure_refusee` ;
+  - **mineurs** :
+    - `mark_cut` sans effet sur un état final ;
+    - identifiant de session dans les alertes ;
+    - `radclient` sans le mot de passe de la base dans son environnement ;
+    - unité systemd durcie ;
+    - faux NAS qui journalise après la vérification du Message-Authenticator ;
+    - message « débit invalide » vérifié ;
+    - quatre réglages de journalisation de `wk_coa` testés ;
+    - retentatives de `radclient` prouvées par un test ;
+    - écarts de signature avec l'ADR 0006 déclarés.
+- **Décision à valider par Yacouba** (ADR 0010) : accès à la base par `psql` jusqu'à la phase 2 ; états finaux (`nak`, `abandon`) définitifs.
+- **Piste B** : T9 sur CHR (coupure réelle, Stop reçu, port réel de `/radius incoming`).
+
+### Ticket 10 : mesure de performance (12/11/2026)
+
+- **Livré** : `radius/tests/perf/` contient :
+  - `perf.sh` (orchestration, phases rejouables) et `compose.perf.yml` (épinglage des CPU, `lifetime` de production) ;
+  - `donnees.sql` (50 ou 500 routeurs, 100 000 tickets, `auth_log` sur 90 jours) ;
+  - `charge.py` (générateur CHAP avec Message-Authenticator, réponses vérifiées, modes Accept, Reject et Interim) ;
+  - `durees.py`, `preparer.py`, `vidage.py`, `plans.sql`, `attaque*.sql` ;
+  - `RAPPORT.md` et les résultats bruts. Les journaux portant des codes ne sont pas versionnés.
+- **Machine** : 4 vCPU au total ; serveur sur 3 cœurs, générateur sur 1. C'est plus sévère que le §5.6, qui vise 4 vCPU pour le serveur seul.
+- **Mesuré** :
+  - 200 auth/s sans perte (p95 de 3,8 ms vu du routeur), sans perte jusqu'à 400/s, premières pertes à 800/s ;
+  - p95 d'`authorize` côté serveur : 1,73 ms ; `post_auth` : 2,0 ms ;
+  - une heure de panne (30 000 Interim) : Accounting-Response à 0,64 ms au p95 base arrêtée, rattrapée en 108 s (environ 280 enregistrements par seconde) ;
+  - 500 routeurs : 200/s sans perte, y compris 6 min après la création des clients ; création des clients à un par seconde, soit environ 9 min de reprise.
+- **Trouvé, mesuré et signalé** (RAPPORT §7) :
+  - sous attaque par devinette sur un routeur, avec des statistiques non rafraîchies, `authorize` passe par l'index par routeur et filtre la MAC ;
+  - son coût croît alors avec les échecs récents : 16,5 ms à 50 000, **44 ms à 100 000** ;
+  - trois pistes de correction sont proposées, **à trancher par Yacouba dans un ADR**.
+- **Hypothèse infirmée** : la limite d'environ 300 routeurs par nœud, que j'attendais de `rate_limit` combiné à `lifetime = 300`, ne se voit pas à 500 routeurs. La cause n'est pas établie ; à reprendre avec L8.
+- **Erreurs corrigées pendant la mesure** :
+  - `PYTHONPATH` des scripts ;
+  - cibles exportées **avant** l'arrêt de la base ;
+  - Interim envoyés d'abord sur le port 1812 au lieu de 1813. Ce premier rattrapage, de 0,6 s, ne valait rien et a été remplacé ;
+  - Reject inattendus en mode Accept expliqués par le jeu de données.
+- **Revue** : outillage de test seulement, sans code de production. Pas de revue indépendante pour ce ticket ; à faire avec la revue de fin de phase 1.

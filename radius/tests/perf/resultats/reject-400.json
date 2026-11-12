@@ -1,0 +1,1 @@
+{"envoyes": 7999, "perdus": 1, "inattendus": 0, "invalides": 0, "sans_identifiant": 0, "Access-Reject": 7998, "causes_reject": {"ticket_inconnu": 7998}, "mode": "reject", "debit_vise": 400.0, "duree_s": 20.0, "routeurs": 50, "recus": 7998, "debit_obtenu": 399.8, "latence_ms": {"p50": 2.59, "p95": 3.41, "p99": 4.99, "max": 68.93}}

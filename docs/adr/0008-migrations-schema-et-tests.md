@@ -110,3 +110,11 @@ Ces écarts sont des choix techniques, motivés par des faits observés en exéc
 ## Amendement du 11/11/2026 — ticket 07
 
 - **Une MAC d'appareil simulé propre à chaque test** (`conftest.mac_du_test`). L'anti-devinette bloque une MAC après 10 échecs en 60 s sur un routeur. Sans cela, les refus volontaires de tests différents s'additionneraient et bloqueraient les tests suivants. Dans un même test, la MAC reste la même : le compte d'appareils du ticket 06 en dépend.
+
+## Amendement du 12/11/2026 — ticket 09 (Disconnect / CoA)
+
+| § | Prévu | Réalisé | Motif |
+|---|---|---|---|
+| §3 | Conteneur de test | Binaire **Node 22.23.0 officiel** recopié depuis l'image `node`, épinglée par empreinte. | Le Node d'Ubuntu 26.04 ne retire pas les types TypeScript (ADR 0010 §1). |
+| §4 | « Faux NAS du ticket 09, qui reçoit les CoA sur l'IP du routeur » | Faux NAS FreeRADIUS lancé **dans le conteneur de test** sur l'IP de r13, et compteur Python sur celle de r14. Le déclencheur tourne aussi dans le testeur, et ses paquets partent de l'adresse de nœud `10.213.0.3` (routes locales). | Le routeur doit être à la fois la source de l'accounting et la destination du Disconnect, c'est-à-dire la même IP : seul le testeur peut porter les deux. |
+| §6 | Secrets générés | `WAKATNET_PG_COA_PASSWORD` en plus (rôle `wk_coa`). | Rôle propre au déclencheur (ADR 0006 §1). |

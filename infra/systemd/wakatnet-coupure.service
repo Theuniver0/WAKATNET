@@ -1,0 +1,36 @@
+# WAKATNET — déclencheur de coupure : Disconnect des sessions à couper (ADR 0006 §17, ADR 0010 ; ticket 09).
+[Unit]
+Description=WAKATNET : Disconnect des sessions à couper
+After=postgresql.service
+
+[Service]
+Type=oneshot
+# Un tour s'arrête de lui-même après WAKATNET_COUPURE_BUDGET_S (20 s) ; une session commencée
+# juste avant dure au plus envois × délai (3 × 1 s). Le timer repasse toutes les 30 s.
+TimeoutStartSec=25s
+# Utilisateur éphémère, sans accès à FreeRADIUS ni à son spool (moindre privilège).
+DynamicUser=yes
+# Fichier réservé à root, jamais versionné : WAKATNET_PG_COA_PASSWORD (S1, S2).
+EnvironmentFile=/etc/wakatnet/coa.env
+# Secret du routeur écrit en tmpfs (/run), 0600, le temps d'un envoi (ADR 0010 §1).
+RuntimeDirectory=wakatnet-coupure
+RuntimeDirectoryMode=0700
+Environment=TMPDIR=/run/wakatnet-coupure
+ExecStart=/usr/bin/node /opt/wakatnet/coupure/coupure.ts
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+# IPv4 (base locale, routeurs de l'overlay) et socket locale ; Node exige aussi AF_UNIX.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Pas de MemoryDenyWriteExecute : le JIT de Node en a besoin.

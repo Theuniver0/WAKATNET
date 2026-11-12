@@ -1,0 +1,5 @@
+# Sorties brutes qui contiennent des codes de ticket de la base de mesure (jetables, mais
+# jamais versionnés : ADR 0006 §10), ou trop volumineuses.
+journal-pg-*.txt
+spool-cibles.json
+plans.txt

@@ -1,0 +1,1 @@
+{"routeurs": 500, "clients_crees": 500, "duree_creation_s": 528.4}

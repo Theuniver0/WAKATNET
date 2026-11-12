@@ -1,0 +1,14 @@
+# WAKATNET — surcharge de la pile de test pour la MESURE de performance (ticket 10).
+# Le serveur (PostgreSQL et FreeRADIUS) partage les cœurs 0 à 2, le générateur a le cœur 3 :
+# la machine de mesure n'a que 4 vCPU (le §5.6 vise 4 vCPU pour le serveur seul ; la mesure
+# est donc plus sévère que l'objectif, voir RAPPORT.md).
+services:
+  postgres:
+    cpuset: "0-2"
+  freeradius:
+    cpuset: "0-2"
+    # Durée de vie de production des clients dynamiques (300 s), et non celle des tests (20 s).
+    environment:
+      WAKATNET_CLIENT_LIFETIME: "300"
+  testeur:
+    cpuset: "3"
