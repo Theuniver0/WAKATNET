@@ -33,3 +33,10 @@ test("WAKATNET_NOEUDS : un ou deux nœuds bien formés, sinon refus de démarrer
     assert.throws(() => lireConfig({ ...URL, WAKATNET_NOEUDS: mauvais }), ConfigInvalide, mauvais);
   }
 });
+
+test("WAKATNET_TRUST_PROXY (ADR 0016 §2) : adresses seulement ; absent, aucune confiance", async () => {
+  const URL = { WAKATNET_API_DATABASE_URL: "postgresql://x@127.0.0.1/x" };
+  assert.equal(lireConfig(URL).trustProxy, undefined);
+  assert.equal(lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "127.0.0.1" }).trustProxy, "127.0.0.1");
+  assert.throws(() => lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "true" }), ConfigInvalide);
+});

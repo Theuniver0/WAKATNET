@@ -42,6 +42,8 @@ export function construire(config: Config, base: Base,
     },
     // Les identifiants sont des bigint : jamais de nombre JSON au-delà de 2^53.
     bodyLimit: 64 * 1024,
+    // Derrière nginx (ADR 0016 §2) : req.ip = X-Forwarded-For posé par le seul proxy local de confiance.
+    ...(config.trustProxy ? { trustProxy: config.trustProxy } : {}),
   });
   app.decorateRequest("tenantId", 0n);
   app.decorateRequest("utilisateur", null);

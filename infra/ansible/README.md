@@ -25,13 +25,20 @@ Les rôles vérifient la **présence** et les droits de ces fichiers, jamais leu
 | `/etc/pgbackrest/conf.d/secret.conf` | postgres, 0600 | `repo1-cipher-pass`, clés S3 ; **copie hors des nœuds obligatoire** |
 | `~postgres/.pgpass` (**les deux nœuds**) | postgres, 0600 | lignes `wk_replication` et `wk_rewind` vers l'autre nœud (`wk_rewind` sert aussi à la garde contre le double primaire) |
 
+Variables du frontal et du pare-feu (ADR 0016), dans l'inventaire :
+- `frontal_nom_api`, `frontal_nom_portail`, `frontal_courriel_acme` ;
+- `frontal_tls` : `letsencrypt` ou `fourni` ;
+- `frontal_ipv6` ;
+- `parefeu_port_ssh` : **le port SSH réel**. Une erreur se corrige seule en 5 minutes, par le retour arrière programmé.
+
 Dans le dépôt de contrôle, non versionnés : `inventaire.yml` (copie de `inventaire.exemple.yml`), `cles/pgdg.asc`, et la clé de l'éditeur de FreeRADIUS. Ces clés publiques sont vérifiées à la main, empreinte comprise.
 
 ## Gardes
 
 - Un nœud déclaré **réplique** qui n'en est pas une (ancien primaire, ou installation neuve) n'est jamais effacé. Pour une installation neuve, il faut passer `-e postgresql_reconstruire_replique=true`. Pour un ancien primaire, c'est `infra/noeud/rejoindre-en-replique.sh` (RUNBOOK §4).
 - FreeRADIUS : la version est refusée si elle est inférieure à 3.2.10 ou égale à 3.2.9. Sans `freeradius_depot` (dépôt de l'éditeur, **[À CONFIRMER]**), les paquets de la distribution sont refusés.
-- nftables : seules les tables de WAKATNET sont rechargées (jamais `flush ruleset`, qui effacerait les règles de Docker). SSH n'est jamais touché.
+- nftables : seules les tables de WAKATNET sont rechargées (jamais `flush ruleset`, qui effacerait les règles de Docker).
+- Pare-feu public (ADR 0016 §3) : son retrait est programmé dans 5 minutes **avant** son chargement, puis annulé une fois une connexion neuve vérifiée.
 
 ## Essai
 

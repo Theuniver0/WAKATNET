@@ -868,3 +868,18 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - envoi réel vers Telegram ;
   - LABO-16 et LABO-09 sur CHR ;
   - B chez un second hébergeur (ADR 0004).
+
+### Phase 6 : préparation du pilote (12/11/2026)
+
+- **Demande** de Yacouba : « continue avec la phase 6 ». Pas de PRD (SPEC §14.3) : le pilote se joue sur le terrain. L'agent livre les outils et les procédures, et s'arrête aux portes.
+- **Rapprochement quotidien** (`apps/api/src/rapprochement.ts`, `docs/PILOTE.md` §4) : code d'argent, donc tests de propriétés et relecture par un second agent (règle 4).
+  - Première relecture : trois cas disaient « écart nul » alors qu'un franc manquait (B1 paiement de 23:55 sans encaissement, B2 statut inconnu lu comme un échec, B3 ligne CSV mal découpée), plus I1 à I4. Tous corrigés.
+  - Contre-relecture : tous fermés ; deux nouveaux cas importants corrigés (N1 second encaissement sous la référence d'un paiement d'un autre jour, N2 virgule finale dans `--echec`), et N3 (commission figée recalculée au taux et au plancher), N4, N5 (dates impossibles), lancement par lien symbolique.
+- **Mise en production** (ADR 0016) : API en service systemd derrière nginx (écart assumé avec D7) ; filtrage par `Host`, limites par IP, TLS Let's Encrypt ; pare-feu public en `drop` avec retour arrière programmé avant chargement. Ferme M1 et F10, F5 ; réduit M7.
+- **Procédures** : `docs/PILOTE.md`, `docs/MISE_EN_PRODUCTION.md`, `docs/ONBOARDING_ROUTEUR.md`.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 158 tests, SUCCÈS (rapprochement de bout en bout sur une vraie base, `TZ=Europe/Paris`, chemin avec espace et accent) ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes (nginx : `Host`, `X-Forwarded-For`, 429 à la 7e connexion ; pare-feu) ; ansible-lint, profil production, sans remarque ;
+  - `systemd-analyze verify` sur `wakatnet-api.service`.
+- **Portes : G-ARGENT et G-PILOTE FERMÉES** (`docs/PILOTE.md` §2). Arrêt obligatoire : rien ne touche à un franc réel ni au routeur d'un tiers sans Yacouba.
+- **Non prouvé ici** : scripts RouterOS sur CHR, Debian 13, vrai VPS, Let's Encrypt réel, format du relevé de l'agrégateur.

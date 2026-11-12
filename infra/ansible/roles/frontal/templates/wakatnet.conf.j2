@@ -1,0 +1,95 @@
+# WAKATNET — nginx devant l'API (ADR 0016 §2). Géré par Ansible.
+# Limites par IP source (M1) ; la clé de « payer » n'est posée que pour un POST (l'affichage du formulaire
+# ne consomme pas le budget). Les clients d'un site sortent tous par l'IP WAN de son routeur.
+map $request_method $wk_cle_payer { POST $binary_remote_addr; default ""; }
+limit_req_zone $binary_remote_addr zone=wk_connexion:10m rate=10r/m;
+limit_req_zone $wk_cle_payer       zone=wk_payer:10m     rate=30r/m;
+limit_req_zone $binary_remote_addr zone=wk_general:10m   rate=20r/s;
+limit_req_status 429;
+
+upstream wakatnet_api {
+    server 127.0.0.1:3000;
+    keepalive 16;
+}
+
+# Tout nom inconnu : connexion fermée (F10). En TLS, poignée de main refusée, sans certificat.
+server {
+    listen 80 default_server;
+    {% if frontal_ipv6 | bool %}listen [::]:80 default_server;{% endif %}
+    return 444;
+}
+{% if frontal_tls_pret | bool %}
+server {
+    listen 443 ssl default_server;
+    {% if frontal_ipv6 | bool %}listen [::]:443 ssl default_server;{% endif %}
+    ssl_reject_handshake on;
+}
+{% endif %}
+
+# Port 80 : défi ACME, puis redirection vers HTTPS.
+server {
+    listen 80;
+    {% if frontal_ipv6 | bool %}listen [::]:80;{% endif %}
+    server_name {{ frontal_nom_api }} {{ frontal_nom_portail }};
+    location /.well-known/acme-challenge/ { root /var/www/acme; }
+    location / { return 301 https://$host$request_uri; }
+}
+{% if frontal_tls_pret | bool %}
+
+# Pas de HTTP/2 : « http2 on » exige nginx ≥ 1.25.1 (Ubuntu 24.04 : 1.24) ; pages et réponses sont petites.
+# Réglages communs du mandataire : l'IP source REMPLACE tout X-Forwarded-For reçu (pas d'usurpation).
+# (répétés dans chaque bloc server : nginx n'hérite pas des proxy_set_header d'un niveau à l'autre
+#  quand un niveau en déclare.)
+server {
+    listen 443 ssl;
+    {% if frontal_ipv6 | bool %}listen [::]:443 ssl;{% endif %}
+    server_name {{ frontal_nom_api }};
+    ssl_certificate {{ frontal_certificat }};
+    ssl_certificate_key {{ frontal_cle }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    client_max_body_size 64k;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+
+    location ~ ^/v1/(connexion|inscription|totp)$ {
+        limit_req zone=wk_connexion burst=5 nodelay;
+        proxy_pass http://wakatnet_api;
+    }
+    location /p/ { return 404; }
+    location / {
+        limit_req zone=wk_general burst=40 nodelay;
+        proxy_pass http://wakatnet_api;
+    }
+}
+
+server {
+    listen 443 ssl;
+    {% if frontal_ipv6 | bool %}listen [::]:443 ssl;{% endif %}
+    server_name {{ frontal_nom_portail }};
+    ssl_certificate {{ frontal_certificat }};
+    ssl_certificate_key {{ frontal_cle }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 64k;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+
+    location ~ ^/p/[^/]+/payer$ {
+        limit_req zone=wk_payer burst=10 nodelay;
+        limit_req zone=wk_general burst=40 nodelay;
+        proxy_pass http://wakatnet_api;
+    }
+    location /p/ {
+        limit_req zone=wk_general burst=40 nodelay;
+        proxy_pass http://wakatnet_api;
+    }
+    location = /etat { proxy_pass http://wakatnet_api; }
+    location / { return 404; }
+}
+{% endif %}

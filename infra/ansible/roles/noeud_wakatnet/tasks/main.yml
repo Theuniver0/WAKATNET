@@ -105,6 +105,14 @@
 
 # root lit les mots de passe des rôles (fichier root 0600) ; migrer.sh tourne en tant que postgres et
 # les lit dans son environnement (\getenv), jamais sur une ligne de commande.
+# L'API écrit : elle ne tourne que sur le primaire (ADR 0016 §1). Après une bascule, inverser les rôles dans
+# l'inventaire et repasser Ansible (RUNBOOK §3).
+- name: API sur le primaire, arrêtée sur la réplique
+  ansible.builtin.systemd_service:
+    name: wakatnet-api.service
+    enabled: "{{ wakatnet_role == 'primaire' }}"
+    state: "{{ 'started' if wakatnet_role == 'primaire' else 'stopped' }}"
+
 - name: Schéma (migrer.sh), sur le primaire seulement
   when: wakatnet_role == "primaire"
   ansible.builtin.shell: |

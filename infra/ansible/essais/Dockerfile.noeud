@@ -12,7 +12,7 @@ RUN --mount=type=secret,id=ca,target=/ca.crt,required=false \
  && apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv sudo python3 \
       postgresql-16 postgresql-client-16 freeradius freeradius-postgresql pgbackrest nftables wireguard-tools \
-      unattended-upgrades logrotate curl xz-utils ca-certificates \
+      unattended-upgrades logrotate curl xz-utils ca-certificates nginx openssl \
  && rm -f /etc/apt/apt.conf.d/99ca /tmp/ca.crt
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
