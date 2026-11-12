@@ -1,3 +1,5 @@
 // WAKATNET — packages/payments : interface des fournisseurs, MockProvider, normalisation.
 export * from "./fournisseur.ts";
 export { MockProvider, type LivreurWebhook } from "./mock.ts";
+export { PawapayProvider, URL_PAWAPAY, depositIdDe, montantPawapay, verifierSignature,
+         type ClesPawapay, type ClePublique, type EnvironnementPawapay } from "./pawapay.ts";

@@ -10,6 +10,7 @@ import { PointsDeVente } from "./PointsDeVente.tsx";
 import { aller, useChemin } from "./routeur.ts";
 import { Sites } from "./Sites.tsx";
 import { Verifier } from "./Verifier.tsx";
+import { CompteMarchand } from "./CompteMarchand.tsx";
 import { Alerte } from "./ui.tsx";
 
 type Page = { chemin: string; libelle: string; roles: Role[]; rendu: (moi: Moi) => ReactElement };
@@ -21,6 +22,7 @@ const PAGES: Page[] = [
   { chemin: "/points-de-vente", libelle: "Points de vente", roles: ["proprietaire"], rendu: () => <PointsDeVente /> },
   { chemin: "/lots", libelle: "Tickets papier", roles: ["proprietaire", "gerant", "vendeur"], rendu: (m) => <Lots moi={m} /> },
   { chemin: "/argent", libelle: "Suivi de l'argent", roles: ["proprietaire"], rendu: () => <Argent /> },
+  { chemin: "/compte-marchand", libelle: "Compte marchand", roles: ["proprietaire"], rendu: () => <CompteMarchand /> },
   { chemin: "/admin", libelle: "Administration", roles: ["super_admin"], rendu: () => <Admin /> },
 ];
 

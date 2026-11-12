@@ -1041,3 +1041,34 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `radius/tests/run.sh test_droits.py` : 12 passés ;
   - `apps/api/tests/e2e.sh` : SUCCÈS. Inscription sans session, connexion refusée, lien suivi, connexion, raccordement ; axe-core : 13 écrans.
 - **Non vérifié** : Brevo lui-même (délivrabilité vers Gmail et Outlook depuis le Burkina, mention de marque sur l'offre gratuite, restriction des clés par IP, DPA).
+
+### G-ARGENT préparée : adaptateur réel pawaPay v2 (12/11/2026)
+
+- **Demande** de Yacouba : « tranche G-ARGENT : prépare l'adaptateur réel ». Décision : `docs/adr/0020-adaptateur-pawapay.md`.
+- **G-ARGENT reste fermée** : elle exige aussi `docs/CONFORMITE.md` (contrat, avis juridique, autorisations), qui revient à Yacouba.
+- **Choix** : pawaPay, premier du classement de D2.
+- **Réseau** : la documentation était bloquée par l'environnement par défaut. Un environnement personnel « WAKATNET » (réseau par défaut + `docs.pawapay.io`) a été créé avec l'accord de Yacouba. L'outil de lecture web résolvait encore mal le domaine ; la documentation a été téléchargée en Markdown par le proxy de la session (`llms.txt`), puis dépouillée par un agent, en citant les pages.
+- **Ce que la documentation a changé** :
+  - `depositId` en UUID v4, d'où une dérivation depuis notre référence ;
+  - montant rendu en « 100.00 », que l'ancienne normalisation aurait classé en écart ;
+  - signature RFC 9421 sur la méthode, l'hôte et le chemin, d'où la requête transmise à `parseWebhook`, devenu asynchrone ;
+  - signature en DER ;
+  - `NOT_FOUND` vaut un échec sûr.
+- **Fait** :
+  - `packages/payments/src/pawapay.ts` ;
+  - fabrique et garde de l'argent réel (`WAKATNET_ARGENT_REEL`, posée par Yacouba après G-ARGENT) ;
+  - vérification du compte à l'enregistrement ;
+  - écran « Compte marchand » ;
+  - migration 0035.
+- **Relu par un second agent** (règle 4) ; corrigés :
+  - bac à sable en production : tickets délivrés avec des numéros de test publics ;
+  - changement de compte avec des paiements ouverts ;
+  - relecture des clés non bornée ;
+  - callback sans `clientReferenceId` ;
+  - `UNKNOWN_ERROR` classé comme refus ;
+  - adresse de test.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 194 tests, SUCCÈS. Dont des tests de propriétés (UUID, montants), une vraie paire de clés ECDSA, des callbacks falsifiés refusés, et un achat de bout en bout jusqu'au ticket ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS. Écran « Compte marchand », argent réel refusé ; axe-core : 14 écrans.
+- **Non prouvé** : le bac à sable réel de pawaPay (jeton de Yacouba, sur une plateforme d'essai), le format réel des callbacks signés, le minimum du Burkina, le relevé pour le rapprochement.

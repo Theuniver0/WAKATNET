@@ -53,6 +53,8 @@ ATTENDU = {
     "app.paiement_transition(p_reference text, p_vers text, p_reference_fournisseur text, p_montant bigint, p_devise text, p_origine text)": {"wk_api"},
     "app.paiement_evenement(p_fournisseur text, p_id_evenement text, p_tenant bigint, p_reference text, p_corps bytea)": {"wk_api"},
     "app.paiement_du_proprietaire(p_reference text, p_tenant bigint)": {"wk_api"},
+    # Migration 0035 (ADR 0020) : paiement retrouvé par l'identifiant du fournisseur.
+    "app.paiement_par_reference_fournisseur(p_tenant bigint, p_fournisseur text, p_reference_fournisseur text)": {"wk_api"},
     "app.paiement_etat(p_public_id text, p_reference text, p_jeton bytea)": {"wk_api"},
     "app.paiement_par_jeton(p_public_id text, p_jeton bytea)": {"wk_api"},
     "app.paiement_retrouver(p_public_id text, p_numero_hmac bytea, p_suffixe text, p_jeton bytea)": {"wk_api"},
@@ -150,7 +152,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.inscription_demander"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"), ("wk_api", "app.paiement_etat"),
-                      ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_replanifier"),
+                      ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_par_reference_fournisseur"), ("wk_api", "app.paiement_replanifier"),
                       ("wk_api", "app.paiement_retrouver"), ("wk_api", "app.paiement_transition"), ("wk_api", "app.paiements_a_verifier"),
                       ("wk_api", "app.paiements_expirer"), ("wk_api", "app.paiements_par_numero"), ("wk_api", "app.portail_forfaits"),
                       ("wk_api", "app.portail_site"), ("wk_api", "app.releve"), ("wk_api", "app.renvoi_demander"), ("wk_api", "app.reversement_avant_envoi"),

@@ -44,8 +44,19 @@ export interface EtatPaiement {
 export interface EvenementWebhook {
   /** Identifiant unique de l'événement chez le fournisseur (P1 : doublons). */
   idEvenement: string;
-  /** Notre référence de paiement. */
+  /** Notre référence de paiement ; vide si le fournisseur ne l'a pas renvoyée (le service cherche alors par
+   *  referenceFournisseur). */
   reference: string;
+  referenceFournisseur?: string;
+}
+
+/** Requête HTTP du webhook telle que reçue : une signature RFC 9421 couvre la méthode, l'hôte et le chemin (ADR 0020). */
+export interface RequeteWebhook {
+  methode: string;
+  /** En-tête Host reçu (nginx le transmet tel quel, ADR 0016). */
+  autorite: string;
+  /** Chemin, sans la chaîne de requête. */
+  chemin: string;
 }
 
 export interface DemandeReversement {
@@ -68,12 +79,18 @@ export interface FournisseurPaiement {
   capacites(): Capacites;
   charge(demande: DemandePaiement): Promise<ResultatPaiement>;
   verify(reference: string): Promise<EtatPaiement>;
-  /** Vérifie la signature et lève SignatureInvalide sinon. */
-  parseWebhook(enTetes: Record<string, string | string[] | undefined>, corpsBrut: Buffer): EvenementWebhook;
+  /** Vérifie la signature et lève SignatureInvalide sinon. Peut être asynchrone (clés publiques à lire, ADR 0020). */
+  parseWebhook(enTetes: Record<string, string | string[] | undefined>, corpsBrut: Buffer, requete?: RequeteWebhook):
+    EvenementWebhook | Promise<EvenementWebhook>;
   /** Mode B seulement (verrouillé, ADR 0001) ; idempotent sur la référence. */
   payout?(demande: DemandeReversement): Promise<{ referenceFournisseur: string; statut: StatutReversement }>;
   verifyPayout?(reference: string, signal?: AbortSignal): Promise<{ statut: StatutReversement; referenceFournisseur?: string }>;
+  /** À l'enregistrement du compte marchand : jeton valable, réglages exigés (ADR 0020). Lève CompteInvalide. */
+  verifierCompte?(): Promise<void>;
 }
+
+/** Compte marchand mal réglé chez le fournisseur (jeton refusé, callbacks non signés…) : message pour le propriétaire. */
+export class CompteInvalide extends Error {}
 
 export class SignatureInvalide extends Error {}
 /** Le fournisseur ne répond pas, ou répond une erreur de son côté (P8). */

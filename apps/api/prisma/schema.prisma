@@ -217,6 +217,7 @@ model payment {
   @@index([prochaine_verif_le], map: "payment_a_verifier", where: raw("(statut = ANY (ARRAY['CREATED'::text, 'PENDING'::text, 'EXPIRED'::text, 'FAILED'::text]))"))
   @@index([site_id, numero_hmac], map: "payment_numero")
   @@index([tenant_id, confirme_le], map: "payment_tenant_confirme_le", where: raw("(confirme_le IS NOT NULL)"))
+  @@index([tenant_id, reference_fournisseur], map: "payment_reference_fournisseur", where: raw("(reference_fournisseur IS NOT NULL)"))
   @@schema("app")
 }
 

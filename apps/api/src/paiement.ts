@@ -7,7 +7,7 @@
 // même transaction SQL (A7).
 import { randomBytes } from "node:crypto";
 import {
-  FournisseurIndisponible, PaiementRefuse, SignatureInvalide, masquerNumero, normaliserNumero, versXof,
+  FournisseurIndisponible, PaiementRefuse, SignatureInvalide, type RequeteWebhook, masquerNumero, normaliserNumero, versXof,
   type FournisseurPaiement, type LivreurWebhook, type Operateur,
 } from "../../../packages/payments/src/index.ts";
 import type { Base } from "./base.ts";
@@ -124,17 +124,24 @@ export class ServicePaiement {
 
   // ---------------------------------------------------------------- webhook (route publique)
   async webhook(fournisseurId: string, webhookId: string, enTetes: Record<string, string | string[] | undefined>,
-                corps: Buffer): Promise<{ code: 200 | 400 | 401 | 404; corps: object }> {
+                corps: Buffer, requete?: RequeteWebhook): Promise<{ code: 200 | 400 | 401 | 404; corps: object }> {
     const [compte] = await this.base.$queryRaw<{ tenant_id: bigint; cles: Buffer }[]>`
       SELECT tenant_id, cles FROM app.compte_marchand_par_webhook(${fournisseurId}, ${webhookId})`;
     if (!compte) return { code: 404, corps: { erreur: "inconnu" } };
     const f = this.fournisseurDe(compte.tenant_id, { fournisseur: fournisseurId, cles: compte.cles, webhook_id: webhookId });
     let evt;
     try {
-      evt = f.parseWebhook(enTetes, corps);
+      evt = await f.parseWebhook(enTetes, corps, requete);
     } catch (e) {
       if (e instanceof SignatureInvalide) return { code: 401, corps: { erreur: "signature invalide" } };   // P5 : aucun effet
       throw e;
+    }
+    // Référence absente du callback : retrouvée par l'identifiant du fournisseur, pour ce propriétaire (ADR 0020).
+    if (evt.reference === "" && evt.referenceFournisseur && evt.referenceFournisseur.length <= 128) {
+      const [{ r }] = await this.base.$queryRaw<{ r: string | null }[]>`
+        SELECT app.paiement_par_reference_fournisseur(${compte.tenant_id}, ${fournisseurId}, ${evt.referenceFournisseur}) AS r`;
+      if (r === null) return { code: 200, corps: { ok: true, ignore: "paiement inconnu de ce compte" } };
+      evt = { ...evt, reference: r };
     }
     // Valeurs du fournisseur bornées avant toute écriture : une valeur hors contrainte ne doit pas
     // devenir une erreur 500 (revue).
