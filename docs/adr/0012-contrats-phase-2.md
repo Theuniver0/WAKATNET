@@ -18,7 +18,8 @@ Trois formes comparées (§14.4) :
 - Lecture des pairs voulus : `app.wg_pairs()` → `(public_key text, overlay_ip inet)` des routeurs **actifs** ayant une clé. Rôle `wk_wg` : EXECUTE sur cette seule fonction, connexion, rien d'autre.
 - Réveil : `NOTIFY wakatnet_pairs` posé par un déclencheur sur `app.router` (insertion, changement de clé, d'adresse ou d'`actif`) ; tour périodique toutes les 30 s en filet.
 - Application : `ConfigureDevice` avec `ReplacePeers = false` ; pairs ajoutés ou mis à jour avec `AllowedIPs` = **exactement** le /32 du routeur (`ReplaceAllowedIPs = true`) ; pairs absents de la base retirés (`Remove = true`). L'interface n'est jamais recréée, et la clé privée n'est jamais lue.
-- **Garde anti-effacement** : une erreur de lecture ne retire rien. Un résultat vide alors que l'interface a des pairs ne retire rien, et journalise une ANOMALIE. Plus de `max(5, 20 %)` retraits en un tour : rien n'est retiré, ANOMALIE, sauf si `WAKATNET_WG_RETRAIT_MASSIF=1` est posé à la main. Les ajouts passent toujours.
+- **Garde anti-effacement** : une erreur de lecture ne retire rien. Plus de `max(5, 20 %)` retraits en un tour : rien n'est retiré, et une ANOMALIE est journalisée, sauf si `WAKATNET_WG_RETRAIT_MASSIF=1` est posé à la main. Les ajouts passent toujours.
+  - **[précisé au ticket 05, 12/11/2026]** Un résultat vide suit la **même** règle. La première version retenait tout retrait quand la base ne rendait aucun pair. Le test de la boucle l'a montré : on ne pouvait alors pas révoquer le **dernier** routeur d'un nœud. Une base vide ou erronée coupe désormais au plus 5 routeurs, ou 20 %.
 - Journal : une ligne par pair ajouté ou retiré (clé publique tronquée, adresse), jamais de clé privée.
 
 ## 2. Plan d'adressage de l'overlay (D8)

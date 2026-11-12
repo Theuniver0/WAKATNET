@@ -37,6 +37,8 @@ ATTENDU = {
     # Ticket 03 : enrôlement (jeton, adresse, secret) en une transaction ; l'allocation est interne.
     "app.enroll_token_valide(p_empreinte bytea)": {"wk_api"},
     "app.enroll_register(p_empreinte bytea, p_cle text, p_coa_port integer, p_inventaire jsonb)": {"wk_api"},
+    # Ticket 05 : wg-agent ne lit que les pairs voulus.
+    "app.wg_pairs()": {"wk_wg"},
 }
 
 
@@ -70,7 +72,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     with admin() as c:
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api')) r(rolname)
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg')) r(rolname)
                                WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
@@ -78,7 +80,8 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.tenant_courant"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
                       ("wk_coa", "radius.sessions_to_cut"), ("wk_maint", "radius.close_ghost_sessions"),
                       ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
-                      ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth")]
+                      ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
+                      ("wk_wg", "app.wg_pairs")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():

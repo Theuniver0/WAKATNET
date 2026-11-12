@@ -1,0 +1,31 @@
+# WAKATNET — pile de TEST de wg-agent (ticket 05). Lancée par tests/run.sh. Aucun port publié.
+name: wakatnet-test-wg
+
+services:
+  postgres:
+    image: postgres:16.15@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    env_file: [{ path: ./jeu.secrets, required: true }]
+    environment:
+      POSTGRES_USER: wakatnet_admin
+      POSTGRES_DB: wakatnet
+    volumes:
+      - ../../../infra/sql:/depot/infra/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wakatnet_admin -d wakatnet"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  agent:
+    image: wakatnet-test-wg:local
+    # Interfaces WireGuard (TUN) et espaces de noms réseau : banc de test seulement.
+    privileged: true
+    env_file: [{ path: ./jeu.secrets, required: true }]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: wakatnet
+      PGUSER: wk_wg
+    volumes:
+      - ../../../infra/nftables:/depot/infra/nftables:ro
+    depends_on:
+      postgres: { condition: service_healthy }

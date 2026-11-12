@@ -626,3 +626,26 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/run.sh` (pile neuve) : 43 tests, SUCCÈS. Ils couvrent le jeton stocké en empreinte, le GET qui ne consomme pas, le 404 identique, 6 POST concurrents pour un seul routeur, le 422 et le 409 qui laissent le jeton intact, l'expiration, l'adressage (10.213.1.0/24 plein, donc passage à 10.213.2.x), l'absence du jeton et du secret dans le journal, et R1 à R7 sur le texte des scripts ;
   - `radius/tests/run.sh` (pile neuve, avec 0014) : 280 passés, SUCCÈS.
 - **Non prouvé** : aucune exécution sur RouterOS (écart R8, PRD §6).
+
+### Phase 2, ticket 05 : wg-agent et pare-feu du nœud (12/11/2026)
+
+- **`apps/wg-agent`** (Go 1.24, `wgctrl`, `pgx`) :
+  - la planification est une fonction pure ;
+  - la boucle fait `LISTEN wakatnet_pairs`, avec un tour de filet toutes les 30 s ;
+  - seuls les pairs sont configurés : ni la clé privée, ni le port, ni l'interface.
+- **Migration 0015** :
+  - rôle `wk_wg` (EXECUTE sur `app.wg_pairs()` seule, journal coupé) ;
+  - déclencheur `NOTIFY` sur `app.router`.
+- **Garde anti-effacement, amendée (ADR 0012 §1)** : la première version bloquait tout retrait quand la base ne rendait aucun pair. Le test de la boucle l'a montré : il était alors impossible de révoquer le **dernier** routeur. Une seule règle demeure : au-delà de `max(5, 20 %)` retraits par tour, rien n'est retiré, sauf garde levée à la main.
+- **`infra/nftables/wakatnet.nft`** : rien ne transite par `wg0`. En entrée, seuls 1812/1813 et ICMP sont acceptés depuis le tunnel ; en sortie, seuls 1700/3799 et ICMP. Le rechargement est atomique, et les autres interfaces ne sont pas touchées (anti-lockout).
+- **`infra/systemd/wakatnet-wg-agent.service`** : seule capacité, `CAP_NET_ADMIN`. L'unité est vérifiée par `systemd-analyze` (matrice T).
+- **Preuves** :
+  - `apps/wg-agent/tests/run.sh` (pile neuve) : tests Go avec `-race` sur une **vraie** interface WireGuard (`wireguard-go`, le module du noyau étant absent du banc) ;
+    - ajout, correction d'un `AllowedIPs` élargi, retrait d'un pair étranger, changement de clé, base injoignable sans aucun changement, interface jamais recréée ;
+    - boucle complète contre PostgreSQL : ajout appliqué en **28 ms**, révocation en **25 ms**, avec un tour de filet réglé à 60 s ;
+  - pare-feu prouvé dans des espaces de noms réseau. Sans les règles, r1 joint r2 **à travers** le nœud ; avec elles, plus jamais. Le nœud répond au ping, TCP 22 est rejeté et compté, la sortie vers 3799 est permise et vers un autre port refusée ;
+  - `radius/tests/run.sh` (pile neuve, avec 0015) : 281 passés, SUCCÈS.
+- **Constaté** :
+  - l'archive Debian n'est pas joignable depuis ce conteneur (proxy CONNECT seul : 405 en HTTP). Le conteneur de test est donc construit sur Ubuntu 24.04, avec la chaîne Go recopiée de l'image officielle ;
+  - `wireguard-go` exige `WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1` sous Linux.
+- **Non prouvé ici** : le module WireGuard du noyau sur un nœud Debian. `wgctrl` passe alors par netlink plutôt que par la socket de `wireguard-go`, avec la même API. À rejouer en phase 5.

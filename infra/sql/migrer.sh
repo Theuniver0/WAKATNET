@@ -11,6 +11,7 @@
 #   WAKATNET_PG_MAINT_PASSWORD    mot de passe du rôle wk_maint (tâches planifiées, ticket 06)
 #   WAKATNET_PG_COA_PASSWORD      mot de passe du rôle wk_coa (déclencheur de coupure, ticket 09)
 #   WAKATNET_PG_API_PASSWORD      mot de passe du rôle wk_api (API, phase 2)
+#   WAKATNET_PG_WG_PASSWORD       mot de passe du rôle wk_wg (wg-agent, phase 2)
 #
 # Garanties :
 #   - chaque fichier NNNN_*.sql de app/ et radius/ est appliqué une seule fois,
@@ -110,6 +111,7 @@ poser_mot_de_passe wk_acct WAKATNET_PG_ACCT_PASSWORD
 poser_mot_de_passe wk_maint WAKATNET_PG_MAINT_PASSWORD
 poser_mot_de_passe wk_coa WAKATNET_PG_COA_PASSWORD
 poser_mot_de_passe wk_api WAKATNET_PG_API_PASSWORD
+poser_mot_de_passe wk_wg WAKATNET_PG_WG_PASSWORD
 echo "migrations à jour"
 
 # Test de fumée du chemin critique (ADR 0009 §3) : une migration qui casse un droit ou une
