@@ -11,7 +11,7 @@ set -euo pipefail
 ICI="$(cd "$(dirname "$0")" && pwd)"
 TESTS="$(cd "$ICI/.." && pwd)"
 cd "$TESTS"
-C="docker compose -f compose.yml -f perf/compose.perf.yml"
+C="docker compose -f compose.yml -f perf/compose.perf.yml --profile ha"
 # Un répertoire daté par passe : une passe n'écrase jamais les preuves d'une autre (revue).
 R="$ICI/resultats/${RESULTATS:-$(date -u +%Y-%m-%d-%H%M)}"
 mkdir -p "$R"
@@ -30,7 +30,8 @@ umask 077
 alea() { head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 {
   for v in POSTGRES_PASSWORD WAKATNET_PG_RADIUS_PASSWORD WAKATNET_PG_ACCT_PASSWORD WAKATNET_PG_MAINT_PASSWORD \
-           WAKATNET_PG_COA_PASSWORD WAKATNET_PG_TEST_PASSWORD WAKATNET_SECRET_R1 WAKATNET_SECRET_R2 WAKATNET_SECRET_R3; do
+           WAKATNET_PG_COA_PASSWORD WAKATNET_PG_TEST_PASSWORD WAKATNET_PG_REPLICATION_PASSWORD WAKATNET_PG_REWIND_PASSWORD \
+           WAKATNET_PG_SANTE_PASSWORD WAKATNET_SECRET_R1 WAKATNET_SECRET_R2 WAKATNET_SECRET_R3; do
     echo "$v=$(alea)"
   done
 } > jeu.secrets
@@ -119,6 +120,50 @@ mesure "x10-accept-200" --mode accept --debit 200 --duree 30 --routeurs "$ROUTEU
 etape "Essai ×10, 6 min plus tard : clients dynamiques expirés (lifetime 300 s) et recréés"
 sleep 360
 mesure "x10-accept-200-apres-expiration" --mode accept --debit 200 --duree 60 --routeurs "$ROUTEURS_X10"
+fi
+
+if phase ha; then
+etape "Deux nœuds (phase 5, ticket 07) : B en réplique par flux de A"
+psql_t -q -c "SELECT pg_create_physical_replication_slot('noeud_b')" >/dev/null
+$C exec -T postgres bash -c 'echo "host replication wk_replication 172.29.215.0/24 scram-sha-256" >> "$PGDATA/pg_hba.conf"'
+psql_t -q -c "SELECT pg_reload_conf()" >/dev/null
+DEBUT_COPIE=$SECONDS
+$C up -d postgres_b >/dev/null 2>&1
+for _ in $(seq 1 300); do $C exec -T postgres_b pg_isready -q -h 127.0.0.1 -U wakatnet_admin -d wakatnet 2>/dev/null && break; sleep 1; done
+echo "réplique prête (copie de base comprise) en $((SECONDS - DEBUT_COPIE)) s" | tee "$R/ha-copie.txt"
+$C up -d freeradius_b >/dev/null 2>&1
+for _ in $(seq 1 30); do grep -q "Ready to process requests" <<<"$($C logs freeradius_b 2>&1)" && break; sleep 1; done
+$C exec -T -e PYTHONPATH=/depot/radius/tests -e WAKATNET_PERF_SERVEUR=10.213.0.2 testeur \
+  python3 /depot/radius/tests/perf/preparer.py --routeurs 50 | tee "$R/ha-preparation-b.txt"
+mesure "ha-cibles" --exporter /tmp/perf-cibles-ha.json
+
+etape "A à 200 auth/s, réplication active : retard de B relevé chaque seconde"
+( for _ in $(seq 1 22); do
+    psql_t -tA -c "SELECT now()::time(0), coalesce(round(extract(epoch FROM max(replay_lag)) * 1000), 0) AS retard_ms,
+                          coalesce(max(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)), 0) AS octets_en_retard
+                     FROM pg_stat_replication" 2>/dev/null
+    sleep 1
+  done ) > "$R/ha-retard-replication.txt" &
+SONDE=$!
+mesure "ha-a-accept-200" --mode accept --debit 200 --duree 20 --depuis /tmp/perf-cibles-ha.json
+wait "$SONDE" || true
+python3 - "$R/ha-retard-replication.txt" <<'PY' | tee "$R/ha-retard-synthese.json"
+import json, sys
+l = [x.split("|") for x in open(sys.argv[1]).read().split() if "|" in x]
+r = [int(float(a[1])) for a in l]; o = [int(float(a[2])) for a in l]
+print(json.dumps({"mesures": len(l), "retard_max_ms": max(r, default=None), "octets_max": max(o, default=None)}))
+PY
+
+etape "PostgreSQL de A arrêté : B à 200 auth/s depuis sa réplique (mode dégradé, T13)"
+$C stop postgres >/dev/null 2>&1
+$C exec -T -e PYTHONPATH=/depot/radius/tests -e WAKATNET_PERF_SERVEUR=10.213.0.2 testeur \
+  python3 /depot/radius/tests/perf/charge.py --mode accept --debit 200 --duree 20 --depuis /tmp/perf-cibles-ha.json \
+  | tee "$R/ha-b-accept-200.json"
+$C exec -T -e PYTHONPATH=/depot/radius/tests -e WAKATNET_PERF_SERVEUR=10.213.0.2 testeur \
+  python3 /depot/radius/tests/perf/charge.py --mode accept --debit 400 --duree 20 --depuis /tmp/perf-cibles-ha.json \
+  | tee "$R/ha-b-accept-400.json"
+$C start postgres >/dev/null 2>&1
+pret_pg
 fi
 
 etape "Matériel"
