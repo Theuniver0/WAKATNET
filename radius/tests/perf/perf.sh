@@ -12,7 +12,8 @@ ICI="$(cd "$(dirname "$0")" && pwd)"
 TESTS="$(cd "$ICI/.." && pwd)"
 cd "$TESTS"
 C="docker compose -f compose.yml -f perf/compose.perf.yml"
-R="$ICI/resultats"
+# Un répertoire daté par passe : une passe n'écrase jamais les preuves d'une autre (revue).
+R="$ICI/resultats/${RESULTATS:-$(date -u +%Y-%m-%d-%H%M)}"
 mkdir -p "$R"
 ROUTEURS_X10="${ROUTEURS_X10:-500}"
 # PHASES : sous-ensemble à rejouer (défaut : toutes). Ex. PHASES="spool x10" perf/perf.sh

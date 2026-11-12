@@ -1,0 +1,1 @@
+{"authorize": {"mesures": 11996, "p50": 1.101, "p95": 1.648, "p99": 2.035, "max": 19.346}, "post_auth": {"mesures": 11996, "p50": 1.154, "p95": 1.866, "p99": 3.079, "max": 82.272}, "client_lookup": {"mesures": 0, "p50": null, "p95": null, "p99": null, "max": null}}

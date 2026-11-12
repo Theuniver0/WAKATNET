@@ -118,3 +118,11 @@ Ces écarts sont des choix techniques, motivés par des faits observés en exéc
 | §3 | Conteneur de test | Binaire **Node 22.23.0 officiel** recopié depuis l'image `node`, épinglée par empreinte. | Le Node d'Ubuntu 26.04 ne retire pas les types TypeScript (ADR 0010 §1). |
 | §4 | « Faux NAS du ticket 09, qui reçoit les CoA sur l'IP du routeur » | Faux NAS FreeRADIUS lancé **dans le conteneur de test** sur l'IP de r13, et compteur Python sur celle de r14. Le déclencheur tourne aussi dans le testeur, et ses paquets partent de l'adresse de nœud `10.213.0.3` (routes locales). | Le routeur doit être à la fois la source de l'accounting et la destination du Disconnect, c'est-à-dire la même IP : seul le testeur peut porter les deux. |
 | §6 | Secrets générés | `WAKATNET_PG_COA_PASSWORD` en plus (rôle `wk_coa`). | Rôle propre au déclencheur (ADR 0006 §1). |
+
+## Amendement du 12/11/2026 — application des migrations sous charge (revue de fin de phase 1)
+
+| § | Avant | Maintenant | Motif |
+|---|---|---|---|
+| §1 | Chaque fichier dans une transaction, sans limite d'attente des verrous | `lock_timeout` de 200 ms pour **toute** migration (`WAKATNET_MIGRATION_ATTENTE_VERROU`), puis jusqu'à 30 nouveaux essais espacés d'une seconde | Une migration en attente d'un verrou fait attendre derrière elle toutes les lectures d'`authorize`, au-delà de leur `statement_timeout` : le nœud devient muet. |
+| §1 | Toujours en transaction | Un fichier `NNNN_*.sans_transaction.sql` est appliqué **hors transaction**, avec un verrou consultatif de session. Il doit être idempotent, et il n'est enregistré qu'après succès. | `CREATE INDEX CONCURRENTLY` et `DROP INDEX CONCURRENTLY` (migration 0012) sont interdits dans une transaction, et ce sont les seuls moyens de changer un index d'`auth_log` sans bloquer `authorize` ni `post_auth`. |
+| §1 | « Un fichier appliqué ne change jamais » | Règle inchangée. La version transactionnelle de 0012, fusionnée, a été remplacée par un fichier de **nom différent**, après vérification qu'elle n'avait été appliquée qu'à des piles de test jetables (ADR 0011). | — |

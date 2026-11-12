@@ -16,7 +16,8 @@
 //   WAKATNET_COUPURE_BUDGET_S  durée maximale d'un tour (défaut 20, sous TimeoutStartSec=25s) ;
 //                              les sessions restantes passent au tour suivant
 // Valeurs illisibles : sortie 1 AVANT tout envoi, sans rien enregistrer (revue du ticket 09).
-// Nœud en lecture seule (réplique, T13) : aucun envoi ; la coupure ne tourne que sur le primaire.
+// Réplique (T13) : aucun envoi, sortie 0. Primaire en lecture seule : aucun envoi, sortie 1
+// (anomalie). L'état est revérifié avant chaque session.
 //
 // Journal : une ligne par session, sans le code du ticket ni le secret (S1, ADR 0006 §10).
 // Une erreur sur une session (base, radclient) est journalisée, la session n'est pas marquée,
@@ -104,15 +105,32 @@ async function uneSession(session: string, motif: string): Promise<void> {
   console.log(`session=${session} routeur=${routeur} motif=${motif} envois=${envois} resultat=${enregistre}`);
 }
 
-async function tour(): Promise<number> {
-  // Réplique (pg_is_in_recovery) ou base en lecture seule (transaction_read_only, qui vaut
-  // aussi « on » sur une réplique) : mark_cut ne pourrait rien enregistrer.
-  const [[lecture_seule]] = await sql(
-    "SELECT pg_is_in_recovery() OR current_setting('transaction_read_only') = 'on';\n", {});
-  if (lecture_seule === "t") {
-    console.log("base en lecture seule (réplique) : aucune coupure sur ce nœud");
+// État de la base vu par wk_coa (revue de fin de phase 1) :
+//   replique      : pg_is_in_recovery() — nœud B en lecture seule (T13), aucune coupure, sortie 0 ;
+//   lecture_seule : primaire en lecture seule (default_transaction_read_only posé par erreur) :
+//                   mark_cut ne pourrait rien enregistrer ; ANOMALIE, sortie 1 pour systemd ;
+//   ecriture      : coupure normale.
+type EtatBase = "ecriture" | "replique" | "lecture_seule";
+
+async function etatBase(): Promise<EtatBase> {
+  const [[recuperation, lecture]] = await sql(
+    "SELECT pg_is_in_recovery(), current_setting('transaction_read_only') = 'on';\n", {});
+  if (recuperation === "t") return "replique";
+  return lecture === "t" ? "lecture_seule" : "ecriture";
+}
+
+function signaler(etat: EtatBase): number {
+  if (etat === "replique") {
+    console.log("réplique (pg_is_in_recovery) : aucune coupure sur ce nœud");
     return 0;
   }
+  console.error("ANOMALIE : base en lecture seule sur un nœud qui n'est pas une réplique : aucune coupure possible");
+  return 1;
+}
+
+async function tour(): Promise<number> {
+  const initial = await etatBase();
+  if (initial !== "ecriture") return signaler(initial);
   const fin = Date.now() + BUDGET_S * 1000;
   const sessions = await sql("SELECT session_id, motif FROM radius.sessions_to_cut();\n", {});
   let code = 0;
@@ -122,11 +140,25 @@ async function tour(): Promise<number> {
       console.log(`budget de ${BUDGET_S} s atteint : ${sessions.length - traitees} session(s) au tour suivant`);
       break;
     }
+    // Vérifié AVANT chaque envoi (et non une fois par tour) : une bascule pendant le tour arrête
+    // les envois au lieu d'envoyer des Disconnect impossibles à enregistrer. Il reste une fenêtre
+    // entre cette vérification et mark_cut ; un Disconnect alors non enregistré est renvoyé par le
+    // primaire suivant, et le routeur répond NAK à un second Disconnect : sans dommage.
+    const etat = await etatBase();
+    if (etat !== "ecriture") {
+      console.error(`base passée en « ${etat} » pendant le tour : arrêt avant la session ${session}`);
+      return Math.max(code, signaler(etat));
+    }
     try {
       await uneSession(session, motif);
     } catch (e) {
-      console.error(`session=${session} erreur=« ${e instanceof Error ? e.message : e} »`);
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`session=${session} erreur=« ${message} »`);
       code = 1;
+      if (/read-only transaction/.test(message)) {
+        console.error("base passée en lecture seule pendant le tour : arrêt");
+        return 1;
+      }
     }
     traitees++;
   }

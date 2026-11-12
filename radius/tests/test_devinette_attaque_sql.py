@@ -8,12 +8,19 @@ Corrigé structurellement : l'index par routeur porte sur (router_id + 0), qu'un
 « router_id = … » ne peut pas utiliser. Ces tests le prouvent par les compteurs d'index de
 PostgreSQL, sans dépendre d'une durée.
 """
+import os
+import subprocess
+import threading
+import time
 import uuid
 
-from conftest import ROUTEURS, admin, en_tant_que_radius, en_tant_que_test, nouveau_ticket
+import psycopg
+
+from conftest import PG_HOTE, ROUTEURS, admin, en_tant_que_radius, en_tant_que_test, nouveau_ticket
 
 R5 = ROUTEURS["r5"][0]   # routeur réservé aux essais en base (tickets 03 et 07)
-INDEX_ROUTEUR = "auth_log_echecs_routeur"
+INDEX_ROUTEUR = "auth_log_echecs_routeur_expr"
+ANCIEN_INDEX = "auth_log_echecs_routeur"
 
 
 def _parcours(c, index: str) -> int:
@@ -31,9 +38,17 @@ def _attaque(n: int) -> None:
                        FROM app.router r, generate_series(1, %s) g WHERE r.overlay_ip = %s""", (n, R5))
 
 
+# MAC propres à ces tests : tout ce qu'ils écrivent sur r5 est retiré ensuite, pour ne pas fausser
+# les seuils de l'anti-devinette des autres tests (le seuil de 100 échecs par routeur du ticket 07).
+MAC_DES_TESTS = ("02FB00000001", "02ABCDEF1202")
+
+
 def _nettoyer() -> None:
     with admin() as c:
-        c.execute("DELETE FROM radius.auth_log WHERE mac LIKE '02FA%'")
+        c.execute("DELETE FROM radius.auth_log WHERE mac LIKE '02FA%%' OR mac = ANY(%s)", (list(MAC_DES_TESTS),))
+        c.execute("""DELETE FROM radius.alerte a USING app.router r
+                      WHERE r.id = a.router_id AND r.overlay_ip = %s AND a.type = 'echecs_routeur'
+                        AND a.at >= now() - interval '10 minutes'""", (R5,))
 
 
 def test_authorize_d_un_vrai_client_n_utilise_jamais_l_index_par_routeur():
@@ -77,7 +92,59 @@ def test_post_auth_sous_attaque_compte_au_plus_jusqu_au_seuil_et_alerte_une_fois
         _nettoyer()
 
 
-def test_l_index_par_routeur_porte_sur_l_expression():
+def test_l_index_par_routeur_porte_sur_l_expression_et_l_ancien_a_disparu():
     with admin() as c:
         definition = c.execute("SELECT pg_get_indexdef(%s::regclass)", (f"radius.{INDEX_ROUTEUR}",)).fetchone()[0]
+        ancien = c.execute("SELECT to_regclass(%s)", (f"radius.{ANCIEN_INDEX}",)).fetchone()[0]
+        valide = c.execute("SELECT indisvalid FROM pg_index WHERE indexrelid = %s::regclass",
+                           (f"radius.{INDEX_ROUTEUR}",)).fetchone()[0]
     assert "(router_id + 0)" in definition, definition
+    assert ancien is None and valide
+
+
+FICHIER_0012 = "0012_radius_devinette_sous_attaque.sans_transaction.sql"
+
+
+def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivante():
+    """Revue du 12/11/2026 : une construction d'index en transaction bloquait les INSERT de
+    post_auth ; un DROP INDEX en attente derrière un lecteur long faisait attendre tous les
+    authorize. On rejoue la migration (état d'avant recréé) PENDANT qu'une transaction longue
+    lit auth_log : authorize et post_auth doivent répondre vite tout au long, et la migration
+    finit (lock_timeout, nouveaux essais) une fois le lecteur parti."""
+    with admin() as c:   # état d'avant 0012 : ancien index, nouvel index absent, fichier non appliqué
+        c.execute(f"DROP INDEX radius.{INDEX_ROUTEUR}")
+        c.execute(f"""CREATE INDEX {ANCIEN_INDEX} ON radius.auth_log (router_id, at)
+                      WHERE resultat = 'Reject' AND cause = 'ticket_inconnu'""")
+        c.execute("DELETE FROM public.schema_migrations WHERE fichier = %s", (FICHIER_0012,))
+    lecteur = psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wakatnet_admin",
+                              password=os.environ["POSTGRES_PASSWORD"])
+    lecteur.execute("SELECT count(*) FROM radius.auth_log")       # transaction ouverte, verrou tenu
+    env = dict(os.environ, PGHOST=PG_HOTE, PGUSER="wakatnet_admin", PGDATABASE="wakatnet",
+               PGPASSWORD=os.environ["POSTGRES_PASSWORD"])
+    migration = subprocess.Popen(["bash", "/depot/infra/sql/migrer.sh"], env=env, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT, text=True)
+    code = nouveau_ticket()
+    pire = 0.0
+    try:
+        fin = time.monotonic() + 4          # le lecteur tient 4 s : la migration doit attendre
+        while time.monotonic() < fin:
+            debut = time.monotonic()
+            with en_tant_que_test() as c:
+                assert c.execute("SELECT decision FROM radius._authorize_at(%s, %s, '02-AB-CD-EF-12-01', 'h', now())",
+                                 (code, R5)).fetchone()[0] == "Accept"
+            with en_tant_que_radius() as c:
+                assert c.execute("SELECT radius.post_auth(%s, %s, '02-AB-CD-EF-12-02', 'Reject', 'ticket_inconnu')",
+                                 ("ZZZZ" + uuid.uuid4().hex[:4].upper(), R5)).fetchone()[0] == "ok"
+            pire = max(pire, time.monotonic() - debut)
+            time.sleep(0.1)
+        assert migration.poll() is None, "la migration aurait dû attendre le lecteur : " + migration.stdout.read()
+    finally:
+        lecteur.rollback()
+        lecteur.close()
+    sortie, _ = migration.communicate(timeout=120)
+    _nettoyer()
+    print(f"migration sous lecteur long : pire authorize + post_auth {pire * 1000:.0f} ms")
+    assert migration.returncode == 0, sortie
+    assert "verrou indisponible pour " + FICHIER_0012 in sortie, sortie   # elle a bien attendu, sans bloquer
+    assert pire < 0.4, f"authorize + post_auth ont attendu {pire:.2f} s pendant la migration"
+    test_l_index_par_routeur_porte_sur_l_expression_et_l_ancien_a_disparu()

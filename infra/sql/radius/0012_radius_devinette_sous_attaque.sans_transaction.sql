@@ -1,20 +1,39 @@
 -- WAKATNET — migration 0012 : anti-devinette sous attaque (suite de la mesure du ticket 10).
 -- Ticket : .scratch/phase-1-coeur-radius/issues/10-performance.md ; radius/tests/perf/RAPPORT.md §7.
--- Contrats : ADR 0006 §4 et §11 (inchangés) ; décision consignée dans l'ADR 0011.
+-- Contrats : ADR 0006 §4 et §11 (inchangés) ; décision : ADR 0011 ; application : ADR 0008.
 --
 -- Mesuré le 12/11/2026 : sous attaque (échecs récents nombreux sur un routeur, MAC toutes
 -- différentes) et avec des statistiques non rafraîchies, la recherche des échecs d'UNE MAC
 -- (trop_de_tentatives, dans _authorize_at) passait par l'index PAR ROUTEUR et filtrait la MAC :
--- 16,5 ms à 50 000 échecs récents, 44 ms à 100 000. Le coût croissait avec l'attaque.
+-- 44 ms à 100 000 échecs récents. Correction STRUCTURELLE : l'index par routeur porte sur
+-- (router_id + 0), qu'une condition « router_id = … » ne peut pas utiliser ; seul le compte
+-- d'alerte par routeur de post_auth, écrit « router_id + 0 = … », s'en sert. Les deux comptes
+-- d'alerte de post_auth sont bornés à leur seuil (LIMIT).
 --
--- Correction STRUCTURELLE, indépendante des statistiques : l'index par routeur porte désormais
--- sur l'expression (router_id + 0). Une condition « router_id = … » (requêtes par MAC) ne peut
--- plus l'utiliser ; seul le compte d'alerte par routeur de post_auth, écrit
--- « router_id + 0 = … », s'en sert. Les comptes d'alerte de post_auth sont en plus bornés au
--- seuil (LIMIT) : leur coût ne croît plus avec le volume de l'attaque.
+-- SANS TRANSACTION (suffixe .sans_transaction.sql, voir migrer.sh ; revue du 12/11/2026) :
+-- CREATE INDEX CONCURRENTLY et DROP INDEX CONCURRENTLY ne bloquent ni les lectures (authorize)
+-- ni les écritures (post_auth), même sur un auth_log de 90 jours. Une construction ordinaire
+-- dans une transaction bloquait les INSERT de post_auth pendant toute sa durée, et un DROP INDEX
+-- ordinaire, en attente derrière un lecteur long, aurait fait attendre tous les authorize.
+-- migrer.sh pose lock_timeout et réessaie ; chaque étape est donc IDEMPOTENTE.
+-- Remplace la version transactionnelle (0012_radius_devinette_sous_attaque.sql, appliquée
+-- seulement à des piles de test jetables) : sur une base qui l'aurait appliquée, cette
+-- migration crée l'index sous son nom définitif et supprime l'ancien.
 
 SET ROLE wakatnet_owner;
 
+-- Construction interrompue (lock_timeout, coupure) : l'index peut rester INVALIDE. On le
+-- supprime avant de le reconstruire.
+SELECT EXISTS (SELECT FROM pg_index i
+                WHERE i.indexrelid = to_regclass('radius.auth_log_echecs_routeur_expr')
+                  AND NOT i.indisvalid) AS index_invalide \gset
+\if :index_invalide
+DROP INDEX CONCURRENTLY radius.auth_log_echecs_routeur_expr;
+\endif
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS auth_log_echecs_routeur_expr
+  ON radius.auth_log ((router_id + 0), at)
+  WHERE resultat = 'Reject' AND cause = 'ticket_inconnu';
 
 -- Même signature, même contrat et mêmes droits qu'en 0009 ; seuls les deux comptes changent.
 CREATE OR REPLACE FUNCTION radius.post_auth(p_user text, p_src text, p_calling text, p_result text, p_cause text)
@@ -75,16 +94,7 @@ BEGIN
 END;
 $$;
 
--- Ordre des verrous (revue de fin de phase 1) : migrer.sh applique ce fichier en UNE
--- transaction. Un DROP INDEX d'abord prendrait un verrou ACCESS EXCLUSIVE sur auth_log
--- jusqu'à la validation, donc pendant toute la construction du nouvel index : authorize, qui
--- lit auth_log, attendrait puis se tairait (statement_timeout) pour tout le parc.
--- Ici : construction d'abord (verrou SHARE : les LECTURES passent ; les écritures de
--- post_auth attendent et échouent sans effet sur la réponse), puis suppression et renommage,
--- instantanés, juste avant la validation.
-CREATE INDEX auth_log_echecs_routeur_0012 ON radius.auth_log ((router_id + 0), at)
-  WHERE resultat = 'Reject' AND cause = 'ticket_inconnu';
-DROP INDEX radius.auth_log_echecs_routeur;
-ALTER INDEX radius.auth_log_echecs_routeur_0012 RENAME TO auth_log_echecs_routeur;
+-- L'ancien index (router_id, at), que la requête par MAC pouvait prendre.
+DROP INDEX CONCURRENTLY IF EXISTS radius.auth_log_echecs_routeur;
 
 RESET ROLE;
