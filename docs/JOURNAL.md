@@ -547,3 +547,25 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   3. Rapport de performance : **oui**.
   4. Revue en deux axes : **faite**, ses constats sont corrigés.
   5. Étiquette `phase-1` : **non posée**. Elle attend le point 2. L'étiquette `g0` n'existe pas non plus dans le dépôt.
+
+### Corrections de `/code-review` sur la fin de phase 1 (12/11/2026)
+
+- PR n°18 fusionnée par Yacouba. `/code-review` lancé par Yacouba : 9 constats, tous traités.
+- **1 et 2, importants : verrous de la migration 0012.**
+  - Une construction d'index en transaction bloquait les INSERT de `post_auth`, ce qui saturait le pool, tandis que les Reject n'étaient plus journalisés.
+  - Le `DROP INDEX`, en attente derrière un lecteur long, aurait fait attendre tous les `authorize`.
+  - **Correction** : 0012 devient `0012_…sans_transaction.sql`, avec `CREATE INDEX CONCURRENTLY` et `DROP INDEX CONCURRENTLY`, et des étapes idempotentes. `migrer.sh` applique ces fichiers hors transaction, et pose `lock_timeout` (200 ms) avec de nouveaux essais sur **toutes** les migrations (ADR 0008, amendement).
+  - **Prouvé** : migration rejouée sous un lecteur long. Elle attend puis aboutit, et pendant ce temps `authorize` et `post_auth` répondent en 52 ms au pire.
+- **3 : migration fusionnée modifiée.** J'ai vérifié que l'ancienne 0012 n'avait été appliquée qu'à des piles de test jetables : la pile de dev ne lance pas `migrer.sh`, et il n'existe pas de nœud. Elle est remplacée par un fichier de **nom différent**, qui reste correct sur une base qui l'aurait appliquée (ADR 0011).
+- **4 et 6 : garde de lecture seule.**
+  - L'état de la base est revérifié **avant chaque session**.
+  - Le tour s'arrête si `mark_cut` échoue en lecture seule.
+  - Une réplique donne la sortie 0 ; un primaire en lecture seule donne la sortie 1, avec le message « ANOMALIE ». La fenêtre qui reste avant `mark_cut` est documentée.
+- **5 : affirmation corrigée.** Le journal disait la garde de réplique « testée ». Seule la branche « lecture seule » l'est ; la branche `pg_is_in_recovery()` exige une vraie réplique (phase 5).
+- **7** : l'ADR 0011 cite les bons fichiers.
+- **8 : `post_auth` plus lent après 0012**, de +7 à +23 % selon le quantile, au-delà de la variation entre passes. Ce n'est **pas expliqué**, et c'est maintenant dit dans le RAPPORT (§9) au lieu de « pas de régression ».
+- **9 : données brutes rangées par passe.**
+  - `perf.sh` écrit dans un répertoire daté.
+  - La passe 2 est restaurée depuis le commit `386545b`, et la passe 1 depuis le journal de session.
+  - Le §4 donne les deux passes : 1,73 et 1,65 ms. L'écart que relevait la revue venait de là.
+- **Trouvé en exécution** : renommé, le fichier de test s'exécutait avant `test_t07_sql.py` et laissait une alerte et des échecs sur r5, ce qui faussait le seuil des 100 échecs par routeur. Les tests nettoient désormais tout ce qu'ils écrivent.

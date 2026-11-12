@@ -16,13 +16,21 @@
 #     dans l'ordre de son numéro, dans une transaction (psql -1) ;
 #   - son empreinte SHA-256 est enregistrée ; un fichier déjà appliqué puis
 #     MODIFIÉ arrête le script (un fichier appliqué ne change jamais) ;
-#   - un verrou consultatif empêche deux exécutions simultanées.
+#   - un verrou consultatif empêche deux exécutions simultanées ;
+#   - aucune migration n'attend un verrou plus de WAKATNET_MIGRATION_ATTENTE_VERROU (200 ms par
+#     défaut) : une attente plus longue ferait patienter derrière elle toutes les lectures
+#     d'authorize, au-delà de leur statement_timeout (nœud muet). Le fichier est alors
+#     réessayé (au plus 30 fois, une seconde d'écart), puis le script échoue ;
+#   - un fichier « NNNN_*.sans_transaction.sql » est appliqué HORS transaction, pour permettre
+#     CREATE / DROP INDEX CONCURRENTLY sur une table vivante. Il doit être idempotent (une
+#     reprise après un échec partiel repart proprement) ; il n'est enregistré qu'après succès.
 set -euo pipefail
 
 ICI="$(cd "$(dirname "$0")" && pwd)"
 export PGUSER="${PGUSER:-${POSTGRES_USER:?POSTGRES_USER manquant}}"
 export PGDATABASE="${PGDATABASE:-${POSTGRES_DB:?POSTGRES_DB manquant}}"
 PSQL=(psql -X -q -v ON_ERROR_STOP=1)
+ATTENTE_VERROU="${WAKATNET_MIGRATION_ATTENTE_VERROU:-200ms}"
 
 "${PSQL[@]}" -c "CREATE TABLE IF NOT EXISTS public.schema_migrations (
   fichier text PRIMARY KEY,
@@ -46,11 +54,35 @@ SQL
     continue
   fi
   echo "application : $nom"
-  {
-    echo "SELECT pg_advisory_xact_lock(hashtext('wakatnet_migrations'));"
-    cat "$f"
-    echo "INSERT INTO public.schema_migrations (fichier, sha256) VALUES (:'nom', :'empreinte');"
-  } | "${PSQL[@]}" -1 -v nom="$nom" -v empreinte="$empreinte" -f -
+  essai=1
+  while :; do
+    if [[ "$nom" == *.sans_transaction.sql ]]; then
+      # Hors transaction : verrou consultatif de SESSION, rendu à la fin de psql.
+      sortie="$({
+        echo "SELECT pg_advisory_lock(hashtext('wakatnet_migrations'));"
+        echo "SET lock_timeout = :'attente';"
+        cat "$f"
+        echo "INSERT INTO public.schema_migrations (fichier, sha256) VALUES (:'nom', :'empreinte');"
+      } | "${PSQL[@]}" -v nom="$nom" -v empreinte="$empreinte" -v attente="$ATTENTE_VERROU" -f - 2>&1)" && code=0 || code=$?
+    else
+      sortie="$({
+        echo "SELECT pg_advisory_xact_lock(hashtext('wakatnet_migrations'));"
+        echo "SET LOCAL lock_timeout = :'attente';"
+        cat "$f"
+        echo "INSERT INTO public.schema_migrations (fichier, sha256) VALUES (:'nom', :'empreinte');"
+      } | "${PSQL[@]}" -1 -v nom="$nom" -v empreinte="$empreinte" -v attente="$ATTENTE_VERROU" -f - 2>&1)" && code=0 || code=$?
+    fi
+    [ -n "$sortie" ] && printf '%s\n' "$sortie"
+    [ "$code" = 0 ] && break
+    if grep -q "lock timeout" <<<"$sortie" && [ "$essai" -lt 30 ]; then
+      echo "verrou indisponible pour $nom (essai $essai) : nouvel essai dans 1 s"
+      essai=$((essai + 1))
+      sleep 1
+      continue
+    fi
+    echo "ERREUR : échec de $nom" >&2
+    exit 1
+  done
 done
 
 # Mots de passe des rôles de FreeRADIUS : lus dans l'environnement par psql (\getenv),

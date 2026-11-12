@@ -1,7 +1,10 @@
 # Rapport de performance du cœur RADIUS (ticket 10)
 
 - **Date** : 12/11/2026. **Ticket** : `.scratch/phase-1-coeur-radius/issues/10-performance.md`.
-- **Rejeu** : `radius/tests/perf/perf.sh`, ou une seule partie avec `PHASES="debit serveur plans spool x10"`. Mesure sous attaque : `perf/attaque.sql` et `perf/attaque-sans-analyze.sql`, sur la pile de mesure. Résultats bruts : `perf/resultats/*.json` et `*.txt`.
+- **Rejeu** : `radius/tests/perf/perf.sh`, ou une seule partie avec `PHASES="debit serveur plans spool x10"`. Mesure sous attaque : `perf/attaque.sql` et `perf/attaque-sans-analyze.sql`, sur la pile de mesure. Résultats bruts, un répertoire daté par passe (`perf.sh` n'écrase plus une passe précédente) :
+  - `perf/resultats/2026-11-12-passe1-avant-0012/` : sortie brute de la passe 1, récupérée du journal de session ; ses fichiers nommés avaient été écrasés par la passe 2 ;
+  - `perf/resultats/2026-11-12-passe2-avant-0012/` : passe 2, données, x10, spool, attaque avant 0012 ;
+  - `perf/resultats/2026-11-12-apres-0012/` : débit, serveur et attaque après 0012.
 - Tous les chiffres ci-dessous sont **mesurés**. Ceux qui ne le sont pas sont dits « estimé » ou « non mesuré ».
 
 ## 1. Matériel et conditions
@@ -47,8 +50,12 @@ Paliers de 20 s, en boucle ouverte, journalisation des instructions coupée. La 
 
 | Instruction | Mesures | p50 | **p95** | p99 | max |
 |---|---|---|---|---|---|
-| `radius.authorize` | 11 993 | 1,13 ms | **1,73 ms** | 2,22 ms | 24,3 ms |
-| `radius.post_auth` | 11 994 | 1,19 ms | 2,01 ms | 3,25 ms | 86,4 ms |
+| `radius.authorize` (passe 1) | 11 993 | 1,13 ms | **1,73 ms** | 2,22 ms | 24,3 ms |
+| `radius.authorize` (passe 2) | 11 996 | 1,10 ms | **1,65 ms** | 2,04 ms | 19,3 ms |
+| `radius.post_auth` (passe 1) | 11 994 | 1,19 ms | 2,01 ms | 3,25 ms | 86,4 ms |
+| `radius.post_auth` (passe 2) | 11 996 | 1,15 ms | 1,87 ms | 3,08 ms | 82,3 ms |
+
+Deux passes identiques, avant 0012 : leur écart (environ 5 à 7 %) donne l'ordre de grandeur de la variation d'une passe à l'autre.
 
 - **Objectif « p95 d'`authorize` < 50 ms » : atteint**, à 1,73 ms. Mais **voir le §7** : sous attaque par devinette, ce coût peut croître jusqu'à l'objectif.
 - **Coût de `post_auth`** : du même ordre qu'`authorize`. Il s'ajoute au temps de traitement de chaque requête, mais pas à la décision, puisque son échec est sans effet (ticket 07).
@@ -99,7 +106,7 @@ Plans relevés par `auto_explain` (instructions imbriquées d'`authorize`, `perf
   | 100 000 | **44,0 ms** | — |
 
   100 000 échecs en 6 minutes représentent environ 280 tentatives par seconde sur un seul routeur. Le coût croît linéairement : au-delà, **l'objectif de 50 ms n'est plus tenu** pour les clients de ce routeur.
-- **Corrigé le 12/11/2026** (ADR 0011, migration `radius/0012`) : l'index par routeur porte sur `(router_id + 0)`, et la requête par MAC ne peut plus le prendre. **Mesuré après la correction** : 0,46 ms à 100 000 échecs récents, contre 44 ms avant (`resultats/attaque-avant-0012.txt` et `attaque-apres-0012.txt`).
+- **Corrigé le 12/11/2026** (ADR 0011, migration `radius/0012`) : l'index par routeur porte sur `(router_id + 0)`, et la requête par MAC ne peut plus le prendre. **Mesuré après la correction** : 0,46 ms à 100 000 échecs récents, contre 44 ms avant (`resultats/2026-11-12-passe2-avant-0012/attaque-avant-0012.txt` et `resultats/2026-11-12-apres-0012/attaque-apres-0012.txt`).
 - Pistes qui avaient été envisagées :
   1. `ALTER TABLE radius.auth_log SET (autovacuum_analyze_scale_factor = 0, autovacuum_analyze_threshold = 5000)` : statistiques rafraîchies toutes les 5 000 insertions. Changement minimal ; il reste au pire environ une minute dégradée (cycle d'autovacuum).
   2. Retirer le recouvrement entre les deux index : compter les échecs par routeur (alerte du ticket 07) autrement, par exemple dans une table de compteurs par minute, pour que seul l'index par MAC puisse servir la requête par MAC.
@@ -130,7 +137,8 @@ Phases « débit » et « serveur » rejouées (`PHASES="debit serveur" perf/per
 | `radius.authorize` | 11 984 | 0,86 ms | **1,40 ms** | 1,77 ms |
 | `radius.post_auth` | 11 984 | 1,42 ms | 2,14 ms | 3,62 ms |
 
-- **Pas de régression** : le p95 d'`authorize` passe de 1,73 à 1,40 ms, et le débit sans perte reste d'au moins 400/s.
+- `authorize` : p95 de 1,65 à 1,73 ms avant 0012, 1,40 ms après. Le débit sans perte reste d'au moins 400/s.
+- **`post_auth` est un peu plus lent après 0012** : p95 de 2,14 ms, contre 1,87 et 2,01 ms avant (+7 à +14 %) ; p50 de 1,42 ms contre 1,15 et 1,19 ms (+19 à +23 %). L'écart dépasse la variation entre deux passes. Il n'est **pas expliqué** : les comptes bornés par `LIMIT` devraient coûter moins, pas plus. Hypothèse non vérifiée : la sous-requête `count(*) FROM (… LIMIT n)` change le plan. Sans effet sur la réponse, `post_auth` étant hors décision (ticket 07), mais il occupe la connexion un peu plus longtemps. À mesurer à part avant de conclure.
 - Les 14 pertes de la phase serveur en Accept ont la même cause qu'au §4 : la mesure ferme volontairement les connexions de `wk_radius`.
 - Les Reject en mode Accept (`trop_d_appareils`, 1 à 6 par palier) ont la même cause qu'au §3 : un artefact du jeu de données.
-- Les fichiers bruts `resultats/*.json` sont ceux de cette mesure ; ceux des §3 et §4 ont été remplacés. Les chiffres d'avant restent dans les tableaux ci-dessus et dans `docs/JOURNAL.md`.
+- Fichiers bruts de cette mesure : `resultats/2026-11-12-apres-0012/`. Ceux des §3 et §4 sont dans `resultats/2026-11-12-passe1-avant-0012/` et `resultats/2026-11-12-passe2-avant-0012/`.

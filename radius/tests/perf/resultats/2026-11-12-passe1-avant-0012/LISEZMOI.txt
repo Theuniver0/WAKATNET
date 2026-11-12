@@ -1,0 +1,4 @@
+Passe 1 (12/11/2026), avant la migration 0012 : sortie brute de perf.sh, une ligne JSON par mesure,
+dans l'ordre : préparation (50 routeurs), Accept 100/200/400/800, Reject 100/200/400/800,
+serveur Accept 200, serveur Reject 200, puis durées côté serveur. Fichiers nommés perdus (écrasés par la passe 2),
+récupérés depuis le journal de la session.

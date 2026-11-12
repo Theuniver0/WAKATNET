@@ -52,7 +52,10 @@
   - `radclient` qui échoue sans rien envoyer (dictionnaire, binaire, fichier du secret) : `ErreurRadclient`, la session n'est **pas** marquée, et le tour continue. Sortie 1, donc échec visible dans systemd ;
   - erreur de base sur une session : journalisée, et le tour continue avec les suivantes ;
   - session sans cible (secret ou ticket absent) : comptée comme muette, donc abandonnée avec une alerte ;
-  - **nœud en lecture seule** (`pg_is_in_recovery()`, réplique T13) : aucun envoi. **Non testé** : il n'y a pas de réplique avant la phase 5 ;
+  - **état de la base**, vérifié avant le tour **et avant chaque session** (revue du 12/11/2026) :
+    - réplique (`pg_is_in_recovery()`, T13) : aucun envoi, sortie 0. **Non testé** : il faut une vraie réplique (phase 5) ;
+    - primaire en lecture seule (`default_transaction_read_only` posé par erreur) : aucun envoi, message « ANOMALIE », sortie 1, pour que systemd le signale. **Testé** ;
+    - bascule pendant le tour : arrêt avant la session suivante, ou dès qu'un `mark_cut` échoue en lecture seule. Il reste une fenêtre entre la vérification et `mark_cut` : un Disconnect envoyé mais non enregistré sera renvoyé par le primaire suivant, et le routeur répond NAK à un second Disconnect ;
   - `radclient` reçoit un environnement minimal (`PATH`) : il n'hérite pas du mot de passe de la base.
 - Le parallélisme est à reprendre dans le worker (phase 2). La phase 1 compte moins de 50 routeurs.
 - **Index** : `sessions_to_cut` ne peut pas utiliser l'index partiel `session_a_couper`, à cause de `OR t.suspendu` et de `_vivante`. Toutes les 30 s, elle lit donc `radius.session`. À mesurer au ticket 10.

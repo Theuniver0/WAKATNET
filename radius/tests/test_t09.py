@@ -383,9 +383,11 @@ def test_unites_systemd_de_la_coupure_valides():
     assert autres == [], autres
 
 
-def test_noeud_en_lecture_seule_aucun_envoi(fauxnas):
-    """Réplique (T13) simulée par default_transaction_read_only sur wk_coa : aucun Disconnect,
-    rien d'enregistré, sortie 0 (ADR 0010 §3 ; revue de fin de phase 1)."""
+def test_primaire_en_lecture_seule_aucun_envoi_et_anomalie_signalee(fauxnas):
+    """default_transaction_read_only posé sur wk_coa (primaire mis en lecture seule par erreur) :
+    aucun Disconnect, rien d'enregistré, et SORTIE 1 pour que systemd le signale (revue).
+    La branche « réplique » (pg_is_in_recovery) n'est PAS testée ici : il faut une vraie réplique
+    (phase 5, T13)."""
     i, sid, _ = session_ouverte("r13")
     a_couper(i)
     n = len(recus(fauxnas))
@@ -396,6 +398,6 @@ def test_noeud_en_lecture_seule_aucun_envoi(fauxnas):
     finally:
         with admin() as c:
             c.execute("ALTER ROLE wk_coa RESET default_transaction_read_only")
-    assert t.returncode == 0 and "lecture seule" in t.stdout, t.stdout + t.stderr
+    assert t.returncode == 1 and "ANOMALIE : base en lecture seule" in t.stderr, t.stdout + t.stderr
     assert len(recus(fauxnas)) == n and etat(i) == (None, 0)
     clore(i)
