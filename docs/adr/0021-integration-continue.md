@@ -116,7 +116,9 @@
 
 1. [x] Yacouba décide : A.
 2. [x] `.github/workflows/ci.yml` (premier niveau) et `.github/workflows/nuit.yml` (second niveau). Validés localement par une analyse YAML (déclencheurs, permissions, runner épinglé, délais, actions épinglées par empreinte). **`actionlint` n'a pas tourné** : son téléchargement a été refusé dans la session de développement.
-3. [ ] Premier run : mesurer les durées, fixer les `timeout-minutes`, et corriger ce qui dépend du poste de développement (proxy, chemin de l'autorité de certification).
+3. [~] Premier run (12/11/2026) :
+   - **niveau 1** : vert ; durées d'environ 1 min 30 s (`api`, `e2e`, `wg-agent`) et 8 min 30 s (`radius`) ;
+   - **niveau 2** : trois défauts trouvés, corrigés et prouvés en local (voir le journal) ; à confirmer au prochain run.
 4. [ ] Yacouba : protéger `main` (statuts requis : `api`, `e2e`, `radius`, `wg-agent`), puis vérifier le forfait de minutes.
 5. [x] P6 amendée dans `CONTRIBUTING.md`.
 

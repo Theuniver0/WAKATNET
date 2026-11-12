@@ -45,4 +45,8 @@ echo "=== Charge (concurrence ${WAKATNET_CHARGE_CONCURRENCE:-20}, ${WAKATNET_CHA
 WAKATNET_CHARGE_URL=http://127.0.0.1:3917 node tests/charge/http.ts
 echo "=== Matériel ==="
 nproc; grep -m1 "model name" /proc/cpuinfo
-grep -c '"level":50' "$JOURNAL" | sed 's/^/erreurs internes journalisées par l API : /'
+# grep -c sort en 1 quand il ne trouve rien : sous pipefail, « aucune erreur » faisait échouer le banc (vu en CI).
+ERREURS="$(grep -c '"level":50' "$JOURNAL" || true)"
+echo "erreurs internes journalisées par l API : $ERREURS"
+[ "$ERREURS" = 0 ] || { echo "ÉCHEC : l'API a journalisé $ERREURS erreur(s) interne(s) pendant la charge" >&2; exit 1; }
+echo "=== SUCCÈS ==="

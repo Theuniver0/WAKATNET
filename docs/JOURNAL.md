@@ -1096,3 +1096,23 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Premier run de la CI** (`63e5841`) : `api` et `wg-agent` verts. `e2e` en échec : `genere/prisma/client.ts` est introuvable. Le client Prisma est ignoré par git et n'existait que sur le poste de développement. Échec reproduit en local en retirant `apps/api/genere`. Correctif : `e2e.sh` et `charge.sh` génèrent le client (`npm run generer`), comme `tests/Dockerfile`. Après correctif, `e2e.sh` est en SUCCÈS en local, à partir d'un client absent.
 - **Playwright verrouillé** : `playwright` 1.63.0 (version exacte) dans les `devDependencies` de `apps/api`. Le job `e2e` ne télécharge plus que Chromium, et l'installation globale par `NODE_PATH` a disparu.
   - Preuves : `e2e.sh` lancé sans `NODE_PATH` : SUCCÈS (résolu depuis `node_modules`, 1.63.0) ; `apps/api/tests/run.sh` : 194/194.
+
+## 12/11/2026 — Premier run des bancs de nuit (ADR 0021, point 3)
+
+- **Run** : `nuit` lancé à la main sur `main` (45d5c45). Résultat : `ansible`, `sauvegarde` et `charge` en échec.
+- **`ansible` et `sauvegarde`** : `apt-get` sort en 100 pendant la construction de l'image.
+  - Cause : `Dockerfile.noeud` et `Dockerfile.sauvegarde` passaient les dépôts apt en `https://` dans tous les cas, alors que `ubuntu:24.04` n'a aucune autorité de certification (`ca-certificates` absent, vérifié). Sur le poste de développement, le certificat du proxy, monté comme secret, masquait le défaut.
+  - Reproduit : apt en HTTPS sans certificat → « Certificate verification failed ».
+  - Correctif : HTTPS seulement si le certificat est monté, comme le faisait déjà `Dockerfile.s3`. Sinon, http, dont les index restent signés par GPG.
+- **`sauvegarde-s3.sh`**, joué sans certificat : 502 sur `CreateBucket` au premier démarrage d'une image neuve.
+  - Cause : la boucle d'attente (`curl -sk`, sans `-f`) acceptait la 502 de nginx alors que moto, derrière lui, n'était pas prêt.
+  - Correctif : `curl -skf`, 30 s au plus, puis échec explicite avec le journal de moto.
+- **`charge`** : toutes les mesures sont bonnes (0 erreur, 2 001 paiements confirmés), mais le banc sortait en code 1.
+  - Cause : `grep -c` sort en 1 quand il ne trouve rien, ce qui, sous `pipefail`, faisait échouer le banc quand il n'y avait aucune erreur. Le code de retour n'avait jamais été regardé en phase 5. Reproduit en local : code 1.
+  - Correctif : le compte est lu, le banc échoue s'il y a au moins une erreur interne, et affiche SUCCÈS sinon.
+- **Preuves**, sur le poste, avec le certificat masqué (`unshare` + `mount --bind /dev/null`), donc comme en CI :
+  - `sauvegarde.sh` : SUCCÈS ;
+  - `sauvegarde-s3.sh` : SUCCÈS, image reconstruite sans cache ;
+  - `essai.sh` (Ansible) : SUCCÈS ;
+  - `charge.sh` : code 0, SUCCÈS.
+- **Non prouvé** : le banc Ansible sur un runner GitHub (conteneurs systemd privilégiés), qui n'a pas encore dépassé la construction de l'image.
