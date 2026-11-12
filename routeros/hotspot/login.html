@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr">
+<!-- WAKATNET : page de connexion minimale du hotspot (phase 2, ticket 04 ; ADR 0006 §15, ADR 0012 §9).
+     Le code est mis en MAJUSCULES avant le hachage CHAP : le serveur ne peut pas normaliser un CHAP.
+     Aucun fichier externe, polices du système. N'est PAS installée par l'enrôlement (ticket 3.3). -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f4f1ea;color:#1d1d1b}
+main{max-width:22rem;margin:12vh auto;padding:1.5rem;background:#fff;border-radius:.75rem;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+h1{font-size:1.3rem;margin:0 0 .25rem}
+p{margin:.25rem 0 1rem;color:#555}
+label{display:block;font-weight:600;margin-bottom:.4rem}
+input{box-sizing:border-box;width:100%;font-size:1.4rem;letter-spacing:.15em;text-transform:uppercase;padding:.6rem;border:2px solid #bbb;border-radius:.5rem}
+input:focus{outline:none;border-color:#b5651d}
+button{margin-top:1rem;width:100%;font-size:1.1rem;padding:.75rem;border:0;border-radius:.5rem;background:#b5651d;color:#fff}
+.erreur{color:#a40000;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>Votre temps de connexion</h1>
+<p>Saisissez le code de votre ticket.</p>
+$(if error)<p class="erreur">$(error)</p>$(endif)
+<form name="saisie" onsubmit="return envoyer()" action="$(link-login-only)" method="post">
+<label for="code">Code du ticket</label>
+<input id="code" name="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="32" required>
+<button type="submit">Se connecter</button>
+</form>
+<form name="envoi" action="$(link-login-only)" method="post" style="display:none">
+<input type="hidden" name="username"><input type="hidden" name="password">
+<input type="hidden" name="dst" value="$(link-orig)"><input type="hidden" name="popup" value="false">
+</form>
+</main>
+<script>
+// MD5 (RFC 1321) sur des octets : chaque caractère de la chaîne vaut un octet (0-255).
+function md5(s){function a(x,y){var l=(x&65535)+(y&65535);return(((x>>16)+(y>>16)+(l>>16))<<16)|(l&65535)}
+function r(x,c){return(x<<c)|(x>>>(32-c))}function q(f,b,c,d,x,s,t){return a(r(a(a(b,f),a(x,t)),s),c)}
+function F(b,c,d,e,x,s,t){return q((c&d)|(~c&e),b,c,d,x,s,t)}function G(b,c,d,e,x,s,t){return q((c&e)|(d&~e),b,c,d,x,s,t)}
+function H(b,c,d,e,x,s,t){return q(c^d^e,b,c,d,x,s,t)}function I(b,c,d,e,x,s,t){return q(d^(c|~e),b,c,d,x,s,t)}
+var n=s.length,w=[],i;for(i=0;i<n;i++)w[i>>2]|=(s.charCodeAt(i)&255)<<((i%4)*8);w[n>>2]|=128<<((n%4)*8);
+var L=(((n+8)>>6)+1)*16;for(i=(n>>2)+1;i<L;i++)w[i]=w[i]|0;w[L-2]=n*8;
+var A=1732584193,B=-271733879,C=-1732584194,D=271733878,T=[];for(i=0;i<64;i++)T[i]=Math.floor(Math.abs(Math.sin(i+1))*4294967296)|0;
+var S=[7,12,17,22,5,9,14,20,4,11,16,23,6,10,15,21],K=[F,G,H,I];
+for(var o=0;o<L;o+=16){var a0=A,b0=B,c0=C,d0=D;for(i=0;i<64;i++){var k=i>>4,g=k==0?i:k==1?(5*i+1)%16:k==2?(3*i+5)%16:(7*i)%16;
+var v=K[k](A,B,C,D,w[o+g],S[k*4+i%4],T[i]);A=D;D=C;C=B;B=v}A=a(A,a0);B=a(B,b0);C=a(C,c0);D=a(D,d0)}
+var h="",z=[A,B,C,D];for(i=0;i<16;i++)h+=((z[i>>2]>>>((i%4)*8))&255).toString(16).replace(/^(.)$/,"0$1");return h}
+function envoyer(){
+  var code=document.saisie.code.value.replace(/\s+/g,"").toUpperCase();
+  document.envoi.username.value=code;
+  $(if chap-id)document.envoi.password.value=md5('$(chap-id)'+code+'$(chap-challenge)');
+  $(else)document.envoi.password.value=code;
+  $(endif)document.envoi.submit();
+  return false;
+}
+document.saisie.code.focus();
+</script>
+</body>
+</html>

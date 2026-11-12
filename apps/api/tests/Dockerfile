@@ -7,6 +7,8 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 RUN npm ci --no-audit --no-fund
 COPY apps/api apps/api
+# Page de connexion du hotspot, testée par tests/login.test.ts.
+COPY routeros/hotspot routeros/hotspot
 WORKDIR /depot/apps/api
 RUN npx prisma generate
 USER node

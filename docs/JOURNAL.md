@@ -606,3 +606,23 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Preuves** :
   - `apps/api/tests/run.sh` (pile neuve) : 14 tests, SUCCÈS. Ils couvrent les isolements A/B par l'API et en SQL direct, zéro ligne sans contexte, la fin du contexte avec la transaction, le refus d'écrire chez un autre (WITH CHECK), l'absence de tout droit sur `radius`, la configuration interdite en production et le masquage du jeton dans les journaux ;
   - `radius/tests/run.sh` (pile neuve) : 280 passés, 12 ignorés (étapes orchestrées), SUCCÈS. La matrice T est inchangée par la RLS.
+
+### Phase 2, tickets 03 et 04 : API d'enrôlement, scripts RouterOS, login.html (12/11/2026)
+
+- Les deux tickets partagent un commit : le générateur de scripts (ticket 04) **est** la réponse de l'API d'enrôlement (ticket 03).
+- **Migration 0014** :
+  - `app.enroll_register` fait en **une** transaction la consommation du jeton (ligne verrouillée), l'allocation de l'adresse (verrou consultatif, sans réemploi, sans `.0` ni `.255`), le secret RADIUS (pgcrypto, 32 caractères) et l'audit ;
+  - `app.enroll_token_valide` vérifie le jeton.
+- **API** :
+  - `POST /v1/sites/{site}/enrollments` ;
+  - `GET` et `POST /enroll/{jeton}` ;
+  - `GET /v1/routers/{id}/uninstall.rsc`, propre au routeur, avec les valeurs d'origine relevées ;
+  - le contrat `apps/api/openapi.yaml` est confronté aux routes servies par un test.
+- **Scripts** (`apps/api/src/routeros.ts`) : étapes 1 et 2, désinstallation. Toute valeur venue du routeur est échappée, et les scripts sont en ASCII seul.
+  - Audit `mikrotik-routeros-config` : `docs/AUDIT_SCRIPTS_ROUTEROS.md`. Un défaut probable a été corrigé : `place-before` vers une règle dynamique du hotspot.
+  - **Deux points critiques restent suspendus au CHR** : la vérification TLS de `/tool fetch` en 7.15 (LABO-08), et la remontée d'un `:error` à travers `/import`.
+- **`routeros/hotspot/login.html`** (3,5 Ko, autonome) : code en majuscules avant le CHAP. Le MD5 intégré a été vérifié contre `crypto` sur 200 entrées aléatoires. La page n'est pas installée par l'enrôlement (ADR 0012 §9).
+- **Preuves** :
+  - `apps/api/tests/run.sh` (pile neuve) : 43 tests, SUCCÈS. Ils couvrent le jeton stocké en empreinte, le GET qui ne consomme pas, le 404 identique, 6 POST concurrents pour un seul routeur, le 422 et le 409 qui laissent le jeton intact, l'expiration, l'adressage (10.213.1.0/24 plein, donc passage à 10.213.2.x), l'absence du jeton et du secret dans le journal, et R1 à R7 sur le texte des scripts ;
+  - `radius/tests/run.sh` (pile neuve, avec 0014) : 280 passés, SUCCÈS.
+- **Non prouvé** : aucune exécution sur RouterOS (écart R8, PRD §6).

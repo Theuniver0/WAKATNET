@@ -1,0 +1,110 @@
+# WAKATNET — contrat HTTP de l'API, phase 2 (ADR 0012 §4 et §7). Vérifié par tests/openapi.test.ts.
+openapi: 3.1.0
+info:
+  title: WAKATNET API
+  version: 0.2.0
+  description: >
+    Phase 2 : cloisonnement et enrôlement des routeurs. Avant la phase 4, l'identité du
+    propriétaire passe par l'en-tête de développement X-Wakatnet-Tenant (interdit en production).
+components:
+  securitySchemes:
+    identiteDev:
+      type: apiKey
+      in: header
+      name: X-Wakatnet-Tenant
+  parameters:
+    jeton:
+      name: jeton
+      in: path
+      required: true
+      description: Jeton d'enrôlement, 32 octets en base64url (43 caractères), à usage unique, 30 minutes.
+      schema: { type: string, pattern: "^[A-Za-z0-9_-]{43}$" }
+  schemas:
+    Erreur:
+      type: object
+      required: [erreur]
+      properties: { erreur: { type: string } }
+    Hotspot:
+      type: object
+      required: [serveur, profil, use_radius]
+      properties:
+        serveur: { type: string, maxLength: 64 }
+        profil: { type: string, maxLength: 64 }
+        use_radius: { oneOf: [{ type: boolean }, { enum: ["true", "false", "yes", "no"] }] }
+        html_directory: { type: string, maxLength: 128 }
+        radius_accounting: { oneOf: [{ type: boolean }, { enum: ["true", "false", "yes", "no"] }] }
+        radius_interim_update: { type: string, maxLength: 16 }
+    Inscription:
+      type: object
+      description: Produit sur le routeur par `:serialize to=json` (étape 1).
+      required: [cle, identity, modele, version, listen_port, coa_port, coa_accept, hotspots]
+      properties:
+        cle: { type: string, pattern: "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$" }
+        identity: { type: string, maxLength: 255 }
+        modele: { type: string, maxLength: 64 }
+        version: { type: string, description: "≥ 7.15, par exemple « 7.15.3 (stable) »" }
+        listen_port: { type: [integer, string] }
+        coa_port: { type: [integer, string] }
+        coa_accept: { oneOf: [{ type: boolean }, { enum: ["true", "false", "yes", "no"] }] }
+        hotspots: { type: array, minItems: 1, maxItems: 32, items: { $ref: "#/components/schemas/Hotspot" } }
+security:
+  - identiteDev: []
+paths:
+  /v1/sites:
+    get:
+      summary: Sites du propriétaire
+      responses:
+        "200": { description: Sites, content: { application/json: { schema: { type: array } } } }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
+  /v1/routers:
+    get:
+      summary: Routeurs du propriétaire
+      responses:
+        "200": { description: Routeurs, content: { application/json: { schema: { type: array } } } }
+        "401": { description: Identité absente ou invalide }
+  /v1/sites/{site}/enrollments:
+    post:
+      summary: Nouvelle commande d'enrôlement pour un site du propriétaire
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: Commande à coller dans le terminal RouterOS
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [commande, expire_le]
+                properties: { commande: { type: string }, expire_le: { type: string, format: date-time } }
+        "404": { description: Site inconnu ou d'un autre propriétaire }
+  /v1/routers/{id}/uninstall.rsc:
+    get:
+      summary: Script de désinstallation propre au routeur (valeurs d'origine relevées)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Script RouterOS, content: { text/plain: {} } }
+        "404": { description: Routeur inconnu ou d'un autre propriétaire }
+        "409": { description: Routeur déclaré à la main, sans inventaire }
+  /enroll/{jeton}:
+    parameters:
+      - $ref: "#/components/parameters/jeton"
+    get:
+      summary: Étape 1 (script RouterOS) ; ne consomme pas le jeton
+      security: []
+      responses:
+        "200": { description: Script RouterOS, content: { text/plain: {} } }
+        "404": { description: Jeton inconnu, expiré ou consommé (réponse identique) }
+    post:
+      summary: Étape 2 ; consomme le jeton, crée le routeur, rend sa configuration
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/Inscription" } } }
+      responses:
+        "200": { description: Script RouterOS de l'étape 2 (contient le secret RADIUS), content: { text/plain: {} } }
+        "404": { description: Jeton inconnu, expiré ou consommé }
+        "409": { description: Clé WireGuard déjà enrôlée ; jeton intact }
+        "422": { description: Inscription invalide ; jeton intact }
+        "503": { description: Aucun nœud configuré ou overlay plein ; jeton intact }

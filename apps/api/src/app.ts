@@ -3,6 +3,7 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import { enTantQue, type Base } from "./base.ts";
+import { routesEnrolement, routesRouteur } from "./enrolement.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -62,7 +63,12 @@ export function construire(config: Config, base: Base,
         nom: r.shortname, actif: r.actif, enrole_le: r.enrole_le,
       }));
     });
+
+    routesEnrolement(proprietaire, config, base);
   });
+
+  // Routes du routeur : le jeton d'enrôlement tient lieu d'identité (ADR 0012 §7).
+  app.register(async (routeur) => routesRouteur(routeur, config, base));
 
   return app;
 }
