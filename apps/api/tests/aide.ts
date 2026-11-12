@@ -1,6 +1,6 @@
 // WAKATNET — aides des tests de l'API. PostgreSQL réel (§14.4 : faux aux frontières seulement).
 // Variables posées par tests/run.sh : URL admin (données de test) et URL wk_api (code testé).
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 // MockProvider : autorisé explicitement pour les tests seulement (packages/payments/src/mock.ts).
 process.env.WAKATNET_MOCK = "1";
@@ -32,9 +32,40 @@ export async function sql<T extends pg.QueryResultRow = pg.QueryResultRow>(url: 
 }
 
 let compteur = 0;
-/** Un propriétaire neuf avec un site. */
+
+/** Empreinte scrypt d'un mot de passe de test, calculée une fois (ADR 0014 §1). */
+export const MDP_TEST = "mot-de-passe-de-test";
+let EMPREINTE: Promise<string> | null = null;
+export const empreinteTest = () => (EMPREINTE ??= import("../src/auth.ts").then((m) => m.hacher(MDP_TEST)));
+
+/** Jeton de session de chaque propriétaire de test (vraie session, ADR 0014 §1). */
+const SESSIONS = new Map<string, string>();
+
+/** Compte et session pour un utilisateur ; rend le jeton du cookie. */
+export async function session(tenant: string | null, role: string, pdv: string | null = null, email?: string): Promise<{ jeton: string; utilisateur: string }> {
+  const adresse = email ?? `test-${process.pid}-${randomBytes(6).toString("hex")}@exemple.bf`;
+  const [u] = await sql<{ id: string }>(URL_ADMIN,
+    `INSERT INTO app.utilisateur (tenant_id, point_of_sale_id, role, email, mot_de_passe, totp_secret)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text`,
+    [tenant, pdv, role, adresse, await empreinteTest(), role === "super_admin" ? Buffer.alloc(40) : null]);
+  const jeton = randomBytes(32).toString("base64url");
+  await sql(URL_ADMIN, "SELECT app.session_ouvrir($1, $2)", [u.id, createHash("sha256").update(jeton).digest()]);
+  return { jeton, utilisateur: u.id };
+}
+
+/** En-têtes d'une requête du propriétaire `tenant` : cookie de session et en-tête anti-CSRF. */
+export function entetes(tenant: string): Record<string, string> {
+  const j = SESSIONS.get(tenant);
+  if (!j) throw new Error(`aucune session pour le propriétaire ${tenant}`);
+  return { cookie: `wk_session=${j}`, "x-wakatnet-requete": "1" };
+}
+
+export const entetesJeton = (jeton: string) => ({ cookie: `wk_session=${jeton}`, "x-wakatnet-requete": "1" });
+
+/** Un propriétaire neuf avec un site, un compte et une session. */
 export async function proprietaire(nom: string): Promise<{ tenant: string; site: string }> {
   const [t] = await sql<{ id: string }>(URL_ADMIN, "INSERT INTO app.tenant (nom) VALUES ($1) RETURNING id::text", [nom]);
+  SESSIONS.set(t.id, (await session(t.id, "proprietaire")).jeton);
   const [s] = await sql<{ id: string }>(URL_ADMIN,
     "INSERT INTO app.site (tenant_id, nom) VALUES ($1, $2) RETURNING id::text", [t.id, `site de ${nom}`]);
   return { tenant: t.id, site: s.id };
@@ -58,7 +89,7 @@ export async function routeur(tenant: string, site: string): Promise<string> {
 export const CLES = { marchands: randomBytes(32), hmac: randomBytes(32) };
 
 export function config(surcharge: Partial<Config> = {}): Config {
-  return { urlBase: URL_API, authDev: true, urlPublique: "https://api.test.invalid", urlPortail: "https://portail.test.invalid", noeuds: NOEUDS, cles: CLES, ...surcharge };
+  return { urlBase: URL_API, urlPublique: "https://api.test.invalid", urlPortail: "https://portail.test.invalid", noeuds: NOEUDS, cles: CLES, ...surcharge };
 }
 
 export async function avecApp<T>(travail: (app: ReturnType<typeof construire>, base: Base) => Promise<T>,

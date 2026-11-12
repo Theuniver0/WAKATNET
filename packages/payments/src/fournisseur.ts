@@ -48,6 +48,21 @@ export interface EvenementWebhook {
   reference: string;
 }
 
+export interface DemandeReversement {
+  /** Notre référence : payout() est idempotent sur elle. */
+  reference: string;
+  montant: number;
+  devise: "XOF";
+  /** Compte du bénéficiaire chez le fournisseur (numéro Mobile Money du propriétaire). */
+  destination: string;
+  /** Annulé à l'expiration du délai : un adaptateur réel DOIT détruire la requête HTTP (pas seulement
+   *  l'abandonner), et transmettre `reference` comme clé d'idempotence au fournisseur (P10). */
+  signal?: AbortSignal;
+}
+
+/** INCONNU : le fournisseur n'a jamais reçu l'ordre (seul cas où un renvoi est permis, P10). */
+export type StatutReversement = "PENDING" | "SUCCEEDED" | "FAILED" | "INCONNU";
+
 export interface FournisseurPaiement {
   readonly id: string;
   capacites(): Capacites;
@@ -55,6 +70,9 @@ export interface FournisseurPaiement {
   verify(reference: string): Promise<EtatPaiement>;
   /** Vérifie la signature et lève SignatureInvalide sinon. */
   parseWebhook(enTetes: Record<string, string | string[] | undefined>, corpsBrut: Buffer): EvenementWebhook;
+  /** Mode B seulement (verrouillé, ADR 0001) ; idempotent sur la référence. */
+  payout?(demande: DemandeReversement): Promise<{ referenceFournisseur: string; statut: StatutReversement }>;
+  verifyPayout?(reference: string, signal?: AbortSignal): Promise<{ statut: StatutReversement; referenceFournisseur?: string }>;
 }
 
 export class SignatureInvalide extends Error {}

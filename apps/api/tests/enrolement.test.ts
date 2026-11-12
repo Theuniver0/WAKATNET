@@ -6,7 +6,7 @@ import { Writable } from "node:stream";
 import { before, test } from "node:test";
 import { construire } from "../src/app.ts";
 import { ouvrirBase } from "../src/base.ts";
-import { avecApp, config, proprietaire, routeur, sql, URL_ADMIN } from "./aide.ts";
+import { avecApp, config, proprietaire, routeur, sql, URL_ADMIN, entetes } from "./aide.ts";
 
 let A: { tenant: string; site: string };
 let B: { tenant: string; site: string };
@@ -36,7 +36,7 @@ function inscription(surcharge: Record<string, unknown> = {}) {
 type App = Parameters<Parameters<typeof avecApp>[0]>[0];
 
 async function nouveauJeton(app: App, p = A): Promise<string> {
-  const r = await app.inject({ method: "POST", url: `/v1/sites/${p.site}/enrollments`, headers: { "x-wakatnet-tenant": p.tenant } });
+  const r = await app.inject({ method: "POST", url: `/v1/sites/${p.site}/enrollments`, headers: entetes(p.tenant) });
   assert.equal(r.statusCode, 201, r.body);
   const m = /\/enroll\/([A-Za-z0-9_-]{43})"/.exec(r.json().commande);
   assert.ok(m, r.json().commande);
@@ -48,14 +48,14 @@ const poster = (app: App, jeton: string, corps: unknown) =>
 
 test("commande : 201 pour son site, valable 30 min ; 404 pour le site d'un autre ou inconnu", async () => {
   await avecApp(async (app) => {
-    const r = await app.inject({ method: "POST", url: `/v1/sites/${A.site}/enrollments`, headers: { "x-wakatnet-tenant": A.tenant } });
+    const r = await app.inject({ method: "POST", url: `/v1/sites/${A.site}/enrollments`, headers: entetes(A.tenant) });
     assert.equal(r.statusCode, 201);
     const { commande, expire_le } = r.json();
     assert.match(commande, /^\/tool fetch url="https:\/\/api\.test\.invalid\/enroll\/[A-Za-z0-9_-]{43}" check-certificate=yes dst-path="wakatnet-enroll\.rsc"\n\/import file-name="wakatnet-enroll\.rsc"$/);
     const duree = new Date(expire_le).getTime() - Date.now();
     assert.ok(duree > 29 * 60_000 && duree <= 30 * 60_000, `${duree}`);
     for (const site of [B.site, "999999999", "abc"]) {
-      const x = await app.inject({ method: "POST", url: `/v1/sites/${site}/enrollments`, headers: { "x-wakatnet-tenant": A.tenant } });
+      const x = await app.inject({ method: "POST", url: `/v1/sites/${site}/enrollments`, headers: entetes(A.tenant) });
       assert.equal(x.statusCode, 404, site);
     }
   });
@@ -241,12 +241,12 @@ test("désinstallation : propre au routeur, valeurs d'origine ; 404 chez un autr
       html_directory: "hotspot", radius_accounting: false, radius_interim_update: "5m" }] });
     assert.equal((await poster(app, await nouveauJeton(app), corps)).statusCode, 200);
     const [r] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.router WHERE wg_public_key = $1", [corps.cle]);
-    const ok = await app.inject({ url: `/v1/routers/${r.id}/uninstall.rsc`, headers: { "x-wakatnet-tenant": A.tenant } });
+    const ok = await app.inject({ url: `/v1/routers/${r.id}/uninstall.rsc`, headers: entetes(A.tenant) });
     assert.equal(ok.statusCode, 200);
     assert.ok(ok.body.includes('/ip hotspot profile set [find where name="prof \\"x\\""] use-radius=no radius-accounting=no radius-interim-update=5m'));
     assert.ok(ok.body.includes("/radius incoming set accept=yes"));
-    assert.equal((await app.inject({ url: `/v1/routers/${r.id}/uninstall.rsc`, headers: { "x-wakatnet-tenant": B.tenant } })).statusCode, 404);
+    assert.equal((await app.inject({ url: `/v1/routers/${r.id}/uninstall.rsc`, headers: entetes(B.tenant) })).statusCode, 404);
     const manuel = await routeur(B.tenant, B.site);
-    assert.equal((await app.inject({ url: `/v1/routers/${manuel}/uninstall.rsc`, headers: { "x-wakatnet-tenant": B.tenant } })).statusCode, 409);
+    assert.equal((await app.inject({ url: `/v1/routers/${manuel}/uninstall.rsc`, headers: entetes(B.tenant) })).statusCode, 409);
   });
 });

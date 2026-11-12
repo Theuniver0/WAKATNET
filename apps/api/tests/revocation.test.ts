@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import pg from "pg";
-import { avecApp, proprietaire, routeur, sql, URL_ADMIN, URL_API } from "./aide.ts";
+import { avecApp, proprietaire, routeur, sql, URL_ADMIN, URL_API, entetes } from "./aide.ts";
 
 let A: { tenant: string; site: string };
 let B: { tenant: string; site: string };
@@ -15,7 +15,7 @@ before(async () => {
 });
 
 const revoquer = (app: Parameters<Parameters<typeof avecApp>[0]>[0], id: string, tenant: string) =>
-  app.inject({ method: "POST", url: `/v1/routers/${id}/revoke`, headers: { "x-wakatnet-tenant": tenant } });
+  app.inject({ method: "POST", url: `/v1/routers/${id}/revoke`, headers: entetes(tenant) });
 
 test("révocation : actif = false, plus reconnu par client_lookup, audit, idempotente", async () => {
   const id = await routeur(A.tenant, A.site);

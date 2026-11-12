@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { examiner, lireCsv } from "../src/import.ts";
-import { avecApp, proprietaire, routeur, sql, URL_ADMIN } from "./aide.ts";
+import { avecApp, proprietaire, routeur, sql, URL_ADMIN, entetes } from "./aide.ts";
 
 let A: { tenant: string; site: string };
 let B: { tenant: string; site: string };
@@ -35,7 +35,7 @@ const CSV = [
 ].join("\r\n");
 
 const importer = (app: Parameters<Parameters<typeof avecApp>[0]>[0], tenant: string, corps: object) =>
-  app.inject({ method: "POST", url: "/v1/imports/mikhmon", headers: { "x-wakatnet-tenant": tenant }, payload: corps });
+  app.inject({ method: "POST", url: "/v1/imports/mikhmon", headers: entetes(tenant), payload: corps });
 
 test("CSV : guillemets, séparateur ; ou virgule, BOM, lignes vides", () => {
   assert.deepEqual(lireCsv('﻿name;password\r\n"a;""b";c\r\n\r\n'), [["name", "password"], ['a;"b', "c"]]);

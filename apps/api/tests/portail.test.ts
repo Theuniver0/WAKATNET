@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockProvider } from "../../../packages/payments/src/index.ts";
 import { lienConnexion, messageErreur } from "../src/portail.ts";
-import { avecApp, sql, URL_ADMIN } from "./aide.ts";
+import { avecApp, sql, URL_ADMIN, entetes } from "./aide.ts";
 import { attendreStatut, numero, statut, vendeur, type App, type Vendeur } from "./aide-paiement.ts";
 
 const L = "http://10.5.50.1/login";
@@ -175,11 +175,11 @@ test("page de redirection du hotspot : générée pour SON site, vers le portail
   await avecApp(async (app) => {
     const v = await vendeur(app, "portail redirection");
     const w = await vendeur(app, "portail redirection autre");
-    const r = await app.inject({ url: `/v1/sites/${v.site}/redirection.html`, headers: { "x-wakatnet-tenant": v.tenant } });
+    const r = await app.inject({ url: `/v1/sites/${v.site}/redirection.html`, headers: entetes(v.tenant) });
     assert.equal(r.statusCode, 200);
     assert.ok(r.body.includes(`https://portail.test.invalid/p/${v.publicId}?l=$(link-login-only-esc)`));
     assert.ok(!r.body.includes("__PORTAIL__") && !r.body.includes("__SITE__"));
-    assert.equal((await app.inject({ url: `/v1/sites/${w.site}/redirection.html`, headers: { "x-wakatnet-tenant": v.tenant } })).statusCode, 404);
+    assert.equal((await app.inject({ url: `/v1/sites/${w.site}/redirection.html`, headers: entetes(v.tenant) })).statusCode, 404);
   });
 });
 

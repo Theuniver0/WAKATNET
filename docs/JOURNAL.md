@@ -761,3 +761,69 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/e2e.sh` : Chromium, achat, auto-connexion et P6, SUCCÈS ;
   - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
   - shellcheck ne relève rien.
+
+### Ouverture de la phase 4 : exploitation commerciale (12/11/2026)
+
+- Demande de Yacouba : « continue avec la phase 4 ». PRD et tickets 01 à 08 rédigés dans `.scratch/phase-4-exploitation/`, validés par délégation.
+- ADR 0014 :
+  - sessions côté serveur, avec cookie `SameSite=Strict` et en-tête anti-CSRF ;
+  - scrypt pour les mots de passe ;
+  - quatre rôles ;
+  - TOTP pour le super-admin ;
+  - tableau de bord React servi par l'API (même origine) ;
+  - PDF et CSV sans dépendance ;
+  - mode B verrouillé par un drapeau de plateforme ;
+  - P10 sans écriture comptable du mode B.
+- L'en-tête de développement de l'ADR 0012 §7 sera retiré.
+
+### Phase 4, tickets 02 à 06 : comptes, rôles, forfaits, lots, argent, super-admin (12/11/2026)
+
+- **Comptes** (migration 0023, `apps/api/src/auth.ts`) :
+  - sessions côté serveur : cookie `HttpOnly; Secure; SameSite=Strict`, empreinte seule en base, 12 h glissantes et 7 jours au plus ;
+  - en-tête anti-CSRF exigé ;
+  - scrypt (N = 2^15) ; 5 échecs par adresse en 15 min ; même réponse que le compte existe ou non ;
+  - quatre rôles, déclarés route par route ;
+  - TOTP du super-admin écrit à la main et vérifié contre les vecteurs de la RFC 6238, sans rejeu possible ;
+  - **en-tête de développement retiré** : les tests ouvrent de vraies sessions ;
+  - script `admin-creer.ts`, essayé sur une base jetable : mot de passe lu sur l'entrée standard, URI TOTP affichée une fois.
+- **Exploitation** (migration 0024, `exploitation.ts`, `admin.ts`, `pdf.ts`, `csv.ts`) :
+  - forfaits, retirés de la vente au lieu d'être supprimés ;
+  - sites et points de vente ; gérants et vendeurs ;
+  - lots de tickets papier (refusés au plafond du découvert, ADR 0002), planche PDF A4 de 10 tickets, états généré, remis, activé, expiré ;
+  - statistiques par point de vente et par auteur ;
+  - synthèse d'argent ; relevé en CSV et en PDF, numéro masqué seulement ; facture mensuelle **provisoire** (mentions [À CONFIRMER]) ;
+  - recherche par numéro par HMAC, journalisée ;
+  - super-admin : propriétaires, rechargement idempotent, suspension et réglages audités, TOTP exigé.
+- **Trouvé en exécution** : Prisma écrit toutes les colonnes d'une ligne. Les droits par colonne bloquaient donc la création d'un forfait. L'insertion sur `app.plan` est accordée en entier, bornée par la RLS. La création d'un utilisateur passe par une insertion SQL explicite, pour que `wk_api` ne puisse jamais écrire `totp_secret`.
+- **Preuves**, depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 117 tests, SUCCÈS. Ils couvrent l'authentification, les rôles, le cloisonnement par point de vente, la validité des PDF (table xref vérifiée objet par objet), le CSV (BOM, injection de formules), la synthèse égale au grand livre au franc près, et le super-admin ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS.
+
+### Phase 4, tickets 07 et 08 : mode B verrouillé, P10, tableau de bord, parcours 1 à 5 (12/11/2026)
+
+- **Mode B et reversements** (migration 0025, `apps/api/src/reversements.ts`, `payout` et `verifyPayout` du MockProvider) :
+  - `settlement_mode = 'B'` est refusé par un déclencheur tant que le drapeau de plateforme est faux. Aucun rôle de connexion ne peut lire ni écrire ce drapeau. Il est relu à la création et au traitement, donc le rabaisser gèle aussi les reversements ;
+  - P10 : écriture `EN_DOUTE` avant l'appel, `verifyPayout()` avant tout renvoi, renvoi sur « inconnu » seulement, par comparaison-échange, 5 envois au plus, reprise après 120 s au moins (plancher posé en base), requête annulée à l'expiration du délai ;
+  - aucun appelant tant que le verrou tient. Les préalables à sa levée sont listés dans l'ADR 0014 §9 : rôle dédié, montant tiré du grand livre, plafonds du SPEC §8.3.
+- **Tableau de bord** (`apps/dashboard`, React 18 et Vite, écrit par un sous-agent puis relu et intégré) :
+  - servi par l'API sous `/tableau/` (`apps/api/src/tableau.ts`) : fichiers lus une fois au démarrage, CSP sans `unsafe-inline` ;
+  - parcours 1, 2, 4 et 5 joués dans Chromium par `tests/e2e/tableau.ts`, avec audit axe-core 4.14.0 de 11 écrans et contrôle des PDF par `pdftotext`.
+- **Relecture du code d'argent par un second agent (règle 4)** : aucun point bloquant, quatre importants, tous corrigés et testés :
+  - I1 : la garde d'âge était réglable par l'appelant et le délai abandonnait la requête sans l'annuler ;
+  - I2 : une erreur sur un reversement arrêtait tout le tour ;
+  - I3 : le drapeau n'était pas relu à la création ;
+  - I4 : **une vente en ligne était datée par `payment.maj_le`**, que `paiement_retrouver` remet à l'heure courante, et pouvait quitter le relevé déjà remis de son mois. Migration 0026 : colonne `confirme_le`, posée une fois par déclencheur.
+  - Corrigés aussi : une date impossible (`2026-02-30`) était décalée sans erreur, et un `payout()` « inconnu » était classé `SENT`.
+  - Laissés, consignés : une écriture `correction` ne sera pas rattachée à sa nature (latent, aucune n'est écrite aujourd'hui), et la ligne « tickets papier activés » ne compte pas les tickets importés.
+  - P10 est **resserrée** : l'ADR permettait un renvoi sur « échoué », ce qui devient un verdict définitif.
+- **Trouvé par l'e2e**, invisible aux tests de l'API :
+  - `POST /v1/sites` répondait 500 : Prisma relit la ligne insérée, ce que le droit par colonne refuse. Corrigé par une insertion explicite, et un test a été ajouté ;
+  - le ticket papier portait « Ticket Wi-Fi » au lieu du nom du site ;
+  - la phrase du bas du ticket débordait sur le ticket voisin. Les largeurs sont désormais les chasses AFM de Helvetica, et un test de propriété prouve qu'aucune ligne coupée ne dépasse.
+- **Preuves**, depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 134 tests, SUCCÈS ;
+  - `apps/api/tests/e2e.sh` : achat et parcours 1, 2, 4 et 5, SUCCÈS ; axe-core ne relève aucune violation sur 11 écrans ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
+  - shellcheck ne relève rien sur les scripts modifiés.
+- **Restent bloqués** : G-ARGENT, qui attend l'adaptateur réel (ticket 3.08) et `docs/CONFORMITE.md` ; les mentions fiscales et la numérotation de la facture ([À CONFIRMER]) ; les écritures du grand livre pour le mode B.

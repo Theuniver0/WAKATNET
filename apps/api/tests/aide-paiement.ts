@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { construire } from "../src/app.ts";
-import { proprietaire, sql, URL_ADMIN } from "./aide.ts";
+import { proprietaire, sql, URL_ADMIN, entetes } from "./aide.ts";
 
 export type App = ReturnType<typeof construire>;
 export type Vendeur = { tenant: string; site: string; publicId: string; plan: string; secret: string; webhook: string };
@@ -15,7 +15,7 @@ export async function vendeur(app: App, nom: string, { prix = 200, recharge = 10
   const [s] = await sql<{ public_id: string }>(URL_ADMIN,
     "UPDATE app.site SET hotspot_hotes = '{10.5.50.1}' WHERE id = $1 RETURNING public_id", [p.site]);
   const secret = randomBytes(24).toString("base64url");
-  const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: { "x-wakatnet-tenant": p.tenant },
+  const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(p.tenant),
                                payload: { fournisseur: "mock", cles: { secret_webhook: secret } } });
   assert.equal(r.statusCode, 200, r.body);
   const webhook = /\/webhooks\/mock\/([A-Za-z0-9_-]{24})$/.exec(r.json().url_webhook)![1];

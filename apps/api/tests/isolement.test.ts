@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import pg from "pg";
-import { avecApp, config, proprietaire, routeur, sql, URL_API, URL_ADMIN } from "./aide.ts";
+import { avecApp, proprietaire, routeur, sql, URL_API, URL_ADMIN, entetes } from "./aide.ts";
 
 let A: { tenant: string; site: string };
 let B: { tenant: string; site: string };
@@ -31,36 +31,29 @@ before(async () => {
 test("par l'API, chaque propriétaire ne voit que ses sites et ses routeurs", async () => {
   await avecApp(async (app) => {
     for (const [p, r, autre] of [[A, rA, B], [B, rB, A]] as const) {
-      const sites = (await app.inject({ url: "/v1/sites", headers: { "x-wakatnet-tenant": p.tenant } })).json();
+      const sites = (await app.inject({ url: "/v1/sites", headers: entetes(p.tenant) })).json();
       assert.deepEqual(sites.map((s: { id: string }) => s.id), [p.site]);
-      const routeurs = (await app.inject({ url: "/v1/routers", headers: { "x-wakatnet-tenant": p.tenant } })).json();
+      const routeurs = (await app.inject({ url: "/v1/routers", headers: entetes(p.tenant) })).json();
       assert.deepEqual(routeurs.map((x: { id: string }) => x.id), [r]);
       assert.ok(!JSON.stringify(routeurs).includes(`"site_id":"${autre.site}"`));
     }
   });
 });
 
-test("sans identité, ou avec une identité invalide ou inconnue : 401", async () => {
+test("sans session, session inventée, ou ancien en-tête de développement : 401", async () => {
   await avecApp(async (app) => {
-    for (const headers of [{}, { "x-wakatnet-tenant": "0" }, { "x-wakatnet-tenant": "1 OR 1=1" },
-                           { "x-wakatnet-tenant": "999999999" }, { "x-wakatnet-tenant": "9999999999999999999" }]) {
-      assert.equal((await app.inject({ url: "/v1/sites", headers })).statusCode, 401);
+    for (const headers of [{}, { "x-wakatnet-tenant": A.tenant }, { cookie: `wk_session=${"A".repeat(43)}` },
+                           { cookie: "wk_session=court" }, { cookie: `wk_session=${"A".repeat(43)}; x=1` }]) {
+      assert.equal((await app.inject({ url: "/v1/sites", headers })).statusCode, 401, JSON.stringify(headers));
     }
   });
 });
 
-test("identité de développement désactivée : 401 même avec l'en-tête", async () => {
-  await avecApp(async (app) => {
-    const r = await app.inject({ url: "/v1/sites", headers: { "x-wakatnet-tenant": A.tenant } });
-    assert.equal(r.statusCode, 401);
-  }, config({ authDev: false }));
-});
-
-test("propriétaire suspendu : 403", async () => {
+test("propriétaire suspendu : ses sessions sont refusées à la requête suivante (401)", async () => {
   const S = await proprietaire("suspendu");
   await sql(URL_ADMIN, "UPDATE app.tenant SET suspendu = true WHERE id = $1", [S.tenant]);
   await avecApp(async (app) => {
-    assert.equal((await app.inject({ url: "/v1/sites", headers: { "x-wakatnet-tenant": S.tenant } })).statusCode, 403);
+    assert.equal((await app.inject({ url: "/v1/sites", headers: entetes(S.tenant) })).statusCode, 401);
   });
 });
 
@@ -81,8 +74,10 @@ test("wk_api sans contexte : zéro ligne sur chaque table cloisonnée, sans erre
   }
 });
 
-test("wk_api ne lit ni forfaits ni tickets (moindre privilège : les codes valent accès)", async () => {
-  for (const t of ["plan", "voucher"]) await assert.rejects(sql(URL_API, `SELECT 1 FROM app.${t}`), /permission denied/);
+test("wk_api ne lit jamais les tickets en direct (les codes valent accès) ; les forfaits, sous RLS seulement", async () => {
+  await assert.rejects(sql(URL_API, "SELECT 1 FROM app.voucher"), /permission denied/);
+  const [{ n }] = await sql<{ n: string }>(URL_API, "SELECT count(*)::text AS n FROM app.plan");
+  assert.equal(n, "0", "forfaits : zéro ligne sans contexte (phase 4, gestion des forfaits)");
 });
 
 test("wk_api dans le contexte de A : rien de B, même en le demandant explicitement", async () => {

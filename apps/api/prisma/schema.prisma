@@ -26,7 +26,7 @@ model audit_log {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model plan {
-  id               BigInt    @id @default(autoincrement())
+  id               BigInt          @id @default(autoincrement())
   tenant_id        BigInt
   nom              String
   prix_xof         BigInt
@@ -34,14 +34,16 @@ model plan {
   validity_s       Int?
   data_limit_bytes BigInt?
   rate_limit       String?
-  devices          Int       @default(1)
-  bind_mac         Boolean   @default(false)
-  scope            String    @default("tenant")
+  devices          Int             @default(1)
+  bind_mac         Boolean         @default(false)
+  scope            String          @default("tenant")
   site_id          BigInt?
+  actif            Boolean         @default(true)
   payment          payment[]
-  tenant           tenant    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  site             site?     @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  tenant           tenant          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  site             site?           @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   voucher          voucher[]
+  voucher_batch    voucher_batch[]
 
   @@unique([tenant_id, id])
   @@schema("app")
@@ -102,15 +104,19 @@ model tenant {
   compte_marchand     compte_marchand?
   payment             payment[]
   payment_event       payment_event[]
+  payout              payout[]
   plan                plan[]
+  point_of_sale       point_of_sale[]
   site                site[]
+  utilisateur         utilisateur[]
+  voucher_batch       voucher_batch[]
 
   @@schema("app")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model voucher {
-  id                 BigInt    @id @default(autoincrement())
+  id                 BigInt         @id @default(autoincrement())
   tenant_id          BigInt
   plan_id            BigInt
   code               String
@@ -120,19 +126,22 @@ model voucher {
   f_data_limit_bytes BigInt?
   f_rate_limit       String?
   f_devices          Int
-  f_bind_mac         Boolean   @default(false)
+  f_bind_mac         Boolean        @default(false)
   f_scope            String
   f_site_id          BigInt?
-  expires_at         DateTime? @db.Timestamptz(6)
-  activated_at       DateTime? @db.Timestamptz(6)
-  cree_le            DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at         DateTime?      @db.Timestamptz(6)
+  activated_at       DateTime?      @db.Timestamptz(6)
+  cree_le            DateTime       @default(now()) @db.Timestamptz(6)
   mac_liee           String?
-  origine            String    @default("wakatnet")
+  origine            String         @default("wakatnet")
+  batch_id           BigInt?
   payment            payment?
-  site               site?     @relation(fields: [tenant_id, f_site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
-  plan               plan      @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  voucher_batch      voucher_batch? @relation(fields: [tenant_id, batch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "voucher_lot")
+  site               site?          @relation(fields: [tenant_id, f_site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  plan               plan           @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, code])
+  @@index([batch_id], map: "voucher_par_lot", where: raw("(batch_id IS NOT NULL)"))
   @@schema("app")
 }
 
@@ -193,6 +202,7 @@ model payment {
   verifier_jusqu_au     DateTime        @db.Timestamptz(6)
   prochaine_verif_le    DateTime        @db.Timestamptz(6)
   detail                Json            @default("{}")
+  confirme_le           DateTime?       @db.Timestamptz(6)
   tenant                tenant          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   plan                  plan            @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   site                  site            @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
@@ -202,6 +212,7 @@ model payment {
   @@unique([tenant_id, soumission])
   @@index([prochaine_verif_le], map: "payment_a_verifier", where: raw("(statut = ANY (ARRAY['CREATED'::text, 'PENDING'::text, 'EXPIRED'::text, 'FAILED'::text]))"))
   @@index([site_id, numero_hmac], map: "payment_numero")
+  @@index([tenant_id, confirme_le], map: "payment_tenant_confirme_le", where: raw("(confirme_le IS NOT NULL)"))
   @@schema("app")
 }
 
@@ -234,5 +245,120 @@ model recuperation_tentative {
 
   @@index([jeton, le], map: "recuperation_jeton")
   @@index([site_id, numero_hmac, le], map: "recuperation_numero")
+  @@schema("app")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model connexion_echec {
+  id    BigInt   @id @default(autoincrement())
+  email String
+  le    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([email, le], map: "connexion_echec_email")
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model point_of_sale {
+  id            BigInt          @id @default(autoincrement())
+  tenant_id     BigInt
+  nom           String
+  cree_le       DateTime        @default(now()) @db.Timestamptz(6)
+  tenant        tenant          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  utilisateur   utilisateur[]
+  voucher_batch voucher_batch[]
+
+  @@unique([tenant_id, id])
+  @@unique([tenant_id, nom])
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model session_utilisateur {
+  id             BigInt      @id @default(autoincrement())
+  utilisateur_id BigInt
+  empreinte      Bytes       @unique
+  cree_le        DateTime    @default(now()) @db.Timestamptz(6)
+  expire_le      DateTime    @db.Timestamptz(6)
+  limite_le      DateTime    @db.Timestamptz(6)
+  totp_ok        Boolean     @default(false)
+  utilisateur    utilisateur @relation(fields: [utilisateur_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([utilisateur_id], map: "session_utilisateur_par_utilisateur")
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model utilisateur {
+  id                                                 BigInt                @id @default(autoincrement())
+  tenant_id                                          BigInt?
+  point_of_sale_id                                   BigInt?
+  role                                               String
+  email                                              String                @unique
+  nom                                                String                @default("")
+  mot_de_passe                                       String
+  totp_secret                                        Bytes?
+  totp_dernier_pas                                   BigInt                @default(0)
+  actif                                              Boolean               @default(true)
+  cree_le                                            DateTime              @default(now()) @db.Timestamptz(6)
+  session_utilisateur                                session_utilisateur[]
+  tenant                                             tenant?               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  point_of_sale                                      point_of_sale?        @relation(fields: [tenant_id, point_of_sale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  voucher_batch_voucher_batch_cree_parToutilisateur  voucher_batch[]       @relation("voucher_batch_cree_parToutilisateur")
+  voucher_batch_voucher_batch_remis_parToutilisateur voucher_batch[]       @relation("voucher_batch_remis_parToutilisateur")
+
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model voucher_batch {
+  id                                               BigInt        @id @default(autoincrement())
+  tenant_id                                        BigInt
+  plan_id                                          BigInt
+  point_of_sale_id                                 BigInt
+  quantite                                         Int
+  cree_par                                         BigInt
+  cree_le                                          DateTime      @default(now()) @db.Timestamptz(6)
+  remis_le                                         DateTime?     @db.Timestamptz(6)
+  remis_par                                        BigInt?
+  voucher                                          voucher[]
+  utilisateur_voucher_batch_cree_parToutilisateur  utilisateur   @relation("voucher_batch_cree_parToutilisateur", fields: [cree_par], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  utilisateur_voucher_batch_remis_parToutilisateur utilisateur?  @relation("voucher_batch_remis_parToutilisateur", fields: [remis_par], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant                                           tenant        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  plan                                             plan          @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  point_of_sale                                    point_of_sale @relation(fields: [tenant_id, point_of_sale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, id])
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payout {
+  id                    BigInt   @id @default(autoincrement())
+  tenant_id             BigInt
+  reference             String   @unique
+  montant               BigInt
+  statut                String   @default("CREATED")
+  reference_fournisseur String?
+  envois                Int      @default(0)
+  cree_le               DateTime @default(now()) @db.Timestamptz(6)
+  maj_le                DateTime @default(now()) @db.Timestamptz(6)
+  tenant                tenant   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model plateforme_parametre {
+  cle    String   @id
+  valeur Boolean
+  note   String   @default("")
+  maj_le DateTime @default(now()) @db.Timestamptz(6)
+
   @@schema("app")
 }
