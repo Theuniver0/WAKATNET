@@ -36,8 +36,6 @@ jobs:
     name: e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    env:
-      PLAYWRIGHT_VERSION: "1.63.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,13 +48,9 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends poppler-utils
       - name: Dépendances du dépôt (verrouillées)
         run: npm ci
-      # Les tests chargent « playwright » hors du dépôt (createRequire), comme sur le poste de développement :
-      # installé en version épinglée, et trouvé par NODE_PATH.
-      - name: Playwright et Chromium
-        run: |
-          npm install -g "playwright@${PLAYWRIGHT_VERSION}"
-          echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
-          "$(npm prefix -g)/bin/playwright" install --with-deps chromium
+      # Playwright vient du verrou (apps/api, devDependencies) : seul Chromium, propre à cette version, est téléchargé.
+      - name: Chromium pour Playwright
+        run: npx --no-install playwright install --with-deps chromium
       - name: Achat de bout en bout, tableau de bord, axe-core
         run: apps/api/tests/e2e.sh
 

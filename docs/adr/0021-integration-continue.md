@@ -120,6 +120,8 @@
 4. [ ] Yacouba : protéger `main` (statuts requis : `api`, `e2e`, `radius`, `wg-agent`), puis vérifier le forfait de minutes.
 5. [x] P6 amendée dans `CONTRIBUTING.md`.
 
-## Écart constaté en écrivant le workflow
+## Écart constaté en écrivant le workflow : corrigé
 
-`e2e.sh` charge `playwright` hors du dépôt (`createRequire`) : sur le poste de développement, il vient d'une installation globale (version 1.63.0, par `NODE_PATH`), absente de `package-lock.json`. Le job `e2e` l'installe donc en version épinglée. Le mieux serait de l'ajouter aux dépendances de développement verrouillées ; ce n'est pas fait ici, pour ne pas toucher au verrou dans cette PR.
+`e2e.sh` chargeait `playwright` hors du dépôt (`createRequire`) : sur le poste de développement, il venait d'une installation globale (1.63.0, par `NODE_PATH`), absente de `package-lock.json`.
+- **Corrigé** : `playwright` 1.63.0, en version exacte, figure dans les `devDependencies` de `apps/api`, et donc dans le verrou (intégrité sha512, aucun script d'installation).
+- Le job `e2e` ne télécharge plus que Chromium, par `npx --no-install playwright install --with-deps chromium` : la version vient du verrou.

@@ -1094,3 +1094,5 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `shellcheck` : absent du poste ;
   - aucun run sur GitHub tant que la branche n'est pas poussée. Les durées et le banc Ansible privilégié restent à confirmer au premier run.
 - **Premier run de la CI** (`63e5841`) : `api` et `wg-agent` verts. `e2e` en échec : `genere/prisma/client.ts` est introuvable. Le client Prisma est ignoré par git et n'existait que sur le poste de développement. Échec reproduit en local en retirant `apps/api/genere`. Correctif : `e2e.sh` et `charge.sh` génèrent le client (`npm run generer`), comme `tests/Dockerfile`. Après correctif, `e2e.sh` est en SUCCÈS en local, à partir d'un client absent.
+- **Playwright verrouillé** : `playwright` 1.63.0 (version exacte) dans les `devDependencies` de `apps/api`. Le job `e2e` ne télécharge plus que Chromium, et l'installation globale par `NODE_PATH` a disparu.
+  - Preuves : `e2e.sh` lancé sans `NODE_PATH` : SUCCÈS (résolu depuis `node_modules`, 1.63.0) ; `apps/api/tests/run.sh` : 194/194.
