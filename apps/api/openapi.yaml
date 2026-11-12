@@ -99,6 +99,16 @@ paths:
         "422": { description: CSV ou correspondance invalide ; rien n'est importé }
         "401": { description: Identité absente ou invalide }
         "403": { description: Propriétaire suspendu }
+  /v1/sites/{site}/redirection.html:
+    get:
+      summary: Page « login.html » du hotspot, qui renvoie le client vers le portail de ce site
+      parameters:
+        - { name: site, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Page HTML à installer sur le routeur, content: { text/html: {} } }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
+        "404": { description: Site inconnu ou d'un autre propriétaire }
   /v1/routers/{id}/revoke:
     post:
       summary: Révoque un routeur du propriétaire (tunnel retiré, plus reconnu par RADIUS) ; idempotent, définitif
@@ -120,6 +130,54 @@ paths:
         "409": { description: Routeur déclaré à la main, sans inventaire }
         "401": { description: Identité absente ou invalide }
         "403": { description: Propriétaire suspendu }
+  /v1/compte-marchand:
+    put:
+      summary: Enregistre ou remplace les clés du compte marchand (mode A) ; elles ne sont jamais rendues
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fournisseur, cles]
+              properties:
+                fournisseur: { type: string, description: "« mock » tant que le vrai adaptateur attend ses clés (ticket 08)" }
+                cles: { type: object }
+      responses:
+        "200": { description: "URL du webhook à déclarer chez le fournisseur", content: { application/json: { schema: { type: object, properties: { fournisseur: { type: string }, url_webhook: { type: string } } } } } }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
+        "422": { description: Fournisseur inconnu ou clés invalides }
+        "503": { description: Clés de chiffrement absentes de la configuration }
+  /webhooks/{fournisseur}/{webhook}:
+    post:
+      summary: Webhook d'un fournisseur ; signé, corps brut conservé ; déclenche verify(), qui fait foi
+      security: []
+      parameters:
+        - { name: fournisseur, in: path, required: true, schema: { type: string } }
+        - { name: webhook, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{24}$" } }
+      requestBody: { required: true, content: { "*/*": {} } }
+      responses:
+        "200": { description: Événement enregistré (doublon sans effet) }
+        "401": { description: Signature invalide ; aucun effet }
+        "404": { description: Compte marchand inconnu }
+  # Portail captif : pages HTML publiques, rendues côté serveur (ADR 0013 §10 ; SPEC §7.1, §7.2).
+  /p/{site}:
+    get: { summary: Accueil du portail, security: [], responses: { "200": { description: Page HTML }, "404": { description: Site inconnu } } }
+  /p/{site}/ticket:
+    post: { summary: Connexion avec un ticket (redirection vers le hotspot), security: [], responses: { "303": { description: Redirection }, "200": { description: Code affiché } } }
+  /p/{site}/forfaits:
+    get: { summary: Forfaits en vente, security: [], responses: { "200": { description: Page HTML } } }
+  /p/{site}/payer:
+    get: { summary: Formulaire de paiement, security: [], responses: { "200": { description: Page HTML } } }
+    post: { summary: Création du paiement (idempotente sur la soumission, P9), security: [], responses: { "303": { description: Vers le suivi de l'achat }, "422": { description: Saisie invalide } } }
+  /p/{site}/achat/{ref}:
+    get: { summary: Suivi d'un achat, puis ticket et auto-connexion, security: [], responses: { "200": { description: Page HTML }, "404": { description: Inconnu } } }
+  /p/{site}/etat/{ref}:
+    get: { summary: État d'un achat en JSON (jamais le code), security: [], responses: { "200": { description: Statut } } }
+  /p/{site}/retrouver:
+    get: { summary: Formulaire de récupération, security: [], responses: { "200": { description: Page HTML } } }
+    post: { summary: Récupération par numéro et référence (tentatives limitées), security: [], responses: { "303": { description: Trouvé }, "404": { description: Introuvable }, "429": { description: Trop de tentatives } } }
   /enroll/{jeton}:
     parameters:
       - $ref: "#/components/parameters/jeton"

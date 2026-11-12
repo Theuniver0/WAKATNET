@@ -71,6 +71,8 @@ export function lireInscription(corps: unknown): { cle: string; inventaire: Inve
       html_directory: texte(x.html_directory ?? "", `hotspots[${i}].html_directory`, 128),
       radius_accounting: booleen(x.radius_accounting ?? true, `hotspots[${i}].radius_accounting`),
       radius_interim_update: texte(x.radius_interim_update ?? "received", `hotspots[${i}].radius_interim_update`, 16),
+      adresse: texte(x.adresse ?? "", `hotspots[${i}].adresse`, 64),
+      dns: texte(x.dns ?? "", `hotspots[${i}].dns`, 255),
     };
     if (hs.use_radius) throw new InventaireInvalide(`le profil ${hs.profil} utilise déjà RADIUS (ADR 0012 §9)`);
     return hs;
@@ -112,6 +114,16 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
     });
     if (cree === null) return rep.code(404).send({ erreur: "site inconnu" });
     return rep.code(201).send({ commande: commande(config.urlPublique, jeton), expire_le: cree.expire_le.toISOString() });
+  });
+
+  // Propriétaire : page de redirection du hotspot vers le portail, pour SON site (phase 3, ticket 06).
+  app.get<{ Params: { site: string } }>("/v1/sites/:site/redirection.html", async (req, rep) => {
+    if (!estIdentifiant(req.params.site)) return rep.code(404).send({ erreur: "site inconnu" });
+    const s = await enTantQue(base, req.tenantId, (tx) =>
+      tx.site.findUnique({ where: { id: BigInt(req.params.site) }, select: { public_id: true } }));
+    if (s === null) return rep.code(404).send({ erreur: "site inconnu" });
+    const { redirection } = await import("./portail.ts");
+    return rep.type("text/html; charset=utf-8").send(await redirection(config.urlPortail, s.public_id));
   });
 
   // Propriétaire : révocation de SON routeur (ticket 06). Effet immédiat sur le tunnel (wg-agent
@@ -184,6 +196,8 @@ export function routesRouteur(app: FastifyInstance, config: Config, base: Base):
     if (ligne.statut === "cle_utilisee") return rep.code(409).send({ erreur: "cette clé WireGuard est déjà enrôlée" });
     if (ligne.statut !== "enrole") return rep.code(503).send({ erreur: "plus aucune adresse libre dans l'overlay" });
     req.log.info({ routeur: ligne.router_id!.toString(), overlay_ip: ligne.overlay_ip }, "routeur enrôlé");
+    // Hôtes de connexion du hotspot → cibles admises de l'auto-connexion du portail (ADR 0013 §10).
+    await base.$executeRaw`SELECT app.site_hotes_depuis_inventaire(${ligne.router_id!})`;
     return rep.type("text/plain; charset=utf-8").send(etape2({
       overlayIp: ligne.overlay_ip!, secret: ligne.secret!, noeuds: config.noeuds, inventaire: inscription.inventaire,
     }));

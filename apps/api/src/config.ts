@@ -21,9 +21,16 @@ export type Config = {
   authDev: boolean;
   /** Origine publique de l'API, telle que le routeur la joint (https://api.DOMAINE). */
   urlPublique: string;
+  /** Origine publique du portail (IP dédiée, ADR 0013 §10). */
+  urlPortail: string;
   /** Nœuds de la plateforme (WAKATNET_NOEUDS, JSON) ; vide : l'enrôlement répond 503. */
   noeuds: Noeud[];
+  /** Clés de chiffrement des comptes marchands et du HMAC des numéros (ADR 0013 §8, §9) ;
+   *  absentes : les routes de paiement répondent 503. Jamais en base. */
+  cles: { marchands: Buffer; hmac: Buffer } | null;
 };
+
+import { lireCle } from "./chiffrement.ts";
 
 export class ConfigInvalide extends Error {}
 
@@ -38,7 +45,20 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPublique)) {
     throw new ConfigInvalide("WAKATNET_API_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
-  return { urlBase, authDev, urlPublique, noeuds: lireNoeuds(env.WAKATNET_NOEUDS) };
+  let cles: Config["cles"] = null;
+  if (env.WAKATNET_CLE_MARCHANDS || env.WAKATNET_CLE_HMAC) {
+    try {
+      cles = { marchands: lireCle(env.WAKATNET_CLE_MARCHANDS, "WAKATNET_CLE_MARCHANDS", 32),
+               hmac: lireCle(env.WAKATNET_CLE_HMAC, "WAKATNET_CLE_HMAC") };
+    } catch (e) {
+      throw new ConfigInvalide((e as Error).message);
+    }
+  }
+  const urlPortail = env.WAKATNET_PORTAIL_URL_PUBLIQUE ?? "https://portail.wakatnet.invalid";
+  if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPortail)) {
+    throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");
+  }
+  return { urlBase, authDev, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

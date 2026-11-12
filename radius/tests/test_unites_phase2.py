@@ -12,3 +12,12 @@ def test_unite_wg_agent_valide():
     # Seul manque toléré : le binaire installé sur le nœud.
     autres = [l for l in (v.stdout + v.stderr).splitlines() if l.strip() and "/opt/wakatnet/bin/wg-agent" not in l]
     assert autres == [], autres
+
+
+def test_unites_taches_phase3_valides():
+    """Phase 3, ticket 05 : rapprochement des paiements et frais papier (ADR 0013 §6)."""
+    v = subprocess.run(["systemd-analyze", "verify", "--man=no", "/depot/infra/systemd/wakatnet-taches.service",
+                        "/depot/infra/systemd/wakatnet-taches.timer"], capture_output=True, text=True)
+    autres = [l for l in (v.stdout + v.stderr).splitlines()
+              if l.strip() and "/opt/wakatnet/apps/api/src/taches.ts" not in l and "/usr/bin/node" not in l]
+    assert autres == [], autres

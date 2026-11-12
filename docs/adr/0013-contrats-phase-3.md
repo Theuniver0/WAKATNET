@@ -126,3 +126,22 @@ L'argent de la vente elle-même arrive sur le compte marchand du propriétaire, 
 - `wk_api` reste le rôle de l'API **et** du portail, et de la tâche périodique. Ce dernier point est un compromis assumé : un seul processus et une seule clé de chiffrement ; un rôle propre à la tâche viendra avec le worker.
 - Tout ce qui touche à l'argent passe par des fonctions `SECURITY DEFINER` à `search_path` fixé. `wk_api` n'a **aucun** droit direct sur `ledger.*`, ni en écriture sur `app.payment`.
 - Les routes publiques (portail, webhooks) n'ont pas de contexte de propriétaire : leurs fonctions retrouvent le propriétaire par l'identifiant public du site ou par l'identifiant de webhook, jamais par un paramètre fourni par le client.
+
+## 12. Amendements après la relecture de l'argent (règle 4, 12/11/2026)
+
+Un second agent, qui n'a pas écrit le code, a relu le code d'argent. Ses constats et leur traitement :
+- **B1, corrigé.** Des requêtes de récupération **parallèles** contournaient la limite de 5 tentatives. Un verrou consultatif par numéro et par site, et un autre par appareil, sérialisent désormais le comptage. Prouvé : 30 requêtes parallèles donnent 5 tentatives et 25 refus.
+- **I1, corrigé.** Le §10 admettait toute IPv4 privée comme cible de l'auto-connexion. Un autre client du même Wi-Fi aurait pu recevoir le code. **Nouvelle règle** : seuls les hôtes de connexion du hotspot (`hotspot-address` et `dns-name` de chaque profil) sont admis. L'étape 1 de l'enrôlement les relève, et ils sont rangés dans `app.site.hotspot_hotes`. Faute d'hôte relevé, le code est seulement affiché. **[LABO]** : noms de ces deux propriétés sur CHR.
+- **I2, corrigé.** Des tickets à frais nul pouvaient occuper chaque tour de la tâche, au point d'empêcher tout prélèvement (famine). Ils sont maintenant exclus de la recherche.
+- **I3, corrigé.** Les frais papier ne sont **jamais rétroactifs** : `app.tenant.frais_papier_depuis` vaut la date de la migration pour les propriétaires existants, puis la date de création. **Taux** : celui du propriétaire au moment du prélèvement, soit 60 s au plus après l'activation, et il est figé dans l'écriture. Un changement de taux dans cette minute est tenu pour négligeable ; c'est un écart assumé avec la lettre de l'ADR 0002.
+- **I4, corrigé.** Changer de fournisseur est refusé (409) tant que des paiements restent ouverts : `verify()` serait sinon demandé au mauvais fournisseur.
+- **Mineurs corrigés** :
+  - M1 : événement unique **par propriétaire** ;
+  - M3 : montant du fournisseur normalisé par `versXof`, et un montant illisible donne `MISMATCH` ;
+  - M4 : le `MockProvider` exige `WAKATNET_MOCK=1` ;
+  - M6 : purge du numéro en clair à 6 mois, par la tâche périodique ;
+  - M8 : expiration dans un ordre fixe, et `FAILED` rapproché pendant 24 h.
+- **Mineurs acceptés, sans changement** :
+  - M2 : A5 repose sur le code de l'API, qui n'appelle `paiement_transition(..., 'SUCCEEDED')` qu'après `verify()`. Un rôle distinct pour le portail public viendra avec le worker ;
+  - M5 : une récupération réussie rattache le ticket au nouvel appareil, et l'ancien perd l'accès. C'est voulu : on peut changer de téléphone. L'espace de 4 caractères, limité à 5 essais par 15 min, suppose des références d'opérateur alphanumériques ; **[LABO]** à vérifier sur un vrai paiement (ADR 0005 §1) ;
+  - M7 : le propriétaire des tables peut retirer les déclencheurs. L'ajout seul tient contre tout rôle de connexion et contre toute écriture ; contre un administrateur de la base, c'est la sauvegarde chiffrée et son rapprochement (phase 5) qui protègent.

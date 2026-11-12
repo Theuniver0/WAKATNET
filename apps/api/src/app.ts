@@ -5,11 +5,17 @@ import type { Config } from "./config.ts";
 import { enTantQue, type Base } from "./base.ts";
 import { routesEnrolement, routesRouteur } from "./enrolement.ts";
 import { routesImport } from "./import.ts";
+import { ServicePaiement } from "./paiement.ts";
+import { routesPortail } from "./portail.ts";
+import { routesCompteMarchand, routesWebhook } from "./routes-paiement.ts";
 import { estIdentifiant } from "./identifiant.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
     tenantId: bigint;
+  }
+  interface FastifyInstance {
+    paiement: ServicePaiement | null;
   }
 }
 
@@ -20,7 +26,8 @@ export function cheminMasque(url: string): string {
 }
 
 export function construire(config: Config, base: Base,
-                           options: { journal?: boolean; flux?: NodeJS.WritableStream } = {}): FastifyInstance {
+                           options: { journal?: boolean; flux?: NodeJS.WritableStream; service?: ServicePaiement } = {}): FastifyInstance {
+  const service = options.service ?? (config.cles ? new ServicePaiement(base, config.cles) : null);
   const app = Fastify({
     logger: options.journal === false ? false : {
       ...(options.flux ? { stream: options.flux } : {}),
@@ -67,10 +74,24 @@ export function construire(config: Config, base: Base,
 
     routesEnrolement(proprietaire, config, base);
     routesImport(proprietaire, base);
+    routesCompteMarchand(proprietaire, config, base, service);
   });
 
   // Routes du routeur : le jeton d'enrôlement tient lieu d'identité (ADR 0012 §7).
   app.register(async (routeur) => routesRouteur(routeur, config, base));
+
+  // Webhooks des fournisseurs : publics, signés, corps brut (ADR 0013 §1).
+  routesWebhook(app, service);
+  if (service && service.livreur === null) {
+    // MockProvider : ses webhooks reviennent sur la route publique, comme ceux d'un vrai fournisseur.
+    service.livreur = (fournisseur, webhookId) => async (enTetes, corps) => {
+      await app.inject({ method: "POST", url: `/webhooks/${fournisseur}/${webhookId}`, headers: enTetes, payload: corps });
+    };
+  }
+  app.decorate("paiement", service);
+
+  // Portail captif : public, servi sur l'IP dédiée du portail en production (ADR 0013 §10).
+  routesPortail(app, base, service, config.cles?.hmac ?? null);
 
   return app;
 }

@@ -41,6 +41,26 @@ ATTENDU = {
     "app.wg_pairs()": {"wk_wg"},
     # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
     "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
+    # Phase 3 (ADR 0013 §11) : tout ce qui touche à l'argent passe par ces fonctions ; rien sur ledger.
+    "app.credits_solde(p_tenant bigint)": {"wk_api"},
+    "app.compte_marchand_enregistrer(p_fournisseur text, p_cles bytea)": {"wk_api"},
+    "app.compte_marchand_par_webhook(p_fournisseur text, p_webhook_id text)": {"wk_api"},
+    "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
+    "app.portail_site(p_public_id text)": {"wk_api"},
+    "app.portail_forfaits(p_public_id text)": {"wk_api"},
+    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text)": {"wk_api"},
+    "app.paiement_transition(p_reference text, p_vers text, p_reference_fournisseur text, p_montant bigint, p_devise text, p_origine text)": {"wk_api"},
+    "app.paiement_evenement(p_fournisseur text, p_id_evenement text, p_tenant bigint, p_reference text, p_corps bytea)": {"wk_api"},
+    "app.paiement_du_proprietaire(p_reference text, p_tenant bigint)": {"wk_api"},
+    "app.paiement_etat(p_public_id text, p_reference text, p_jeton bytea)": {"wk_api"},
+    "app.paiement_par_jeton(p_public_id text, p_jeton bytea)": {"wk_api"},
+    "app.paiement_retrouver(p_public_id text, p_numero_hmac bytea, p_suffixe text, p_jeton bytea)": {"wk_api"},
+    "app.paiements_a_verifier(p_limite integer)": {"wk_api"},
+    "app.paiement_replanifier(p_reference text)": {"wk_api"},
+    "app.paiements_expirer()": {"wk_api"},
+    "app.frais_papier_prelever(p_limite integer)": {"wk_api"},
+    "app.numeros_purger()": {"wk_api"},
+    "app.site_hotes_depuis_inventaire(p_router bigint)": {"wk_api"},
 }
 
 
@@ -75,11 +95,19 @@ def test_chaque_role_n_execute_que_ses_fonctions():
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
                                 CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg')) r(rolname)
-                               WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
+                               WHERE ns.nspname IN ('app', 'radius', 'ledger') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
-                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.enroll_register"),
-                      ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.tenant_courant"), ("wk_api", "app.voucher_importer"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
+                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.compte_marchand_du_proprietaire"),
+                      ("wk_api", "app.compte_marchand_enregistrer"), ("wk_api", "app.compte_marchand_par_webhook"),
+                      ("wk_api", "app.credits_solde"), ("wk_api", "app.enroll_register"),
+                      ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"), ("wk_api", "app.numeros_purger"),
+                      ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"),
+                      ("wk_api", "app.paiement_etat"), ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"),
+                      ("wk_api", "app.paiement_replanifier"), ("wk_api", "app.paiement_retrouver"), ("wk_api", "app.paiement_transition"),
+                      ("wk_api", "app.paiements_a_verifier"), ("wk_api", "app.paiements_expirer"),
+                      ("wk_api", "app.portail_forfaits"), ("wk_api", "app.portail_site"), ("wk_api", "app.site_hotes_depuis_inventaire"),
+                      ("wk_api", "app.tenant_courant"), ("wk_api", "app.voucher_importer"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
                       ("wk_coa", "radius.sessions_to_cut"), ("wk_maint", "radius.close_ghost_sessions"),
                       ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
@@ -90,7 +118,7 @@ def test_toute_fonction_security_definer_fixe_son_search_path():
     with admin() as c:
         fautives = c.execute("""
             SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname IN ('app', 'radius') AND p.prosecdef
+             WHERE n.nspname IN ('app', 'radius', 'ledger') AND p.prosecdef
                AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) x WHERE x LIKE 'search_path=%')
         """).fetchall()
     assert fautives == []
@@ -116,7 +144,7 @@ def test_execute_jamais_accorde_a_public_et_droits_exacts():
             SELECT n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
                    p.proacl::text
               FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname IN ('app', 'radius')
+             WHERE n.nspname IN ('app', 'radius', 'ledger')
         """).fetchall()
     for nom, acl in lignes:
         assert acl is not None, f"{nom} : ACL par défaut (EXECUTE à PUBLIC)"

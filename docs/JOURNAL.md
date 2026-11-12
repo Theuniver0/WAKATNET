@@ -718,3 +718,32 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - écritures déséquilibrées et lignes invalides refusées sans trace ;
   - ajout seul vérifié ;
   - commission exacte sur la table du §8.1, les frais de l'ADR 0002 et 200 tirages contre une référence en `BigInt`.
+
+### Phase 3, tickets 03 à 07 : paiement, crédits, rapprochement, portail, achat de bout en bout (12/11/2026)
+
+- **`packages/payments`** : interface `FournisseurPaiement` (§7.3), normalisation XOF (A8) et `MockProvider` scriptable. Le scénario se lit dans les deux derniers chiffres du numéro. Le mock exige `WAKATNET_MOCK=1` et est refusé en production.
+- **Migration 0019** :
+  - paiement : trois formes du numéro, jeton d'appareil en empreinte, clé de soumission (P9) ;
+  - CHECK « confirmé ⇔ ticket » ;
+  - compte marchand chiffré par l'API (AES-256-GCM), webhook à identifiant aléatoire ;
+  - `paiement_transition` : ligne verrouillée, idempotente ; vers `SUCCEEDED`, ticket, lien et commission dans **une** transaction (A7) ; `MISMATCH` final, avec alerte ;
+  - crédits du mode A et découvert plafonné.
+- **Migration 0020** : tâche périodique (expiration, rapprochement à 2 min puis toutes les 5 min pendant 24 h, frais papier, purge des numéros), lancée par une minuterie systemd.
+- **Migration 0021** : récupération d'un achat (jeton d'appareil ; repli numéro + 4 caractères ; tentatives limitées, sérialisées et journalisées).
+- **Portail** (`apps/api/src/portail.ts`) : pages de 1,6 à 2,5 Ko, sans ressource externe, CSP stricte. Il fonctionne sans JavaScript. Auto-connexion par GET, vers les seuls hôtes du hotspot relevés à l'enrôlement.
+  - `routeros/hotspot/redirection.html` : page `login.html` du routeur, qui renvoie vers le portail, générée par site.
+- **Relecture de l'argent par un second agent** (règle 4) : 1 bloquant, 4 importants, 8 mineurs. Tous traités ou acceptés avec leur motif (ADR 0013 §12). Le bloquant était le contournement de la limite de récupération par des requêtes parallèles.
+- **Preuves**, depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 92 tests, SUCCÈS. Ils couvrent P1, P2, P3, P4, P5, P6, P7, P8 et P9, la propriété « confirmé ⇔ ticket ⇔ une commission » sur 40 paiements aléatoires, les crédits, le découvert, la suspension de la vente en ligne (un ticket existant reste accepté au plafond : test dû depuis le ticket 1.2), les frais papier (une fois, jamais rétroactifs, sans famine), la purge, la récupération et le contrat OpenAPI ;
+  - `apps/api/tests/e2e.sh` : **Chromium sans interface**. Parcours : page de redirection du faux hotspot, portail, forfait, Moov, attente, ticket, auto-connexion GET, code accepté par `radius.authorize`. Puis P6 : page fermée pendant l'attente, et ticket proposé au retour. SUCCÈS ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
+  - shellcheck ne relève rien.
+- **Non fait** :
+  - ticket 08 (vrai adaptateur) : il attend les clés de bac à sable et la documentation officielle d'un agrégateur ;
+  - P10 (reversements, mode B verrouillé).
+- **Piste B (Yacouba)** :
+  - mini-navigateurs iOS et Android : LABO-11 (lien `tel:`), LABO-12 (GET d'auto-connexion), LABO-14 ;
+  - variables `-esc` de la page de redirection ;
+  - `hotspot-address` et `dns-name` ;
+  - références d'opérateur alphanumériques (récupération).
+- **G-ARGENT n'est pas franchie** : il faut le ticket 08 en bac à sable et `docs/CONFORMITE.md` rempli.
