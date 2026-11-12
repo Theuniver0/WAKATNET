@@ -692,3 +692,15 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 3. Exécution sur CHR, vierge et déjà configuré : **non**. L'écart a été décidé par Yacouba, qui fera les essais à la fin. En dépendent : LABO-05, LABO-08 (vérification TLS de `/tool fetch` en 7.15, **critique**), LABO-14 et les points [LABO] de l'ADR 0012 §9.
 4. Revue en deux axes : **faite**, constats traités.
 5. Étiquette `phase-2` : **non posée**, elle attend le point 3.
+
+### Ouverture de la phase 3 : portail et paiement, mode A (12/11/2026)
+
+- Demande de Yacouba : « continue avec la phase 3 ». PRD et tickets 01 à 08 rédigés dans `.scratch/phase-3-portail-paiement/`, validés par délégation. Le ticket 08 (vrai adaptateur) est **en attente** de la piste B : réponses des agrégateurs et clés de bac à sable. La spec interdit de deviner une API (§7.3).
+- ADR 0013 (contrats) :
+  - `verify()` fait foi, et le webhook n'est qu'un déclencheur ;
+  - grand livre en en-tête et lignes, équilibre vérifié à la validation, ajout seul imposé y compris au propriétaire des tables ;
+  - comptes du mode A ;
+  - commission arrondie au franc, 0,5 vers le haut ;
+  - **écart avec D10, assumé** : pas de BullMQ en phase 3, une minuterie systemd suffit ;
+  - portail servi par le processus de l'API, sur l'IP dédiée ;
+  - garde contre une redirection ouverte pour l'auto-connexion.
