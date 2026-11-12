@@ -267,6 +267,7 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - **Risque assumé** : `client_lookup` s'exécute dans le fil de **réception** de FreeRADIUS. Une base lente bloque donc la réception de tous les paquets pendant la création d'un nouveau client. Le risque est mesuré au ticket 10.
 - Compteur des `do_not_respond` (module `linelog` local), lu par la supervision (§10.3).
 - **Provisoire jusqu'à LABO-16.**
+- **Complété et corrigé par l'ADR 0009 (ticket 08)** : délais mesurés ; l'option `connect_timeout` du pool n'existe pas en 3.2.10 et libpq 18 n'arrondit plus à 2 s (le délai de connexion réel est 1 s) ; compteur `linelog` ; test de fumée `infra/sql/fumee.sh` ; limite des clients dynamiques pendant une panne acceptée.
 
 ## 14. Secrets
 

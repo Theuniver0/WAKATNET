@@ -31,10 +31,10 @@ Le ticket demandait le silence **seulement** pour une cause de connexion ou de d
 
 - **Correction** : le pool avait une ligne `connect_timeout = 2.0`. **Cette option n'existe pas en 3.2.10** (`connection_config` de `connection.c`) ; elle était ignorée sans avertissement. Elle est retirée ; l'ADR 0006 §13 (« libpq arrondit à 2 s, non vérifié ») est corrigé ici : la valeur réelle est 1 s.
 - **Mesures** (pile de test, `run.sh`) :
-  - table verrouillée (requête lente) : silence en **MESURE_VERROU** ;
+  - table verrouillée (requête lente) : silence en **506 ms** ;
   - base arrêtée : silence en **~3,0 s** dans la pile de test. Cause : le conteneur arrêté n'a plus d'adresse, la connexion TCP attend l'échec ARP (`EHOSTUNREACH`). **En production**, la base est locale (`127.0.0.1`) : connexion refusée immédiatement. La valeur de test est donc un majorant ;
-  - base figée, 50 Access-Request en attente : les 50 silences sont comptés en **MESURE_FIGEE**, Accounting-Response en **MESURE_ACCT** au plus pendant toute l'attente ;
-  - retour de la base : Accept **2,4 s** après « base prête » (après redémarrage de radiusd, base arrêtée) et **MESURE_REPRISE** (après un gel), le routeur insistant toutes les 250 ms : sous `retry_delay` + 1 s.
+  - base figée, 50 Access-Request en attente : les 50 silences sont comptés en **4,0 s**, Accounting-Response en **1,2 ms** au plus (8 mesures étalées sur 2 s d'attente) ;
+  - retour de la base : Accept **2,4 à 2,7 s** après « base prête » (après redémarrage de radiusd, base arrêtée) et **2,3 s** (après un gel), le routeur insistant toutes les 250 ms : sous `retry_delay` + 1 s.
 - **Comparaison au `timeout` de RouterOS** : inconnue tant que LABO-09 n'a pas donné le `timeout` retenu et le nombre de renvois. Pour un **silence**, la durée côté serveur ne change rien au routeur : il attend son propre `timeout`. Elle compte pour l'occupation des fils (§6).
 
 ## 3. Test de fumée après chaque migration
@@ -66,7 +66,7 @@ Limite : la fumée prouve la base, pas le fichier de configuration FreeRADIUS. C
 
 ## 6. Risque mesuré : fils de traitement et fil de réception
 
-- Base figée : chaque Access-Request occupe un fil au plus le temps du §2. Le pool `sql_auth` est borné à 16 connexions ; au-delà, `fr_connection_get` échoue aussitôt (silence immédiat). L'accounting n'utilise pas la base : avec 50 requêtes en attente, il a répondu en MESURE_ACCT au plus.
+- Base figée : chaque Access-Request occupe un fil au plus le temps du §2. Le pool `sql_auth` est borné à 16 connexions ; au-delà, `fr_connection_get` échoue aussitôt (silence immédiat). L'accounting n'utilise pas la base : avec 50 requêtes en attente, il a répondu en 1,2 ms au plus.
 - `client_lookup` s'exécute dans le fil de **réception** (ADR 0006 §13) : base figée, chaque création de client bloque la réception de tout le nœud pendant ~1 à 2 s. Limité par `rate_limit` (une création par seconde). Mesure à grande échelle : ticket 10.
 
 ## Conséquences

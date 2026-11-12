@@ -5,6 +5,8 @@
 ## Objectif
 Le labo a montré que, base arrêtée, FreeRADIUS renvoie Access-Reject à un client en cache (L6). Or un Reject empêche peut-être RouterOS de basculer vers B (LABO-16). Le silence (L6e) le permettrait, mais **sans** rendre muet tout le parc à la moindre erreur SQL.
 
+> **11/11/2026, réalisation** : ADR 0009. Écart : le silence vaut pour **tout** échec SQL, car `rlm_sql_map` ne distingue pas la cause (code 3.2.10). Les erreurs de donnée sont exclues par construction (tickets 03 à 07). Le défaut de déploiement est arrêté par `infra/sql/fumee.sh`, et compté s'il arrive quand même.
+
 ## À livrer
 - ADR « base indisponible », provisoire jusqu'à LABO-16 :
   - silence (`do_not_respond`) **seulement** quand `client_lookup` ou `authorize` échoue pour une raison de connexion ou de délai ;

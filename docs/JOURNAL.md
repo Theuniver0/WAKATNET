@@ -399,3 +399,25 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - usurpation de MAC pour bloquer un client : limite connue des MAC, §11 de la spec ;
   - coût de `post_auth` sous attaque : borné par l'index, et seule l'écriture du journal est en jeu.
 - **Dernier passage depuis une pile neuve, après les corrections** : 227 passed, étapes base arrêtée et figée réussies, aucune ligne Login, trace T10, aucun secret, `SUCCÈS`.
+
+### Ticket 08 : base PostgreSQL indisponible (11/11/2026)
+
+- **Fusion avant vérification** : la PR n°14 (premier commit du ticket, marqué « en cours ») a été fusionnée par Yacouba avant le passage complet, la revue et l'ADR. La suite passe par la PR n°15, repartie de `main`.
+- **Lu dans le code 3.2.10** :
+  - `rlm_sql_map` rend `fail` pour **toute** erreur SQL. Le silence « seulement sur connexion ou délai » demandé par le ticket est donc impossible sans `exec`/`perl` (refusés par C1) : écart consigné dans l'ADR 0009 §1 ;
+  - l'option `connect_timeout` du pool **n'existe pas** (`connection.c`) et était ignorée : retirée. Le délai de connexion réel est `query_timeout`, passé à libpq, qui ne l'arrondit plus à 2 s en version 18. L'ADR 0006 §13 est corrigé par l'ADR 0009.
+- **Livré** :
+  - compteurs `linelog` `silence_auth` et `silence_client` (jamais le code ; un routeur inconnu n'est pas compté ; `fail = 1` pour qu'un disque plein ne change pas le silence en Reject) ;
+  - `infra/sql/fumee.sh`, appelé par `migrer.sh` (exécution en tant que `wk_radius` en transaction `READ ONLY`, droits `EXECUTE`, `statement_timeout`) ;
+  - `test_t08.py` et `test_t08_indispo.py` (étapes f à l orchestrées par `run.sh`) ; ADR 0009.
+- **Rouge d'abord** : les 5 tests de `test_t08.py` échouent sur le code d'avant le ticket (`1fea9ff`).
+- **Trouvé en exécution** : un `wait` nu dans `run.sh` attendait aussi le `tee` du début du script et bloquait le passage. Corrigé par `wait "$PID"`.
+- **Mesuré** (pile de test) :
+  - table verrouillée → silence en 506 ms (`statement_timeout`) ;
+  - base arrêtée → silence en 3,0 s. C'est dû à l'échec ARP de la pile de test ; en production, la base locale refuse aussitôt ;
+  - base figée, 50 Access-Request en attente → Accounting-Response en 1,2 ms au plus ; les 50 silences comptés en 4,0 s ;
+  - radiusd démarré sans base : prêt ;
+  - retour de la base → Accept 2,3 à 2,7 s après « base prête » (limite : `retry_delay` + 1 = 6 s).
+- **Décision proposée** (ADR 0009 §5) : accepter qu'un routeur hors cache n'obtienne aucune réponse pendant une panne (bascule vers B). Écartés : une liste statique des clients, un `lifetime` plus long. **À valider par Yacouba.**
+- **Vert** : `run.sh` depuis une pile neuve, 232 passed, étapes du ticket 04 et du ticket 08 réussies, trace T10, aucune ligne Login, aucun secret, `SUCCÈS`.
+- **Reste** : LABO-16 (piste B) clôt l'ADR 0009 ; rotation et lecture des compteurs en phase 5.
