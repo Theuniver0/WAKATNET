@@ -1,0 +1,136 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../genere/prisma"
+  importFileExtension = "ts"
+  moduleFormat        = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["app"]
+}
+
+model audit_log {
+  id        BigInt   @id @default(autoincrement())
+  tenant_id BigInt?
+  le        DateTime @default(now()) @db.Timestamptz(6)
+  acteur    String
+  action    String
+  objet     String
+  details   Json     @default("{}")
+  tenant    tenant?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model plan {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        BigInt
+  nom              String
+  prix_xof         BigInt
+  uptime_limit_s   Int?
+  validity_s       Int?
+  data_limit_bytes BigInt?
+  rate_limit       String?
+  devices          Int       @default(1)
+  bind_mac         Boolean   @default(false)
+  scope            String    @default("tenant")
+  site_id          BigInt?
+  tenant           tenant    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  site             site?     @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  voucher          voucher[]
+
+  @@unique([tenant_id, id])
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model router {
+  id                   BigInt             @id @default(autoincrement())
+  tenant_id            BigInt
+  site_id              BigInt
+  overlay_ip           String             @unique @db.Inet
+  shortname            String             @unique
+  actif                Boolean            @default(true)
+  epoch                BigInt             @default(0)
+  require_ma_exception Boolean            @default(false)
+  coa_port             Int                @default(1700)
+  dernier_acct_on_le   DateTime?          @db.Timestamptz(6)
+  wg_public_key        String?            @unique
+  inventaire           Json               @default("{}")
+  enrole_le            DateTime?          @db.Timestamptz(6)
+  enrollment_token     enrollment_token[]
+  site                 site               @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("app")
+}
+
+model site {
+  id               BigInt             @id @default(autoincrement())
+  tenant_id        BigInt
+  nom              String
+  enrollment_token enrollment_token[]
+  plan             plan[]
+  router           router[]
+  tenant           tenant             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  voucher          voucher[]
+
+  @@unique([tenant_id, id])
+  @@schema("app")
+}
+
+model tenant {
+  id        BigInt      @id @default(autoincrement())
+  nom       String
+  suspendu  Boolean     @default(false)
+  cree_le   DateTime    @default(now()) @db.Timestamptz(6)
+  audit_log audit_log[]
+  plan      plan[]
+  site      site[]
+
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model voucher {
+  id                 BigInt    @id @default(autoincrement())
+  tenant_id          BigInt
+  plan_id            BigInt
+  code               String
+  f_prix_xof         BigInt
+  f_uptime_limit_s   Int?
+  f_validity_s       Int?
+  f_data_limit_bytes BigInt?
+  f_rate_limit       String?
+  f_devices          Int
+  f_bind_mac         Boolean   @default(false)
+  f_scope            String
+  f_site_id          BigInt?
+  expires_at         DateTime? @db.Timestamptz(6)
+  activated_at       DateTime? @db.Timestamptz(6)
+  cree_le            DateTime  @default(now()) @db.Timestamptz(6)
+  mac_liee           String?
+  site               site?     @relation(fields: [tenant_id, f_site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  plan               plan      @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, code])
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model enrollment_token {
+  id          BigInt    @id @default(autoincrement())
+  tenant_id   BigInt
+  site_id     BigInt
+  empreinte   Bytes     @unique
+  cree_le     DateTime  @default(now()) @db.Timestamptz(6)
+  expire_le   DateTime  @db.Timestamptz(6)
+  consomme_le DateTime? @db.Timestamptz(6)
+  router_id   BigInt?
+  router      router?   @relation(fields: [router_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  site        site      @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("app")
+}

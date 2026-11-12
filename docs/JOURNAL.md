@@ -592,3 +592,17 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - Constaté dans ce conteneur : pas de KVM, `download.mikrotik.com` refusé par le proxy (403). Un CHR est donc impossible ici. En revanche, `wireguard-go` est utilisable (`/dev/net/tun` présent), mais le module WireGuard du noyau est absent. Prisma 7.10.1 s'installe, moteur de schéma compris.
 - Phase 2 : PRD et tickets 01 à 07 rédigés dans `.scratch/phase-2-multi-proprietaires/`, validés par délégation. ADR 0012 (contrats) ; il amende l'ADR 0008 : un seul historique de migrations, Prisma comme client seulement. `docs/IDEES.md` créé.
 - Écart de numérotation relevé : `docs/PLAN.md` appelle « LABO-08 » les utilisateurs locaux, alors que `docs/LABO.md` les numérote LABO-05 (LABO-08 est la vérification TLS de `/tool fetch`). Les documents de la phase 2 suivent `docs/LABO.md`.
+
+### Phase 2, ticket 02 : socle applicatif, RLS, tests d'isolement (12/11/2026)
+
+- Espace de travail npm (racine), `apps/api` : Fastify 5.12.8, Prisma 7.10.1 (client seulement, adaptateur `pg`), TypeScript exécuté par Node 22 sans compilation ; versions exactes dans `package-lock.json`.
+- Migration `0013_app_cloisonnement.sql` :
+  - rôle `wk_api` (journal des instructions coupé, `statement_timeout` à 5 s) ;
+  - `app.enrollment_token` ;
+  - colonnes d'enrôlement de `app.router` ;
+  - RLS sur six tables, avec un contexte posé par transaction (ADR 0012 §6).
+- `prisma/schema.prisma` est tiré de la base. Un test le compare à la base migrée, et une dérive provoquée a bien fait échouer ce test.
+  - **Constaté** : `prisma db pull --print` échoue avec un `prisma.config.ts` (7.10.1). Le test tire donc dans une copie.
+- **Preuves** :
+  - `apps/api/tests/run.sh` (pile neuve) : 14 tests, SUCCÈS. Ils couvrent les isolements A/B par l'API et en SQL direct, zéro ligne sans contexte, la fin du contexte avec la transaction, le refus d'écrire chez un autre (WITH CHECK), l'absence de tout droit sur `radius`, la configuration interdite en production et le masquage du jeton dans les journaux ;
+  - `radius/tests/run.sh` (pile neuve) : 280 passés, 12 ignorés (étapes orchestrées), SUCCÈS. La matrice T est inchangée par la RLS.
