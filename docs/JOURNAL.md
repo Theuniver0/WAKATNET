@@ -582,3 +582,13 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - en Reject, le nouveau corps est **plus rapide** (environ −32 %) ;
   - en Accept, c'est le même code, et l'écart (±0,02 ms) n'est pas significatif ;
   - la hausse vue entre passes (+7 à +23 %) était de la variation d'une passe à l'autre ; RAPPORT §6 et §9 corrigés.
+
+### Clôture de la phase 1 et ouverture de la phase 2 (12/11/2026)
+
+- PR n°20 fusionnée par Yacouba.
+- **Décision de Yacouba (12/11/2026)** : « pas besoin d'essais, finis le travail, je vais essayer à la fin ». Les essais sur CHR (LABO-00, 09, 16, 18, 19, T9 et T12 sur un vrai routeur) sont **reportés à la fin**, et non supprimés. Conséquences :
+  - l'étiquette `phase-1` n'est pas posée : le critère 2 du PRD de la phase 1 reste ouvert ;
+  - aucun script ni aucune configuration ne doit être appliqué au routeur d'un tiers avant ces essais (G-PILOTE l'exige de toute façon).
+- Constaté dans ce conteneur : pas de KVM, `download.mikrotik.com` refusé par le proxy (403). Un CHR est donc impossible ici. En revanche, `wireguard-go` est utilisable (`/dev/net/tun` présent), mais le module WireGuard du noyau est absent. Prisma 7.10.1 s'installe, moteur de schéma compris.
+- Phase 2 : PRD et tickets 01 à 07 rédigés dans `.scratch/phase-2-multi-proprietaires/`, validés par délégation. ADR 0012 (contrats) ; il amende l'ADR 0008 : un seul historique de migrations, Prisma comme client seulement. `docs/IDEES.md` créé.
+- Écart de numérotation relevé : `docs/PLAN.md` appelle « LABO-08 » les utilisateurs locaux, alors que `docs/LABO.md` les numérote LABO-05 (LABO-08 est la vérification TLS de `/tool fetch`). Les documents de la phase 2 suivent `docs/LABO.md`.
