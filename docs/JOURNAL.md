@@ -569,3 +569,16 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - La passe 2 est restaurée depuis le commit `386545b`, et la passe 1 depuis le journal de session.
   - Le §4 donne les deux passes : 1,73 et 1,65 ms. L'écart que relevait la revue venait de là.
 - **Trouvé en exécution** : renommé, le fichier de test s'exécutait avant `test_t07_sql.py` et laissait une alerte et des échecs sur r5, ce qui faussait le seuil des 100 échecs par routeur. Les tests nettoient désormais tout ce qu'ils écrivent.
+
+### Points mesurés mais non expliqués : expliqués (12/11/2026)
+
+- PR n°19 (corrections de `/code-review`) fusionnée par Yacouba.
+- **L8, `rate_limit` des clients dynamiques**, mesuré sur 3.2.10 :
+  - un seul **nouveau** client par seconde : 3 IP inconnues dans la même seconde, 1 seule répond ;
+  - un client **expiré** est recréé par une nouvelle recherche en base, **sans** limite : 3 sur 3 dans la même milliseconde, et un routeur désactivé pendant l'attente cesse de répondre ;
+  - cela explique l'absence de plafond à 500 routeurs : seule la reprise à froid est lente ;
+  - test permanent `test_clients.py::test_l8_*` (routeurs r15 à r17) ; LABO.md L8 passe à TRANCHÉ ; ADR 0006 §16 complété.
+- **`post_auth` après 0012** : mesure A/B contrôlée (`perf/ab-post-auth.sh`), même base, corps 0009 et 0012 en alternance sur 3 tours, deux séries :
+  - en Reject, le nouveau corps est **plus rapide** (environ −32 %) ;
+  - en Accept, c'est le même code, et l'écart (±0,02 ms) n'est pas significatif ;
+  - la hausse vue entre passes (+7 à +23 %) était de la variation d'une passe à l'autre ; RAPPORT §6 et §9 corrigés.

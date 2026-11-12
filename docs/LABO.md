@@ -97,7 +97,7 @@ Statut TRANCHÉ **uniquement pour FreeRADIUS 3.2.5** (paquet Ubuntu `3.2.5+dfsg-
 | L6 | §4 / règle 2 (accounting découplé) ; T13 | Accounting vers `detail` quand la base est arrêtée ; comportement de l'authentification sans base | **TRANCHÉ (3.2.5)** | `L6-0[1-6]-*.log`, `L6-detail-files.log`, `radiusd-A-L6.log`, `radiusd-A-L6c-start-pg-down.log`, `radiusd-A-L6d-start0-pg-down.log`, `L6d-auth.log` |
 | L6e | T13 | `do_not_respond` quand SQL échoue ; l'accounting reste répondu | **TRANCHÉ (3.2.5)** côté serveur | `L6e-0[1-4]-*.log`, `radiusd-A-L6e-do-not-respond.log` |
 | L7 | §1.2 | Rejeu de L1 à L6 sur la version retenue (3.2.10) | **OUVERT** | — |
-| L8 | §1.2 ; §5.1 | `rate_limit` des clients dynamiques : limite d'un nouveau client par seconde (inconditionnelle en 3.2.5, optionnelle d'après le code à partir de 3.2.6) | **OUVERT** | — |
+| L8 | §1.2 ; §5.1 | `rate_limit` des clients dynamiques : limite d'un nouveau client par seconde (inconditionnelle en 3.2.5, optionnelle d'après le code à partir de 3.2.6) | **TRANCHÉ (3.2.10, 12/11/2026)** : avec `rate_limit = yes`, un seul NOUVEAU client par seconde (3 IP inconnues dans la même seconde : 1 répond) ; un client EXPIRÉ (`lifetime`) est recréé par une nouvelle recherche en base, SANS cette limite (3 sur 3 dans la même milliseconde) | `radius/tests/test_clients.py::test_l8_rate_limit_a_la_creation_mais_pas_au_renouvellement` |
 | L9 | règle 2 (accounting) | Lecteur `detail` qui rejoue vers PostgreSQL (bogue #5870 en 3.2.9) | **TRANCHÉ (3.2.10, ticket 04)** | `radius/tests/run.sh` : `test_t04.py`, `test_t04_indispo.py` (base arrêtée puis figée, rejeu complet sans perte ni doublon) |
 
 ---
