@@ -455,3 +455,40 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - base figée : 50 silences en 4,1 s, accounting à 1,1 ms au pire sur 16 mesures couvrant toute l'attente.
 - **Vert** : `run.sh` depuis une pile neuve, 240 passed, étapes des tickets 04 et 08 réussies, trace T10, aucune ligne Login, aucune requête de FreeRADIUS dans le journal de PostgreSQL, aucun secret, `SUCCÈS`.
 - **Non commité** : le commit a été refusé deux fois par le contrôle des permissions de la session ; en attente de l'accord de Yacouba.
+
+### Ticket 09 : Disconnect et CoA (12/11/2026)
+
+- PR n°16 (revue du ticket 08) fusionnée par Yacouba. Branche repartie de `main`.
+- **Prototypes avant le code** (jetables, faits dans l'image de test) :
+  - faux NAS FreeRADIUS : Disconnect-ACK et CoA-ACK avec Message-Authenticator ; sans Message-Authenticator, le paquet est jeté. En revanche, un mauvais secret n'est journalisé qu'au premier envoi, les renvois étant traités comme doublons : un compteur Python est nécessaire ;
+  - `radclient` 3.2.10 : `-r 0` n'envoie rien, `-r 3` et `-r 5` n'envoient que 2 paquets. L'émetteur fait donc ses retentatives lui-même ; une réponse à l'authentificateur faux est rejetée ;
+  - le Node d'Ubuntu 26.04 ne retire pas les types TypeScript : le binaire officiel (22.23.0) est utilisé ;
+  - une route locale à source forcée fait partir les paquets de l'adresse de nœud du test.
+- **Livré** :
+  - migration `radius/0011` (`wk_coa`, `sessions_to_cut`, `coa_target`, `mark_cut`) ;
+  - `infra/coupure/` (émetteur et déclencheur) ;
+  - unités `wakatnet-coupure` ;
+  - faux NAS FreeRADIUS et compteur ;
+  - `test_t09.py` et `test_t09_sql.py` ;
+  - ADR 0010.
+- **Rouge** : 13 échecs et 10 erreurs, code de production mis de côté.
+- **Vert** : `run.sh` depuis une pile neuve, 263 passed. T12 : Disconnect reçu 2,3 s après l'Interim (tour d'une seconde en test ; 30 s en production).
+- **Revue** en deux axes (Spec et Standards, robustesse), constats vérifiés. Retenus et corrigés :
+  - **important, famine** : le tri par date d'inscription remettait les sessions muettes en tête à chaque tour, et l'unité s'arrête à 25 s. Corrigé par le budget de temps d'un tour et l'ordre « jamais tentée d'abord » ;
+  - **important, port** : tous les routeurs de test avaient 1700, donc un port codé en dur passait. Un routeur passe maintenant à 3799 dans un test ;
+  - **important, configuration illisible** : toutes les sessions passaient à `abandon` sans aucun envoi. Le déclencheur sort désormais en 1 avant tout envoi ;
+  - **important, panne de `radclient`** : elle passait pour un routeur muet. Elle est maintenant visible, et la session n'est pas marquée ;
+  - **important, erreur de base** : elle arrêtait le tour. Elle est maintenant isolée par session ; nœud en lecture seule : aucun envoi (non testé) ;
+  - **important, NAK** : il terminait la coupure sans alerte. Il donne maintenant une alerte `coupure_refusee` ;
+  - **mineurs** :
+    - `mark_cut` sans effet sur un état final ;
+    - identifiant de session dans les alertes ;
+    - `radclient` sans le mot de passe de la base dans son environnement ;
+    - unité systemd durcie ;
+    - faux NAS qui journalise après la vérification du Message-Authenticator ;
+    - message « débit invalide » vérifié ;
+    - quatre réglages de journalisation de `wk_coa` testés ;
+    - retentatives de `radclient` prouvées par un test ;
+    - écarts de signature avec l'ADR 0006 déclarés.
+- **Décision à valider par Yacouba** (ADR 0010) : accès à la base par `psql` jusqu'à la phase 2 ; états finaux (`nak`, `abandon`) définitifs.
+- **Piste B** : T9 sur CHR (coupure réelle, Stop reçu, port réel de `/radius incoming`).

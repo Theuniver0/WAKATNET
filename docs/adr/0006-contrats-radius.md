@@ -303,4 +303,5 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 - **Émetteur** : module TypeScript (Node 22), réutilisable par le futur worker.
   - Il appelle `radclient`, qui vérifie l'authentificateur de la réponse.
   - Le secret est passé par un fichier 0600 en tmpfs (`-S`), jamais en ligne de commande.
+- **Précisé par l'ADR 0010** (ticket 09) : un appel `radclient -r 1` par envoi, parce que les retentatives internes de `radclient` 3.2.10 ne sont pas fiables ; accès à la base par `psql` jusqu'au socle de la phase 2 ; Node 22 officiel, puisque le paquet Ubuntu ne retire pas les types TypeScript.
 - **En dev** : les tests appellent directement les mêmes scripts. L'unité systemd est vérifiée par `systemd-analyze verify`, et son rejeu réel a lieu sur le nœud (phase 5).

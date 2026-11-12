@@ -45,7 +45,18 @@ ROUTEURS = {
     "r10": ("10.213.1.100", True, "WAKATNET_SECRET_R3", 1, 1),
     "r11": ("10.213.1.110", True, "WAKATNET_SECRET_R1", 1, 1),
     "r12": ("10.213.1.120", True, "WAKATNET_SECRET_R2", 1, 1),
+    # Ticket 09 : r13 porte le faux NAS FreeRADIUS (Disconnect et CoA reçus), r14 le faux NAS
+    # compteur (renvois, réponse à l'authentificateur faux). Voir test_t09.py.
+    "r13": ("10.213.1.130", True, "WAKATNET_SECRET_R1", 1, 1),
+    "r14": ("10.213.1.140", True, "WAKATNET_SECRET_R2", 1, 1),
 }
+
+# Adresse de NŒUD du test (ticket 09) : le déclencheur de coupure tourne dans le conteneur de
+# test, et ses paquets vers r13 et r14 doivent partir d'une adresse de nœud, comme en
+# production (10.213.0.1 ou .2). Elle est portée par le testeur, et les routes locales vers
+# r13 et r14 la prennent pour source (_ip_secondaires).
+IP_NOEUD_TEST = "10.213.0.3"
+NAS_PAR_LE_NOEUD = ("r13", "r14")
 
 # Routeurs présents en base seulement (aucun paquet RADIUS) : tests SQL de la forme (a)
 # de l'ADR 0007, sur le propriétaire C, que ces tests suspendent et rétablissent.
@@ -83,6 +94,12 @@ def en_tant_que_maint() -> psycopg.Connection:
                            password=os.environ["WAKATNET_PG_MAINT_PASSWORD"], autocommit=True)
 
 
+def en_tant_que_coa() -> psycopg.Connection:
+    """Rôle wk_coa : déclencheur de coupure, seul lecteur du secret par session (ticket 09)."""
+    return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_coa",
+                           password=os.environ["WAKATNET_PG_COA_PASSWORD"], autocommit=True)
+
+
 def en_tant_que_test() -> psycopg.Connection:
     """Rôle wk_test (ADR 0007) : seul autorisé sur radius._authorize_at (instant injecté)."""
     return psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wk_test",
@@ -95,6 +112,11 @@ def _ip_secondaires() -> None:
     for ip in [r[0] for r in ROUTEURS.values()] + [IP_INCONNUE]:
         if f" {ip}/" not in sortie:
             subprocess.run(["ip", "addr", "add", f"{ip}/16", "dev", iface], check=True)
+    if f" {IP_NOEUD_TEST}/" not in sortie:
+        subprocess.run(["ip", "addr", "add", f"{IP_NOEUD_TEST}/32", "dev", iface], check=True)
+    for nom in NAS_PAR_LE_NOEUD:
+        subprocess.run(["ip", "route", "replace", "local", ROUTEURS[nom][0], "dev", iface, "table", "local",
+                        "proto", "kernel", "scope", "host", "src", IP_NOEUD_TEST], check=True)
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -28,6 +28,10 @@ ATTENDU = {
     "radius.close_ghost_sessions()": {"wk_maint"},
     "radius.marquer_spool_vide(p_epoch text)": {"wk_maint"},
     "radius.purge_auth_log(p_lot integer)": {"wk_maint"},
+    # Ticket 09 : seul wk_coa lit le secret d'un routeur à partir d'une session (coa_target).
+    "radius.sessions_to_cut(p_limite integer)": {"wk_coa"},
+    "radius.coa_target(p_session bigint)": {"wk_coa"},
+    "radius.mark_cut(p_session bigint, p_result text)": {"wk_coa"},
 }
 
 
@@ -36,14 +40,14 @@ def test_wk_radius_et_wk_acct_ne_touchent_aucune_table_ni_sequence():
         lignes = c.execute("""
             SELECT r.rolname, n.nspname || '.' || cl.relname
               FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace
-              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint')) r(rolname)
+              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa')) r(rolname)
              WHERE cl.relkind IN ('r', 'p', 'v', 'm', 'S')
                AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
                AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE')
                     OR (cl.relkind = 'S' AND has_sequence_privilege(r.rolname, cl.oid, 'USAGE, SELECT, UPDATE')))
         """).fetchall()
         schemas = c.execute("""
-            SELECT r, s FROM (VALUES ('wk_radius'), ('wk_acct')) a(r), (VALUES ('app'), ('radius'), ('public')) b(s)
+            SELECT r, s FROM (VALUES ('wk_radius'), ('wk_acct'), ('wk_coa')) a(r), (VALUES ('app'), ('radius'), ('public')) b(s)
              WHERE has_schema_privilege(r, s, 'CREATE')
         """).fetchall()
     assert lignes == [], f"droits inattendus : {lignes}"
@@ -61,11 +65,12 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     with admin() as c:
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint')) r(rolname)
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa')) r(rolname)
                                WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
-                      ("wk_acct", "radius.acct_stop"), ("wk_maint", "radius.close_ghost_sessions"),
+                      ("wk_acct", "radius.acct_stop"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
+                      ("wk_coa", "radius.sessions_to_cut"), ("wk_maint", "radius.close_ghost_sessions"),
                       ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth")]
 

@@ -1,0 +1,36 @@
+# WAKATNET — faux NAS de TEST (ticket 09) : reçoit les Disconnect et CoA du déclencheur,
+# comme un routeur MikroTik (/radius incoming). Lancé par test_t09.py dans le conteneur de
+# test, sur l'IP du routeur r13. Vérifie explicitement :
+#   - l'IP source : seul le client « noeud » (adresse de nœud du test) est connu ;
+#   - le secret : authentificateur de requête et Message-Authenticator vérifiés par radiusd ;
+#   - la présence du Message-Authenticator : exigée par le client, et revérifiée ici.
+# Il écoute sur 1700 (défaut de app.router.coa_port) et 3799 (port normalisé), pour prouver
+# que le port vient de la base. Chaque requête acceptée est écrite dans le journal recu.
+# Acct-Session-Id commençant par « nak- » : réponse NAK (session inconnue du routeur).
+server fauxnas {
+	listen {
+		type = coa
+		ipaddr = $ENV{FAUXNAS_IP}
+		port = 1700
+	}
+
+	listen {
+		type = coa
+		ipaddr = $ENV{FAUXNAS_IP}
+		port = 3799
+	}
+
+	recv-coa {
+		if (!&Message-Authenticator) {
+			reject
+		}
+		recu
+		if (&Acct-Session-Id =~ /^nak-/) {
+			reject
+		}
+		ok
+	}
+
+	send-coa {
+	}
+}

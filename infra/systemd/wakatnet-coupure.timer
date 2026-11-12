@@ -1,0 +1,11 @@
+# WAKATNET — toutes les 30 s (ADR 0006 §17) : coupure en moins d'un intervalle d'Interim (120 s).
+[Unit]
+Description=WAKATNET : déclencheur de coupure toutes les 30 s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

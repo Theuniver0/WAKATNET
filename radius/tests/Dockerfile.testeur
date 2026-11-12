@@ -3,6 +3,11 @@
 # radclient dans la même version et avec le même dictionnaire (MikroTik inclus).
 # Python sert aux tests (pytest) et à l'émetteur maison radlib.py, qui choisit
 # son IP source (radclient ne le permet pas) et peut omettre le Message-Authenticator (T10).
+# Node 22 OFFICIEL (ticket 09) : le paquet Ubuntu est compilé sans suppression des types
+# TypeScript (process.features.typescript = false, constaté le 12/11/2026). Version publiée en
+# juin 2026, épinglée par empreinte ; seul le binaire est recopié (glibc compatible).
+FROM node:22.23.0-bookworm-slim@sha256:d9f850096136edbc402debdd8729579a288aac64574ada0ff4db26b6ae58b0b2 AS node
+
 FROM freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 python3-venv iproute2 ca-certificates \
@@ -10,6 +15,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1
 ENTRYPOINT []
 CMD ["sleep", "infinity"]
