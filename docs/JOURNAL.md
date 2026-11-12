@@ -1072,3 +1072,10 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `radius/tests/run.sh test_droits.py` : 12 passés ;
   - `apps/api/tests/e2e.sh` : SUCCÈS. Écran « Compte marchand », argent réel refusé ; axe-core : 14 écrans.
 - **Non prouvé** : le bac à sable réel de pawaPay (jeton de Yacouba, sur une plateforme d'essai), le format réel des callbacks signés, le minimum du Burkina, le relevé pour le rapprochement.
+
+## 12/11/2026 — ADR 0021 proposée : intégration continue
+
+- **Constat** : aucun workflow GitHub. La PR #28 (code d'argent) n'a aucune vérification, et toutes les preuves viennent d'un seul poste.
+- **Proposé** (`docs/adr/0021-integration-continue.md`, statut « proposé ») : GitHub Actions sur `ubuntu-24.04`, qui appelle les harnais existants. API, e2e, RADIUS et wg-agent à chaque PR ; Ansible, sauvegardes et charge chaque nuit. Aucun secret, permissions en lecture, actions épinglées par empreinte. Écartés : un runner auto-hébergé (exclu sur un VPS de production) et le statu quo.
+- **Non vérifié** : la durée des harnais sur un runner hébergé, la visibilité du dépôt et le forfait de minutes, le banc Ansible privilégié sur le runner.
+- **En attente** : la décision de Yacouba. Aucun workflow écrit.
