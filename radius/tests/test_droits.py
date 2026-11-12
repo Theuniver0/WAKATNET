@@ -39,6 +39,8 @@ ATTENDU = {
     "app.enroll_register(p_empreinte bytea, p_cle text, p_coa_port integer, p_inventaire jsonb)": {"wk_api"},
     # Ticket 05 : wg-agent ne lit que les pairs voulus.
     "app.wg_pairs()": {"wk_wg"},
+    # Migration 0032 (revue M7) : wg-agent note l'IP publique des routeurs ; écriture bornée, sans effet sur une réplique.
+    "app.wg_points_noter(p_cles text[], p_ips inet[], p_vus timestamp with time zone[])": {"wk_wg"},
     # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
     "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
     # Phase 3 (ADR 0013 §11) : tout ce qui touche à l'argent passe par ces fonctions ; rien sur ledger.
@@ -47,7 +49,7 @@ ATTENDU = {
     "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
     "app.portail_site(p_public_id text)": {"wk_api"},
     "app.portail_forfaits(p_public_id text)": {"wk_api"},
-    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text, p_source text)": {"wk_api"},
+    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text, p_source text, p_ip inet)": {"wk_api"},
     "app.paiement_transition(p_reference text, p_vers text, p_reference_fournisseur text, p_montant bigint, p_devise text, p_origine text)": {"wk_api"},
     "app.paiement_evenement(p_fournisseur text, p_id_evenement text, p_tenant bigint, p_reference text, p_corps bytea)": {"wk_api"},
     "app.paiement_du_proprietaire(p_reference text, p_tenant bigint)": {"wk_api"},
@@ -151,7 +153,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
-                      ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs")]
+                      ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs"), ("wk_wg", "app.wg_points_noter")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():

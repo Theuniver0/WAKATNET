@@ -12,7 +12,7 @@ import type { Base } from "./base.ts";
 import { hmacNumero } from "./chiffrement.ts";
 import { estIdentifiant } from "./identifiant.ts";
 import type { ServicePaiement } from "./paiement.ts";
-import { cleSource } from "./cle-ip.ts";
+import { cleSource, ipComparable } from "./cle-ip.ts";
 
 const SITE = /^[A-Za-z0-9_-]{16}$/;
 const REFERENCE = /^wk_[A-Za-z0-9_-]{22}$/;
@@ -267,7 +267,7 @@ export function routesPortail(app: FastifyInstance, base: Base, service: Service
       if (!SOUMISSION.test(String(b.soumission ?? ""))) return envoyer(rep, formulaire(req.params.site, c, plan, "Formulaire expiré : recommencez."), 422);
       const r = await service.creer({ sitePublic: req.params.site, planId: plan.plan_id, operateur: op, numero: String(b.numero ?? ""),
                                       otp: op === "orange_bf" ? otp : undefined, jetonAppareil: empreinte(jetonAppareil(req, rep)),
-                                      soumission: String(b.soumission), source: cleSource(req.ip, cleHmac) });
+                                      soumission: String(b.soumission), source: cleSource(req.ip, cleHmac), ip: ipComparable(req.ip) });
       if (r.statut === "numero_invalide") return envoyer(rep, formulaire(req.params.site, c, plan, "Numéro invalide : 8 chiffres."), 422);
       if (r.statut === "trop_de_demandes") {
         return envoyer(rep, formulaire(req.params.site, c, plan, "Trop de demandes pour ce numéro : patientez quelques minutes."), 429);

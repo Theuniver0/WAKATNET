@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockProvider } from "../../../packages/payments/src/index.ts";
 import { lienConnexion, messageErreur } from "../src/portail.ts";
-import { avecApp, CLES, sql, URL_ADMIN, entetes } from "./aide.ts";
+import { avecApp, CLES, routeur, sql, URL_ADMIN, entetes } from "./aide.ts";
 import { cleSource } from "../src/cle-ip.ts";
 import { attendreStatut, numero, statut, vendeur, type App, type Vendeur } from "./aide-paiement.ts";
 
@@ -262,5 +262,12 @@ test("revue de sécurité M7 : le portail transmet la source ; un tiers qui épu
     };
     assert.equal((await payer("198.51.100.9")).statusCode, 429);
     assert.equal((await payer("203.0.113.7")).statusCode, 303, "le client du hotspot achète");
+    // Plafond du site atteint par des sources nombreuses (migration 0032) : seule l'IP du routeur, vue par wg-agent,
+    // achète encore. Le portail transmet l'IP de la requête.
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, 'x' || g FROM generate_series(1, 69) g", [id]);
+    assert.equal((await payer("203.0.113.8")).statusCode, 429);
+    const r = await routeur(v.tenant, id);
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_publique = '203.0.113.8', ip_vue_le = now() WHERE id = $1", [r]);
+    assert.equal((await payer("203.0.113.8")).statusCode, 303, "le hotspot, derrière l'IP de son routeur, achète");
   });
 });

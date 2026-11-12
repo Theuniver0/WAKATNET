@@ -927,3 +927,23 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Preuve** : `apps/api/tests/e2e.sh`, SUCCÈS. Au parcours 4, le propriétaire coupe l'accès du vendeur depuis l'écran ; ses sessions sont fermées en base ; sa reconnexion est refusée (401). axe-core : 12 écrans sans violation sérieuse, dont la confirmation.
 - **Guide** mis à jour, PDF régénéré (6 pages) ; `docs/REVUE_SECURITE.md` (M3) mis à jour.
 - **Constaté** : le démon Docker de l'environnement s'est encore arrêté ; relancé avant l'e2e.
+
+### Revue de sécurité M7 : budget propre à l'IP publique du routeur (12/11/2026)
+
+- **Demande** de Yacouba : « ferme M7 avec l'IP du routeur vue par wg-agent ».
+- **Fait** :
+  - `wg-agent` relève le point de terminaison de chaque pair de `wg0` (poignée de main de moins de 3 min) et l'écrit par `app.wg_points_noter`. Sans effet sur une réplique ; au plus une écriture par routeur toutes les 5 min ; IP effacée à la révocation, ou après un jour sans être revue. Les IP ne sont pas journalisées ;
+  - migration 0032 : une demande qui vient de l'IP d'un routeur actif du site, vue il y a moins de 10 min, a son propre budget (30 par minute), hors plafond. IPv4 : égalité ; IPv6 : même /64 ;
+  - règle de santé `ip_routeurs` : sur le primaire, routeurs actifs mais aucune IP notée.
+- **Relu par un second agent** (règle 4) ; constats repris :
+  - D1 : `DROP` de l'ancienne signature, donc paiements en erreur entre la migration et l'API. Corrigé par `p_ip DEFAULT NULL`, et un test appelle l'ancienne signature ;
+  - H1 et D2 : le plafond des autres sources, que j'avais baissé à 60, aurait affaibli la garde quand le routeur n'est pas reconnu. Remis à 100, avec l'alerte ;
+  - P1 : IP du routeur gardée sans limite. Désormais effacée ;
+  - une IPv6 à zone faisait échouer tout le lot : écartée.
+- **Reste de M7, honnête** : un voisin de NAT ou de CGNAT de même IP publique partage le budget du routeur et peut le vider ; un routeur non reconnu (double WAN, CGNAT qui sépare TCP et UDP, clients en IPv6, `wg-agent` arrêté) retombe sur la garde de 0031.
+- **Preuves** :
+  - `apps/wg-agent/tests/run.sh` : SUCCÈS. Dont une **vraie poignée de main** entre deux `wireguard-go` : l'agent note l'IP du « routeur » en base en 6,4 s, la base la reconnaît pour son site, puis plus du tout une fois le routeur révoqué ;
+  - `apps/api/tests/run.sh` : 168 tests, SUCCÈS. Dont : le hotspot achète alors que 100 sources saturent le site, budget propre de 30, IP périmée, routeur révoqué ou d'un autre site, /64, écritures bornées de `wg_points_noter` ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS.
+- **Non prouvé** : l'hypothèse de terrain (les clients d'un hotspot sortent vers le portail par l'IP du tunnel du routeur) sur un vrai MikroTik et un vrai opérateur. À vérifier au pilote : la règle `ip_routeurs` et `paiement_demande.routeur` le montrent.

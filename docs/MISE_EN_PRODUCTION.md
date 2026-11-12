@@ -92,6 +92,8 @@ ansible-playbook site.yml --limit noeud_a
 
 Le pare-feu public programme son retour arrière avant d'être appliqué : une erreur de port SSH se corrige seule en 5 minutes.
 
+Ordre quand une mise à jour touche le schéma : **migrations, puis API, puis `wg-agent`**. Ansible enchaîne les deux premières (l'API redémarre après les migrations) ; le binaire de `wg-agent` se remplace ensuite, à la main. Un `wg-agent` plus récent que le schéma ne fait que journaliser une erreur à chaque tour ; plus ancien, il ne note pas l'IP des routeurs (alerte `ip_routeurs`), et les hotspots retombent sur la garde de la migration 0031.
+
 ## 5. Retour arrière d'une mise à jour
 
 - **Code** : repasser Ansible depuis l'étiquette Git précédente, dans le dépôt de contrôle.

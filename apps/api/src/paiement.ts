@@ -57,6 +57,8 @@ export class ServicePaiement {
     jetonAppareil: Buffer; soumission: string;
     /** Source (cleSource) : la garde du site compte par source (revue de sécurité M7, migration 0031). */
     source?: string;
+    /** IP de la requête (ipComparable) : celle d'un routeur du site lui donne son budget propre (migration 0032). */
+    ip?: string | null;
   }): Promise<
     | { statut: "cree" | "deja"; reference: string; statutPaiement: string; message?: string }
     | { statut: "site_inconnu" | "forfait_inconnu" | "vente_suspendue" | "sans_compte_marchand" | "numero_invalide" | "trop_de_demandes" }
@@ -68,7 +70,7 @@ export class ServicePaiement {
                                             tenant_id: bigint | null; statut_paiement: string | null }[]>`
       SELECT statut, reference, montant, tenant_id, statut_paiement
         FROM app.paiement_creer(${e.sitePublic}, ${e.planId}, ${e.operateur}, ${numero}, ${hmacNumero(this.cles.hmac, numero)},
-                                ${masquerNumero(numero)}, ${e.jetonAppareil}, ${e.soumission}, ${reference}, ${e.source ?? "?"})`;
+                                ${masquerNumero(numero)}, ${e.jetonAppareil}, ${e.soumission}, ${reference}, ${e.source ?? "?"}, ${e.ip ?? null}::inet)`;
     if (r.statut !== "cree" && r.statut !== "deja") return { statut: r.statut as "site_inconnu" };
     if (r.statut === "deja") return { statut: "deja", reference: r.reference!, statutPaiement: r.statut_paiement! };
 

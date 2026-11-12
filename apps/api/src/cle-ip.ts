@@ -13,6 +13,14 @@ export function cleSource(ip: string | undefined, cleHmac: Buffer | null, mainte
   return createHmac("sha256", cleHmac).update(`source|${maintenant.toISOString().slice(0, 10)}|${c}`).digest("base64url").slice(0, 22);
 }
 
+/** L'IP telle que la base la compare à celle des routeurs (migration 0032) : IPv4 notée en IPv6 ramenée à l'IPv4,
+ *  zone retirée ; null si illisible. Jamais gardée : seule sa comparaison sert. */
+export function ipComparable(ip: string | undefined): string | null {
+  let a = (ip ?? "").trim().toLowerCase().replace(/%.*$/, "");
+  if (a.startsWith("::ffff:") && isIPv4(a.slice(7))) a = a.slice(7);
+  return isIPv4(a) || isIPv6(a) ? a : null;
+}
+
 export function cleIp(ip: string | undefined): string {
   let a = (ip ?? "").trim().toLowerCase().replace(/%.*$/, "");
   if (a.startsWith("::ffff:") && isIPv4(a.slice(7))) a = a.slice(7);

@@ -64,6 +64,8 @@ model router {
   wg_public_key        String?            @unique
   inventaire           Json               @default("{}")
   enrole_le            DateTime?          @db.Timestamptz(6)
+  ip_publique          String?            @db.Inet
+  ip_vue_le            DateTime?          @db.Timestamptz(6)
   enrollment_token     enrollment_token[]
   site                 site               @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -384,6 +386,7 @@ model paiement_demande {
   site_id BigInt
   source  String
   le      DateTime @default(now()) @db.Timestamptz(6)
+  routeur Boolean  @default(false)
 
   @@index([site_id, le], map: "paiement_demande_site")
   @@index([site_id, source, le], map: "paiement_demande_source")

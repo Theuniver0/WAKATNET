@@ -1,6 +1,7 @@
 // Paiement (SPEC §7.2, §7.4 P1, P2, P4, P5, P8, P9 ; ADR 0013 ; A5, A7).
 // Tickets : .scratch/phase-3-portail-paiement/issues/03-paiements-mock.md, 04-confirmation-credits.md
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { test } from "node:test";
 import fc from "fast-check";
 import { MockProvider } from "../../../packages/payments/src/index.ts";
@@ -337,7 +338,7 @@ test("erreurs internes : jamais de détail dans la réponse (portail en HTML, ai
   }
 });
 
-test("revue de sécurité M7 : la garde de 30 par minute compte par source ; plafond de 100 par site", async () => {
+test("revue de sécurité M7 : la garde de 30 par minute compte par source ; plafond de 100 par site hors routeurs", async () => {
   await avecApp(async (app) => {
     const v = await vendeur(app, "garde par source");
     const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.site WHERE public_id = $1", [v.publicId]);
@@ -349,7 +350,7 @@ test("revue de sécurité M7 : la garde de 30 par minute compte par source ; pla
     assert.equal((await creer("198.51.100.9")).statut, "trop_de_demandes");
     // Les clients du hotspot (IP WAN du routeur) gardent leur budget.
     assert.equal((await creer("203.0.113.7")).statut, "cree");
-    // Plafond global du site : 100 par minute, toutes sources confondues (31 déjà : 29 + 2 acceptées).
+    // Plafond global du site hors routeurs : 100 par minute (31 déjà : 29 + 2 acceptées ; migrations 0031 et 0032).
     await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, 'x' || g FROM generate_series(1, 69) g", [id]);
     assert.equal((await creer("192.0.2.1")).statut, "trop_de_demandes");
     // Les demandes de plus d'une minute ne comptent plus.
@@ -367,5 +368,72 @@ test("revue de sécurité M7 : 40 demandes PARALLÈLES d'une même source → 30
       operateur: "moov_bf", numero: numero("07"), jetonAppareil: jeton(), soumission: soumission(), source: "198.51.100.9" })));
     assert.equal(r.filter((x) => x.statut === "cree").length, 30);
     assert.equal(r.filter((x) => x.statut === "trop_de_demandes").length, 10);
+  });
+});
+
+test("revue de sécurité M7 : l'IP publique d'un routeur du site (vue par wg-agent) a son budget propre, hors plafond", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "budget routeur");
+    const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.site WHERE public_id = $1", [v.publicId]);
+    const r = await routeur(v.tenant, id);
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_publique = '203.0.113.7', ip_vue_le = now() WHERE id = $1", [r]);
+    const creer = (ip: string, source = `s-${ip}`) => app.paiement!.creer({ sitePublic: v.publicId, planId: BigInt(v.plan),
+      operateur: "moov_bf", numero: numero("07"), jetonAppareil: jeton(), soumission: soumission(), source, ip });
+    // Un attaquant aux nombreuses sources sature le plafond du site (100 par minute hors routeurs)…
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, 'x' || g FROM generate_series(1, 100) g", [id]);
+    assert.equal((await creer("198.51.100.9")).statut, "trop_de_demandes");
+    // …le hotspot, qui sort par l'IP du routeur, vend toujours.
+    assert.equal((await creer("203.0.113.7")).statut, "cree");
+    // Son budget propre : 30 par minute et par site.
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source, routeur) SELECT $1, 'r', true FROM generate_series(1, 29)", [id]);
+    assert.equal((await creer("203.0.113.7")).statut, "trop_de_demandes");
+    await sql(URL_ADMIN, "DELETE FROM app.paiement_demande WHERE site_id = $1 AND routeur", [id]);
+    // IP vue il y a plus de 10 min, ou routeur révoqué : plus de budget propre.
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_vue_le = now() - interval '11 minutes' WHERE id = $1", [r]);
+    assert.equal((await creer("203.0.113.7")).statut, "trop_de_demandes");
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_vue_le = now(), actif = false WHERE id = $1", [r]);
+    assert.equal((await creer("203.0.113.7")).statut, "trop_de_demandes");
+    // Le routeur d'un AUTRE site ne donne rien ici.
+    const w = await vendeur(app, "autre site");
+    const [{ id: id2 }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.site WHERE public_id = $1", [w.publicId]);
+    const r2 = await routeur(w.tenant, id2);
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_publique = '203.0.113.50', ip_vue_le = now() WHERE id = $1", [r2]);
+    assert.equal((await creer("203.0.113.50")).statut, "trop_de_demandes");
+    // IPv6 : même /64 que le routeur ; IPv4 voisine : non.
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_publique = '2001:db8:1:2::1', ip_vue_le = now(), actif = true WHERE id = $1", [r]);
+    const [x] = await sql<{ a: boolean; b: boolean; c: boolean; d: boolean }>(URL_ADMIN,
+      `SELECT app._depuis_routeur($1, '2001:db8:1:2::abcd') AS a, app._depuis_routeur($1, '2001:db8:1:3::1') AS b,
+              app._depuis_routeur($1, '203.0.113.8') AS c, app._depuis_routeur($1, NULL) AS d`, [id]);
+    assert.deepEqual(x, { a: true, b: false, c: false, d: false });
+    // Déploiement (relecture D1) : l'appel de l'ancienne API, sans l'IP, trouve toujours la fonction.
+    const [{ statut }] = await sql<{ statut: string }>(URL_ADMIN,
+      "SELECT statut FROM app.paiement_creer('inconnu', 1, 'moov_bf', '0', '\\x00', 'x', '\\x00', 's', 'r', '?')");
+    assert.equal(statut, "site_inconnu");
+  });
+});
+
+test("migration 0032 : wg_points_noter écrit l'IP d'un routeur actif, au plus toutes les 5 min, jamais une poignée de main ancienne", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "points notés");
+    const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.site WHERE public_id = $1", [v.publicId]);
+    const r = await routeur(v.tenant, id);
+    const cle = randomBytes(32).toString("base64");
+    await sql(URL_ADMIN, "UPDATE app.router SET wg_public_key = $2 WHERE id = $1", [r, cle]);
+    const noter = async (ip: string, vu: string) => (await sql<{ n: number }>(URL_ADMIN,
+      `SELECT app.wg_points_noter(ARRAY[$1], ARRAY[$2]::inet[], ARRAY[${vu}]) AS n`, [cle, ip]))[0].n;
+    assert.equal(await noter("203.0.113.7", "now()"), 1);
+    assert.equal(await noter("203.0.113.7", "now()"), 0, "même IP, vue il y a moins de 5 min : pas réécrite");
+    assert.equal(await noter("203.0.113.8", "now()"), 1, "IP changée : réécrite");
+    assert.equal(await noter("203.0.113.9", "now() - interval '4 minutes'"), 0, "poignée de main de plus de 3 min : ignorée");
+    assert.equal(await noter("203.0.113.9", "now() + interval '5 minutes'"), 0, "poignée de main datée du futur : ignorée");
+    await sql(URL_ADMIN, "UPDATE app.router SET actif = false WHERE id = $1", [r]);
+    assert.equal(await noter("203.0.113.9", "now()"), 0, "routeur révoqué : ignoré");
+    // Relecture P1 : l'IP d'un routeur révoqué est effacée au passage suivant de l'agent ; celle d'un routeur actif
+    // qui n'a pas été revu depuis un jour aussi.
+    assert.equal((await sql<{ ip: string | null }>(URL_ADMIN, "SELECT host(ip_publique) AS ip FROM app.router WHERE id = $1", [r]))[0].ip, null);
+    await sql(URL_ADMIN, "UPDATE app.router SET actif = true, ip_publique = '203.0.113.8', ip_vue_le = now() - interval '25 hours' WHERE id = $1", [r]);
+    await sql(URL_ADMIN, "SELECT app.wg_points_noter('{}'::text[], '{}'::inet[], '{}'::timestamptz[])");
+    assert.equal((await sql<{ ip: string | null }>(URL_ADMIN, "SELECT host(ip_publique) AS ip FROM app.router WHERE id = $1", [r]))[0].ip, null);
+    await assert.rejects(sql(URL_ADMIN, "SELECT app.wg_points_noter(ARRAY['a','b'], ARRAY['1.2.3.4']::inet[], ARRAY[now()])"), /longueurs différentes/);
   });
 });
