@@ -1093,3 +1093,4 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `actionlint` : téléchargement refusé dans la session ;
   - `shellcheck` : absent du poste ;
   - aucun run sur GitHub tant que la branche n'est pas poussée. Les durées et le banc Ansible privilégié restent à confirmer au premier run.
+- **Premier run de la CI** (`63e5841`) : `api` et `wg-agent` verts. `e2e` en échec : `genere/prisma/client.ts` est introuvable. Le client Prisma est ignoré par git et n'existait que sur le poste de développement. Échec reproduit en local en retirant `apps/api/genere`. Correctif : `e2e.sh` et `charge.sh` génèrent le client (`npm run generer`), comme `tests/Dockerfile`. Après correctif, `e2e.sh` est en SUCCÈS en local, à partir d'un client absent.
