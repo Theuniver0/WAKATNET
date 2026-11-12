@@ -23,7 +23,7 @@ Les rôles vérifient la **présence** et les droits de ces fichiers, jamais leu
 | `/etc/wakatnet/pg-roles.env` | root, 0600 | les mots de passe des rôles lus par `migrer.sh` (`WAKATNET_PG_*_PASSWORD`) |
 | `/etc/wakatnet/api.env`, `coa.env`, `maint.env`, `sante.env`, `wg-agent.env` | root, 0600 | variables des unités (voir chaque unité dans `infra/systemd/`) |
 | `/etc/pgbackrest/conf.d/secret.conf` | postgres, 0600 | `repo1-cipher-pass`, clés S3 ; **copie hors des nœuds obligatoire** |
-| `~postgres/.pgpass` (réplique) | postgres, 0600 | ligne `wk_replication` vers l'autre nœud |
+| `~postgres/.pgpass` (**les deux nœuds**) | postgres, 0600 | lignes `wk_replication` et `wk_rewind` vers l'autre nœud (`wk_rewind` sert aussi à la garde contre le double primaire) |
 
 Dans le dépôt de contrôle, non versionnés : `inventaire.yml` (copie de `inventaire.exemple.yml`), `cles/pgdg.asc`, et la clé de l'éditeur de FreeRADIUS. Ces clés publiques sont vérifiées à la main, empreinte comprise.
 

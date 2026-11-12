@@ -8,7 +8,9 @@
 #   3. B avec postgresql_reconstruire_replique=true : réplique en flux sur le slot noeud_b ;
 #   4. second passage sur A et B : aucun changement (idempotence) ;
 #   5. A redéclaré réplique : refusé, A reste primaire et en marche ;
-#   6. FreeRADIUS sans le dépôt de l'éditeur : la 3.2.5 d'Ubuntu est refusée par la garde de version.
+#   6. FreeRADIUS sans le dépôt de l'éditeur : la 3.2.5 d'Ubuntu est refusée par la garde de version ;
+#   7. B promu, puis PostgreSQL de A redémarré par systemd (redémarrage par l'hébergeur) : la garde contre le
+#      double primaire l'en empêche ; Ansible refuse aussi de déclarer A primaire (revue de sécurité E1).
 # Les « secrets » de l'essai (mot de passe de réplication, phrase de pgBackRest) sont aléatoires,
 # posés comme Yacouba les posera à la main, et jamais affichés.
 set -euo pipefail
@@ -19,7 +21,7 @@ BIN="${WAKATNET_ANSIBLE_BIN:-$(dirname "$(command -v ansible-playbook)")}"
 RESEAU="wakatnet-ansible-$$"
 A="wakatnet-noeud-a-$$" B="wakatnet-noeud-b-$$"
 TMP="$(mktemp -d)"
-nettoyer() { docker rm -f "$A" "$B" >/dev/null 2>&1 || true; docker network rm "$RESEAU" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
+nettoyer() { [ "${GARDER:-0}" = 1 ] && return; docker rm -f "$A" "$B" >/dev/null 2>&1 || true; docker network rm "$RESEAU" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap nettoyer EXIT
 etape() { printf '\n=== %s ===\n' "$*"; }
 echec() { echo "ÉCHEC : $*" >&2; exit 1; }
@@ -75,11 +77,14 @@ done
 etape "1. A primaire"
 "${JOUER[@]}" "$ANSIBLE/essais/essai.yml" --limit noeud_a > "$TMP/a1.log" 2>&1 || { tail -30 "$TMP/a1.log"; echec "A"; }
 grep -A3 "PLAY RECAP" "$TMP/a1.log" | grep noeud_a
-# Le rôle de réplication et son mot de passe : posés par migrer.sh (migration 0028) en production.
+# Base et rôles : en production, créés par le rôle noeud_wakatnet (createdb, migrer.sh, migration 0028).
+docker exec -u postgres "$A" createdb wakatnet
 docker exec -i -u postgres "$A" psql -X -q -v ON_ERROR_STOP=1 -v mdp="$MDP" <<'SQL'
 CREATE ROLE wk_replication LOGIN REPLICATION PASSWORD :'mdp';
+CREATE ROLE wk_rewind LOGIN PASSWORD :'mdp';
 SQL
-docker exec -i "$B" bash -c "umask 077 && echo '172.30.77.2:5432:*:wk_replication:$MDP' > /var/lib/postgresql/.pgpass && chown postgres:postgres /var/lib/postgresql/.pgpass"
+docker exec -i "$B" bash -c "umask 077 && printf '%s\n' '172.30.77.2:5432:*:wk_replication:$MDP' '172.30.77.2:5432:*:wk_rewind:$MDP' > /var/lib/postgresql/.pgpass && chown postgres:postgres /var/lib/postgresql/.pgpass"
+docker exec -i "$A" bash -c "umask 077 && printf '%s\n' '172.30.77.3:5432:*:wk_rewind:$MDP' > /var/lib/postgresql/.pgpass && chown postgres:postgres /var/lib/postgresql/.pgpass"
 
 etape "2. B déclaré réplique, installation neuve, sans demande explicite : refusé"
 if "${JOUER[@]}" "$ANSIBLE/essais/essai.yml" --limit noeud_b > "$TMP/b0.log" 2>&1; then echec "B transformé sans demande explicite"; fi
@@ -115,4 +120,15 @@ etape "6. FreeRADIUS sans le dépôt de l'éditeur : version refusée"
 if "${JOUER[@]}" "$ANSIBLE/essais/freeradius.yml" > "$TMP/fr.log" 2>&1; then echec "FreeRADIUS de la distribution accepté"; fi
 grep -oE "FreeRADIUS [0-9.]+ refusé[^\"]*" "$TMP/fr.log" | head -1
 grep -q "FreeRADIUS 3.2.5 refusé" "$TMP/fr.log" || { tail -20 "$TMP/fr.log"; echec "refus de version attendu"; }
+
+etape "7. B promu, A redémarré par systemd : la garde refuse un second primaire"
+docker exec -u postgres "$B" psql -X -q -tA -c "SELECT pg_promote(true, 60)" >/dev/null
+[ "$(docker exec -u postgres "$B" psql -X -tA -c 'SELECT pg_is_in_recovery()')" = f ] || echec "B n'est pas promu"
+if docker exec "$A" systemctl restart postgresql@16-main >/dev/null 2>&1; then echec "A a redémarré en primaire alors que B l'est"; fi
+[ "$(docker exec "$A" systemctl is-active postgresql@16-main || true)" != active ] || echec "PostgreSQL de A actif"
+docker exec "$A" journalctl -u postgresql@16-main --no-pager -n 30 | grep -q "REFUS : l'autre nœud" || echec "refus non journalisé"
+echo "A refusé au démarrage : « l'autre nœud est PRIMAIRE » (journal de l'unité)"
+if "${JOUER[@]}" "$ANSIBLE/essais/essai.yml" --limit noeud_a > "$TMP/a3.log" 2>&1; then echec "Ansible a redémarré A en primaire"; fi
+grep -q "Primaire déclaré, mais l'autre nœud est-il déjà primaire" "$TMP/a3.log" || { tail -20 "$TMP/a3.log"; echec "refus d'Ansible attendu"; }
+echo "Ansible refuse aussi de déclarer A primaire"
 etape "SUCCÈS"

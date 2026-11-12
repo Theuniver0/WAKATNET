@@ -57,6 +57,8 @@ Le spool doit se vider en quelques minutes.
 ## 3. Promouvoir B (A perdu ou indisponible longtemps)
 
 1. **Arrêter A** depuis la console de l'hébergeur : extinction de la machine, ou au minimum `systemctl stop postgresql freeradius` si A est joignable. Le constat « A ne répond pas » ne suffit pas : un lien coupé entre les nœuds ressemble à une panne de A.
+   - **A injoignable** : demander à l'hébergeur de **couper son réseau** (ou de le laisser éteint) jusqu'à l'étape du §4. Sinon, un redémarrage de A par l'hébergeur le ferait revenir alors que B est primaire.
+   - Garde automatique (revue de sécurité E1) : au démarrage, PostgreSQL de A demande à B s'il est primaire et **refuse de démarrer** si oui, ou si B répond sans que son état puisse être lu. La garde ne peut rien si le lien entre nœuds est coupé : d'où la coupure demandée ci-dessus.
 2. Sur A, s'il est joignable, empêcher tout redémarrage en primaire :
 
    ```bash

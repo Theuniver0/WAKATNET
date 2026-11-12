@@ -24,9 +24,10 @@ declare module "fastify" {
 }
 
 
-/** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal. */
+/** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal, ni la
+ *  chaîne de requête (revue de sécurité M5 : page demandée par le client du hotspot, recherches). */
 export function cheminMasque(url: string): string {
-  return url.replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
+  return url.split("?")[0].replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
 }
 
 export function construire(config: Config, base: Base,

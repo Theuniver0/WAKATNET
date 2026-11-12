@@ -45,6 +45,35 @@
     mode: "0640"
   notify: Recharger PostgreSQL
 
+# Revue de sécurité E1 : jamais deux primaires. La garde s'exécute à CHAQUE démarrage de l'unité (y compris
+# un redémarrage par l'hébergeur), installée ici même : l'unité ne doit jamais pointer vers un fichier absent.
+- name: Garde contre le double primaire
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/infra/noeud/garde-double-primaire.sh"
+    dest: /usr/local/sbin/wakatnet-garde-double-primaire
+    mode: "0755"
+
+- name: Répertoire des compléments de l'unité PostgreSQL
+  ansible.builtin.file:
+    path: "/etc/systemd/system/postgresql@{{ postgresql_version }}-main.service.d"
+    state: directory
+    mode: "0755"
+
+- name: Garde appelée au démarrage de PostgreSQL
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/postgresql@{{ postgresql_version }}-main.service.d/wakatnet.conf"
+    mode: "0644"
+    content: |
+      # WAKATNET (Ansible) : refuse de démarrer en primaire si l'autre nœud l'est déjà (revue de sécurité E1).
+      [Service]
+      Environment=PGDATA={{ postgresql_data_dir }}
+      Environment=WAKATNET_PG_PAIR={{ wk_noeuds_pair_ip }}
+      ExecStartPre=/usr/local/sbin/wakatnet-garde-double-primaire
+  notify: Recharger systemd
+
+- name: Appliquer le rechargement de systemd
+  ansible.builtin.meta: flush_handlers
+
 - name: État de la réplique
   ansible.builtin.stat:
     path: "{{ postgresql_data_dir }}/standby.signal"
@@ -76,6 +105,13 @@
       ansible.builtin.systemd_service:
         name: postgresql
         state: stopped
+    # Le répertoire n'est effacé qu'une fois PostgreSQL VRAIMENT arrêté (constaté au banc : l'archiveur
+    # écrivait encore quand le répertoire disparaissait).
+    - name: Attendre l'arrêt complet de PostgreSQL
+      ansible.builtin.wait_for:
+        path: "{{ postgresql_data_dir }}/postmaster.pid"
+        state: absent
+        timeout: 120
     - name: Vider le répertoire de données (demande explicite)
       ansible.builtin.file:
         path: "{{ postgresql_data_dir }}"
@@ -87,6 +123,16 @@
         argv: [pg_basebackup, -h, "{{ wk_noeuds_pair_ip }}", -U, wk_replication, -D, "{{ postgresql_data_dir }}",
                -R, -S, noeud_b, -X, stream, -c, fast]
         creates: "{{ postgresql_data_dir }}/standby.signal"
+
+- name: Primaire déclaré, mais l'autre nœud est-il déjà primaire ?
+  when: wakatnet_role == "primaire"
+  become: true
+  become_user: postgres
+  ansible.builtin.command: /usr/local/sbin/wakatnet-garde-double-primaire
+  environment:
+    PGDATA: "{{ postgresql_data_dir }}"
+    WAKATNET_PG_PAIR: "{{ wk_noeuds_pair_ip }}"
+  changed_when: false
 
 - name: PostgreSQL actif au démarrage
   ansible.builtin.systemd_service:

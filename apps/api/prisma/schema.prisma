@@ -305,6 +305,7 @@ model utilisateur {
   actif                                              Boolean               @default(true)
   cree_le                                            DateTime              @default(now()) @db.Timestamptz(6)
   session_utilisateur                                session_utilisateur[]
+  totp_essai                                         totp_essai[]
   tenant                                             tenant?               @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   point_of_sale                                      point_of_sale?        @relation(fields: [tenant_id, point_of_sale_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   voucher_batch_voucher_batch_cree_parToutilisateur  voucher_batch[]       @relation("voucher_batch_cree_parToutilisateur")
@@ -360,5 +361,16 @@ model plateforme_parametre {
   note   String   @default("")
   maj_le DateTime @default(now()) @db.Timestamptz(6)
 
+  @@schema("app")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model totp_essai {
+  id             BigInt      @id @default(autoincrement())
+  utilisateur_id BigInt
+  le             DateTime    @default(now()) @db.Timestamptz(6)
+  utilisateur    utilisateur @relation(fields: [utilisateur_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([utilisateur_id, le], map: "totp_essai_utilisateur")
   @@schema("app")
 }

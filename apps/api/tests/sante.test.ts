@@ -42,12 +42,18 @@ test("règles : une alerte seulement au CHANGEMENT d'état ; un envoi échoué e
 
 test("règles de réplication : A sans réplique en flux, B sans flux reçu, retard > 5 min ; sauvegarde suivie sur le primaire seul", () => {
   const ids = (m: Mesure[]) => Object.entries(evaluer(m, {}, new Date()).etat).filter(([, e]) => e.active).map(([k]) => k).sort();
-  assert.deepEqual(ids([M("en_recuperation", 0), M("replicas_en_flux", 0), M("sauvegarde_age_s", 60)]), ["replication_a"]);
+  const essaiOk = [M("essai_restauration_ok", 1), M("essai_restauration_age_s", 60)];
+  assert.deepEqual(ids([M("en_recuperation", 0), M("replicas_en_flux", 0), M("sauvegarde_age_s", 60), ...essaiOk]), ["replication_a"]);
   assert.deepEqual(ids([M("en_recuperation", 1), M("recepteur_en_flux", 0)]), ["replication_b"]);
   assert.deepEqual(ids([M("en_recuperation", 1), M("recepteur_en_flux", 1), M("replication_retard_s", 301)]), ["replication_retard"]);
   assert.deepEqual(ids([M("en_recuperation", 1), M("recepteur_en_flux", 1)]), [], "une réplique ne prend pas les sauvegardes");
-  assert.deepEqual(ids([M("en_recuperation", 0), M("replicas_en_flux", 1)]), ["sauvegarde"], "primaire sans sauvegarde connue : alerte");
-  assert.deepEqual(ids([M("en_recuperation", 0), M("replicas_en_flux", 1), M("sauvegarde_age_s", 3600)]), []);
+  assert.deepEqual(ids([M("en_recuperation", 0), M("replicas_en_flux", 1), ...essaiOk]), ["sauvegarde"], "primaire sans sauvegarde connue : alerte");
+  assert.deepEqual(ids([M("en_recuperation", 0), M("replicas_en_flux", 1), M("sauvegarde_age_s", 3600), ...essaiOk]), []);
+  // Revue de sécurité M6 : essai de restauration en échec, trop vieux ou jamais lancé, sur le primaire.
+  const base0 = [M("en_recuperation", 0), M("replicas_en_flux", 1), M("sauvegarde_age_s", 3600)];
+  assert.deepEqual(ids([...base0, M("essai_restauration_ok", 0), M("essai_restauration_age_s", 60)]), ["essai_restauration"]);
+  assert.deepEqual(ids([...base0, M("essai_restauration_ok", 1), M("essai_restauration_age_s", 36 * 86400)]), ["essai_restauration"]);
+  assert.deepEqual(ids(base0), ["essai_restauration"], "jamais lancé : alerte");
 });
 
 test("silences des 5 dernières minutes et pairs WireGuard muets", () => {
@@ -91,7 +97,7 @@ test("tour de santé sur la vraie base : app.sante() en tant que wk_sante, silen
   const url = URL_API.replace(/\/\/wk_api:[^@]*@/, `//wk_sante:${process.env.WAKATNET_PG_SANTE_PASSWORD}@`);
   const cfg: ConfigSante = { noeud: "A", urlBase: url, dossierSilences: join(d, "silences"), spool: join(d, "spool"),
     etatSauvegarde: join(d, "sauvegarde.json"), sortieMetriques: join(d, "wakatnet.prom"), fichierEtat: join(d, "etat.json"),
-    services: [], interfaceWg: "wg-absente" };
+    services: [], interfaceWg: "wg-absente", etatEssai: join(d, "essai.json") };
   const envois: string[] = [];
   const e = await tourSante(cfg, async (t) => { envois.push(t); });
   assert.equal(e.alertes.base_injoignable.active, false, "wk_sante joint la base et exécute app.sante()");

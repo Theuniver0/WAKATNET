@@ -21,7 +21,15 @@ PORT="${WAKATNET_ESSAI_PORT:-5499}"
 PGBIN="${WAKATNET_PGBIN:-/usr/lib/postgresql/16/bin}"
 VIVANTE=(psql -X -q -tA -v ON_ERROR_STOP=1 -d "${WAKATNET_BASE:-wakatnet}")
 
+# Sur le primaire seulement, comme la sauvegarde (une réplique doublerait charge et disque).
+if [ "$("${VIVANTE[@]}" -c 'SELECT pg_is_in_recovery()')" = t ]; then
+  echo "essai de restauration : réplique, rien à faire sur ce nœud"
+  exit 0
+fi
 install -d -m 0700 "$RACINE"
+# Une copie laissée par un essai interrompu (SIGKILL à l'expiration du délai : le piège EXIT ne s'exécute
+# pas) est une base EN CLAIR sur disque : effacée avant tout (revue de sécurité F7).
+rm -rf "$RACINE"/donnees.*
 DONNEES="$(mktemp -d "$RACINE/donnees.XXXXXX")"
 ESSAI=(psql -X -q -tA -v ON_ERROR_STOP=1 -h "$DONNEES" -p "$PORT" -d "${WAKATNET_BASE:-wakatnet}")
 nettoyer() {

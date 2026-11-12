@@ -98,6 +98,12 @@
     dest: /usr/local/sbin/wakatnet-verifier-env
     mode: "0755"
 
+- name: Répertoire des compléments de l'unité FreeRADIUS
+  ansible.builtin.file:
+    path: /etc/systemd/system/freeradius.service.d
+    state: directory
+    mode: "0755"
+
 - name: Unité FreeRADIUS complétée (environnement et garde)
   ansible.builtin.copy:
     dest: /etc/systemd/system/freeradius.service.d/wakatnet.conf

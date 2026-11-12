@@ -1,6 +1,12 @@
 # WAKATNET — accès à PostgreSQL du nœud {{ wakatnet_noeud }} (ADR 0015 §1). Géré par Ansible.
 # TYPE  BASE         UTILISATEUR      ADRESSE                       MÉTHODE
 local   all          postgres                                       peer
+# wk_rewind lit tout le répertoire de données (pg_read_binary_file) : depuis l'autre nœud seulement,
+# jamais en local (revue de sécurité F6). wk_replication : réplication seulement.
+local   all          wk_rewind                                      reject
+host    all          wk_rewind        127.0.0.1/32                  reject
+local   all          wk_replication                                 reject
+host    all          wk_replication   127.0.0.1/32                  reject
 local   all          all                                            scram-sha-256
 host    wakatnet     all              127.0.0.1/32                  scram-sha-256
 # L'autre nœud, par wk-noeuds seulement : réplication, retour en réplique (pg_rewind), rejeu de

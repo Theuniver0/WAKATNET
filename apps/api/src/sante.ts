@@ -62,6 +62,10 @@ export const REGLES: Regle[] = [
   // Après une bascule, le nouveau primaire alerte jusqu'à sa première sauvegarde : c'est voulu.
   { id: "sauvegarde", titre: "Dernière sauvegarde réussie il y a plus de 26 h",
     active: (v) => v("en_recuperation") === 0 && (v("sauvegarde_age_s") ?? Infinity) > 26 * 3600 },
+  // Revue de sécurité M6 : l'échec de l'essai mensuel (écart du grand livre compris) DOIT se voir. Sur le
+  // primaire ; un essai jamais lancé alerte aussi (le lancer une fois au déploiement).
+  { id: "essai_restauration", titre: "Essai de restauration en échec, ou plus vieux que 35 jours",
+    active: (v) => v("en_recuperation") === 0 && (v("essai_restauration_ok") !== 1 || (v("essai_restauration_age_s") ?? Infinity) > 35 * 86400) },
 ];
 
 /** Évalue les règles ; rend le nouvel état et les transitions à notifier (y compris celles dont l'envoi a échoué). */
@@ -123,7 +127,7 @@ async function lireTexte(p: string): Promise<string | null> {
 
 export type ConfigSante = {
   noeud: string; urlBase: string; dossierSilences: string; spool: string; etatSauvegarde: string;
-  sortieMetriques: string; fichierEtat: string; services: string[]; interfaceWg: string;
+  sortieMetriques: string; fichierEtat: string; services: string[]; interfaceWg: string; etatEssai: string;
 };
 
 async function mesuresBase(urlBase: string): Promise<Mesure[]> {
@@ -176,6 +180,14 @@ export async function mesurer(cfg: ConfigSante, maintenant = new Date()): Promis
       const s = JSON.parse(sauvegarde) as { fin: string; ok: boolean };
       if (s.ok) m.push({ nom: "sauvegarde_age_s", aide: "âge de la dernière sauvegarde réussie", valeur: Math.round((maintenant.getTime() - Date.parse(s.fin)) / 1000) });
     } catch { /* fichier illisible : pas de mesure, l'alerte « sauvegarde » se déclenche */ }
+  }
+  const essai = await lireTexte(cfg.etatEssai);
+  if (essai) {
+    try {
+      const s = JSON.parse(essai) as { fin: string; ok: boolean };
+      m.push({ nom: "essai_restauration_ok", aide: "1 si le dernier essai de restauration a réussi", valeur: s.ok ? 1 : 0 },
+             { nom: "essai_restauration_age_s", aide: "âge du dernier essai de restauration", valeur: Math.round((maintenant.getTime() - Date.parse(s.fin)) / 1000) });
+    } catch { /* illisible : pas de mesure, l'alerte se déclenche */ }
   }
   return m;
 }
@@ -230,6 +242,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     fichierEtat: env.WAKATNET_ETAT_NOEUD ?? "/var/lib/wakatnet/sante/etat.json",
     services: (env.WAKATNET_SERVICES ?? "freeradius,postgresql,wakatnet-wg-agent").split(",").filter(Boolean),
     interfaceWg: env.WAKATNET_WG_INTERFACE ?? "wg0",
+    etatEssai: env.WAKATNET_ETAT_ESSAI ?? "/var/lib/wakatnet/essai-restauration.json",
   };
   const jeton = env.WAKATNET_TELEGRAM_JETON, salon = env.WAKATNET_TELEGRAM_SALON;
   const envoyer = jeton && salon

@@ -89,6 +89,12 @@ ATTENDU = {
     "app.reversements_a_traiter(p_limite integer, p_age_min_s integer)": {"wk_api"},
     # Phase 5, ticket 05 : mesures de santé du nœud (ADR 0015 §6).
     "app.sante()": {"wk_sante"},
+    # Phase 5, ticket 08 : corrections de la revue de sécurité (E2, M2, M3).
+    "app.connexion_reserver(p_email text)": {"wk_api"},
+    "app.connexion_reussie(p_essai bigint)": {"wk_api"},
+    "app.totp_reserver(p_empreinte bytea)": {"wk_api"},
+    "app.totp_reussi(p_essai bigint)": {"wk_api"},
+    "app.utilisateur_desactiver(p_utilisateur bigint, p_auteur bigint)": {"wk_api"},
 }
 
 
@@ -128,7 +134,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
                       ("wk_api", "app.admin_regler"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
-                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_echouee"), ("wk_api", "app.connexion_lire"),
+                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_echouee"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"),
                       ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
                       ("wk_api", "app.inscription"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
@@ -141,7 +147,8 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.reversements_a_traiter"), ("wk_api", "app.session_fermer"),
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),
                       ("wk_api", "app.stats_ventes_papier"), ("wk_api", "app.synthese_argent"), ("wk_api", "app.tenant_courant"),
-                      ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"), ("wk_api", "app.voucher_importer"),
+                      ("wk_api", "app.totp_reserver"), ("wk_api", "app.totp_reussi"), ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"),
+                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.voucher_importer"),
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),

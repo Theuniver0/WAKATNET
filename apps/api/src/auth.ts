@@ -178,20 +178,21 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
       return rep.code(201).send({ ok: true });
     });
 
-    // Connexion : même réponse que le compte existe ou non ; 5 échecs par adresse en 15 min.
+    // Connexion : même réponse que le compte existe ou non ; 5 essais par adresse en 15 min, RÉSERVÉS en
+    // base avant la vérification (revue de sécurité M2 : des requêtes parallèles ne passent plus outre).
     pub.post<{ Body: { email?: unknown; mot_de_passe?: unknown } }>("/v1/connexion", async (req, rep) => {
       const { email, mot_de_passe } = req.body ?? {};
       if (typeof email !== "string" || typeof mot_de_passe !== "string" || email.length > 254 || mot_de_passe.length > 200) {
         return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
       }
-      const [l] = await base.$queryRaw<{ utilisateur_id: bigint | null; mot_de_passe: string | null; actif: boolean | null; echecs_recents: number }[]>`
-        SELECT utilisateur_id, mot_de_passe, actif, echecs_recents FROM app.connexion_lire(${email})`;
-      if (l.echecs_recents >= 5) return rep.code(429).send({ erreur: "trop d'essais : patientez 15 minutes" });
+      const [{ essai }] = await base.$queryRaw<{ essai: bigint | null }[]>`SELECT app.connexion_reserver(${email}) AS essai`;
+      if (essai === null) return rep.code(429).send({ erreur: "trop d'essais : patientez 15 minutes" });
+      const [l] = await base.$queryRaw<{ utilisateur_id: bigint | null; mot_de_passe: string | null; actif: boolean | null }[]>`
+        SELECT utilisateur_id, mot_de_passe, actif FROM app.connexion_lire(${email})`;
       const bon = await verifier(mot_de_passe, l.mot_de_passe ?? (await empreinteFactice()));
-      if (!bon || l.utilisateur_id === null || !l.actif) {
-        await base.$executeRaw`SELECT app.connexion_echouee(${email})`;
-        return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
-      }
+      // Échec : la réservation reste et compte. Réussite : elle est effacée.
+      if (!bon || l.utilisateur_id === null || !l.actif) return rep.code(401).send({ erreur: "adresse ou mot de passe incorrect" });
+      await base.$executeRaw`SELECT app.connexion_reussie(${essai})`;
       poserSession(rep, await ouvrirSession(base, l.utilisateur_id));
       return { ok: true };
     });
@@ -217,11 +218,19 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
       const [s] = await base.$queryRaw<{ email: string; secret: Buffer | null }[]>`
         SELECT email, secret FROM app.totp_secret(${empreinte(j)})`;
       if (!s || !s.secret) return rep.code(403).send({ erreur: "double authentification indisponible" });
+      // 5 essais en 15 min par super-admin, réservés avant la vérification ; au-delà, session fermée et
+      // événement audité (revue de sécurité E2 : 10^6 codes se devinaient sans limite).
+      const [{ essai }] = await base.$queryRaw<{ essai: bigint | null }[]>`SELECT app.totp_reserver(${empreinte(j)}) AS essai`;
+      if (essai === null) {
+        rep.header("set-cookie", `${COOKIE_SESSION}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+        return rep.code(429).send({ erreur: "trop d'essais : session fermée, reconnectez-vous dans 15 minutes" });
+      }
       const secret = dechiffrer(cleChiffrement, s.secret, `totp:${s.email}`);
       const pas = totpPas(secret, String(req.body?.code ?? ""));
       if (pas === null) return rep.code(401).send({ erreur: "code invalide" });
       const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.totp_valider(${empreinte(j)}, ${pas}) AS ok`;
       if (!ok) return rep.code(401).send({ erreur: "code déjà utilisé" });
+      await base.$executeRaw`SELECT app.totp_reussi(${essai})`;
       return { ok: true };
     });
   });
