@@ -704,3 +704,17 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - **écart avec D10, assumé** : pas de BullMQ en phase 3, une minuterie systemd suffit ;
   - portail servi par le processus de l'API, sur l'IP dédiée ;
   - garde contre une redirection ouverte pour l'auto-connexion.
+
+### Phase 3, ticket 02 : grand livre (12/11/2026)
+
+- `infra/sql/ledger/0018_ledger_socle.sql` (ADR 0013 §3 à §5) : en-tête et lignes, débit **ou** crédit sur chaque ligne, équilibre vérifié à la validation par des déclencheurs différés. **Ajout seul** : `UPDATE`, `DELETE` et `TRUNCATE` sont refusés par déclencheur, propriétaire des tables compris, et aucun rôle de connexion n'a de droit. `ledger.ecrire` est la seule porte, idempotente sur sa clé ; une même clé avec un autre contenu est refusée. `ledger.commission` arrondit au franc, 0,5 vers le haut. `migrer.sh` lit désormais aussi `infra/sql/ledger/`.
+- **Trouvé et corrigé en exécution** :
+  - un déclencheur différé s'exécute **à la validation, avec les droits du rôle de connexion**, et non ceux de la fonction `SECURITY DEFINER` qui a écrit. Les fonctions de vérification sont donc `SECURITY DEFINER`. Les tests du grand livre, lancés en superutilisateur, ne le voyaient pas ; ceux du paiement passent par `wk_api` et le couvrent ;
+  - la clé étrangère `ledger.compte → app.tenant` faisait échouer la remise à zéro des tests de la phase 1 (`TRUNCATE … CASCADE` atteignait le grand livre). Elle est retirée, et le propriétaire est vérifié à la création du compte. Le grand livre survit ainsi à toute suppression applicative.
+- **Preuves** : 7 tests de propriétés (fast-check 4.10.2) sur PostgreSQL réel, dont 60 suites aléatoires d'opérations avec doublons de clés :
+  - soldes égaux au modèle ;
+  - rejeu complet sans nouvelle ligne ;
+  - Σ débits = Σ crédits, par transaction et en tout ;
+  - écritures déséquilibrées et lignes invalides refusées sans trace ;
+  - ajout seul vérifié ;
+  - commission exacte sur la table du §8.1, les frais de l'ADR 0002 et 200 tirages contre une référence en `BigInt`.

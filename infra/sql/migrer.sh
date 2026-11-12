@@ -39,7 +39,7 @@ ATTENTE_VERROU="${WAKATNET_MIGRATION_ATTENTE_VERROU:-200ms}"
   sha256 text NOT NULL,
   applique_le timestamptz NOT NULL DEFAULT now())"
 
-mapfile -t FICHIERS < <(find "$ICI/app" "$ICI/radius" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\t%p\n' | sort | cut -f2)
+mapfile -t FICHIERS < <(find "$ICI/app" "$ICI/radius" "$ICI/ledger" -maxdepth 1 -name '[0-9][0-9][0-9][0-9]_*.sql' -printf '%f\t%p\n' | sort | cut -f2)
 for f in "${FICHIERS[@]}"; do
   nom="$(basename "$f")"
   empreinte="$(sha256sum "$f" | cut -d' ' -f1)"
