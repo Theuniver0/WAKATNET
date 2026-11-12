@@ -259,7 +259,7 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
 ## 13. Base indisponible
 
 - `authorize` est encadré par `map_auth { fail = 1 }` suivi de `if (fail) { do_not_respond }` (mécanisme vérifié dans `modcall.c` et `auth.c`). Pour `client_lookup`, un `fail` de `map_clients` donne déjà « pas de client, donc paquet ignoré » (`listen.c` l. 338–353), sans autre configuration.
-- Puisque `authorize` et `client_lookup` ne lèvent jamais d'exception à cause d'une donnée, un `fail` ne vient que d'une indisponibilité, d'un délai dépassé ou d'un **défaut de déploiement**. Ce dernier cas est intercepté par le test de fumée exécuté après chaque migration (ticket 08).
+- Puisque `authorize` et `client_lookup` ne lèvent jamais d'exception à cause d'une donnée, un `fail` ne vient que d'une indisponibilité, d'un délai dépassé ou d'un **défaut de déploiement**. Ce dernier cas est **détecté** (non empêché) par le test de fumée exécuté après chaque migration (ticket 08, ADR 0009 §3).
 - **Délais**, énoncés honnêtement :
   - **Borne principale** : `ALTER ROLE wk_radius SET statement_timeout = '500ms'`. Un dépassement donne le code 57014, classé **sans reconnexion**, donc un `fail` immédiat. Les connexions déjà ouvertes gardent l'ancienne valeur jusqu'au redémarrage de radiusd.
   - `query_timeout = 1` (minimum du pilote, en secondes). Son dépassement (base qui ne répond plus du tout) provoque une reconnexion et un rejeu. Avec libpq, qui arrondit `connect_timeout` à au moins 2 s (d'après sa documentation, non vérifié dans le code), le **pire cas dépasse le `timeout` de RouterOS**.
