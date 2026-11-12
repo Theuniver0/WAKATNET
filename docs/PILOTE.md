@@ -68,9 +68,38 @@ sudo -u postgres env WAKATNET_ADMIN_DATABASE_URL=postgresql:///wakatnet node /op
 5. Ce qui est expliqué sans être un écart, mais reste listé :
    - un paiement de part et d'autre de minuit ;
    - une confirmation tardive (webhook perdu, repris par la vérification périodique, dans les 24 h).
-6. Ce qu'il **ne** contrôle **pas** : les frais de l'agrégateur, qui ne sont pas au relevé tant que son format n'est pas connu, et les ventes en espèces (tickets papier). Ces dernières se rapprochent à la main : tickets activés au tableau de bord, contre la caisse du point de vente.
+6. Ce qu'il **ne** contrôle **pas** : le montant des frais de l'agrégateur par rapport à son contrat (avec pawaPay, ils sont seulement totalisés ; voir plus bas), et les ventes en espèces (tickets papier). Ces dernières se rapprochent à la main : tickets activés au tableau de bord, contre la caisse du point de vente.
 
-Les colonnes et les statuts se règlent par options (`--col-reference`, `--col-montant`, `--col-date`, `--col-statut`, `--reussi`, `--echec`, `--sep`), une fois le format réel du relevé connu.
+Les colonnes et les statuts se règlent par options (`--col-reference`, `--col-montant`, `--col-date`, `--col-statut`, `--reussi`, `--echec`, `--hors-paiement`, `--sep`), une fois le format réel du relevé connu.
+
+### Relevé pawaPay (ADR 0020)
+
+Le relevé de pawaPay (Dashboard > Finances > Statements > Export, ou `POST /v2/statements`) est le **journal du portefeuille**, et non une liste de paiements :
+- une ligne par mouvement de solde, sans colonne de statut ;
+- aucun dépôt échoué ;
+- les frais de chaque dépôt sur des lignes à part ;
+- les retraits sans `Transaction ID` ;
+- `Transaction ID` = le `depositId` (UUID), que l'outil retrouve par la référence du fournisseur.
+
+Profil, d'après les colonnes documentées (docs.pawapay.io, lu le 12/11/2026) :
+
+```bash
+sudo -u postgres env WAKATNET_ADMIN_DATABASE_URL=postgresql:///wakatnet node /opt/wakatnet/apps/api/src/rapprochement.ts --proprietaire 1 --jour 2026-11-20 --releve releve.csv --releve-du 2026-11-19T00:00:00Z --releve-au 2026-11-21T08:00:00Z --sep , --col-reference "Transaction ID" --col-montant Amount --col-date "Creation date" --col-statut Type --reussi Deposit --hors-paiement "Deposit pass through fees,Deposit PawaPay fees,Withdrawal"
+```
+
+- **Pas de `--echec`** : le journal ne contient que des mouvements réalisés. Un paiement réussi chez nous et absent du journal reste un écart (`absent_du_releve`).
+- **Lignes hors paiement** : frais et retraits sont totalisés par type au rapport, sans être rapprochés ligne à ligne. Trois garde-fous restent actifs (relecture de la règle 4) :
+  - une ligne hors paiement **créditrice** arrête l'outil (code 2) ;
+  - une ligne hors paiement qui porte la référence d'un dépôt absent du relevé est **à instruire** (`hors_paiement_orphelin`) : c'est le cas d'un remboursement déclaré par erreur ;
+  - la même ligne présente deux fois est **à instruire** (`doublon_releve`), et n'est comptée qu'une fois.
+- **Tout autre type arrête l'outil (code 2)** : ajustement manuel de pawaPay (« Adjustment - … », « Compensation - … »), remboursement, recharge. Lire la colonne `Reason`, noter la ligne au journal du pilote avec sa cause, puis relancer, en ajoutant ce type à `--hors-paiement` seulement s'il ne touche aucun encaissement. Un remboursement (`Refund`) ne s'y ajoute jamais : le ticket a été délivré et l'argent rendu. En particulier, « Adjustment - Collections received » **est** un encaissement : un dépôt crédité à la main. Il s'instruit comme un `absent_du_releve`.
+- **Non vérifié, à confirmer sur le premier export du bac à sable** :
+  - le format exact de `Creation date` (l'outil exige l'ISO 8601) ;
+  - le séparateur ;
+  - les décimales et le signe de `Amount` (« 200.00 » est accepté pour un dépôt, une décimale non nulle refusée ; frais signés, deux décimales au plus) ;
+  - le libellé exact des types (comparés sans tenir compte de la casse) ;
+  - et si les lignes de frais portent le `Transaction ID` du dépôt.
+- **Ce que ce profil ne contrôle toujours pas** : le montant des frais par rapport à la grille du contrat. Il les totalise seulement.
 
 ## 5. Arrêt du pilote : critères, et ce qu'on fait
 

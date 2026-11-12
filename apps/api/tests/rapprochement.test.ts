@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import fc from "fast-check";
-import { ECARTS_A_INSTRUIRE, EXPLIQUES, lireDate, lireReleve, rapprocher, verifierCouverture,
+import { ECARTS_A_INSTRUIRE, EXPLIQUES, lireDate, lireReleve, rapportMarkdown, rapprocher, verifierCouverture,
          type Commission, type LigneBase, type LigneReleve } from "../src/rapprochement.ts";
 import { avecApp, sql, URL_ADMIN } from "./aide.ts";
 import { attendreStatut, jeton, numero, soumission, vendeur } from "./aide-paiement.ts";
@@ -181,6 +181,80 @@ test("contre-relecture N1 à N5", () => {
   assert.equal(lireDate("2026-11-20T10:00:00.250Z")!.toISOString(), "2026-11-20T10:00:00.250Z");
 });
 
+test("relevé pawaPay (journal du portefeuille) : frais et retraits hors paiement, totalisés ; aucun échec ; « 100.00 »", () => {
+  // Colonnes de l'export documenté (docs.pawapay.io, Dashboard > Statements, lu le 12/11/2026). Les VALEURS (format de
+  // date, signe et décimales des frais) ne sont pas documentées : à confirmer sur le premier export du bac à sable.
+  const DEP = "3f2a9c1e-0b4d-4e8a-9c2f-1a2b3c4d5e6f";
+  const csv = "Creation date,MSISDN,Transaction ID,Amount,MNO,Type,Balance,Reason,Metadata\n"
+    + `2026-11-20 10:00:00,22607345678,${DEP},200.00,ORANGE_BFA,Deposit,1200.00,,"{""a"":1,""b"":2}"\n`
+    + `2026-11-20 10:00:00,22607345678,${DEP},-3.50,ORANGE_BFA,Deposit pass through fees,1196.50,,\n`
+    + `2026-11-20 10:00:00,22607345678,${DEP},-2,ORANGE_BFA,Deposit PawaPay fees,1194.50,,\n`
+    + "2026-11-20 18:00:00,,,-1000.00,,Withdrawal,194.50,Règlement,\n"
+    + "2026-11-19 18:00:00,,,-50,,Withdrawal,0,Règlement,\n";
+  const PP = { reference: "Transaction ID", montant: "Amount", date: "Creation date", statut: "Type", reussi: ["Deposit"], echec: [],
+               hors: ["Deposit pass through fees", "Deposit PawaPay fees", "Withdrawal"] };
+  const l = lireReleve(csv, PP, J);
+  assert.deepEqual(l.filter((x) => !x.hors).map((x) => [x.reference, x.montant, x.reussi]), [[DEP, 200n, true]]);
+  assert.deepEqual(l.filter((x) => x.hors).map((x) => [x.hors, x.centimes]),
+    [["DEPOSIT PASS THROUGH FEES", -350n], ["DEPOSIT PAWAPAY FEES", -200n], ["WITHDRAWAL", -100000n], ["WITHDRAWAL", -5000n]]);
+  // Rapproché par le depositId (référence du fournisseur) : écart nul ; les lignes hors paiement ne sont jamais des écarts.
+  const p = b("wk_P", 200, T(10, 0, 5), "SUCCEEDED", DEP);
+  const x = rapprocher(J, [p], l, [c(p)]);
+  assert.deepEqual(cats(x), ["concordant:wk_P"]);
+  assert.equal(x.ecartNul, true);
+  // Totalisées par type, pour le jour J seulement (le retrait du 19 n'en est pas).
+  assert.deepEqual(x.totaux.hors, [{ type: "DEPOSIT PASS THROUGH FEES", nombre: 1, centimes: -350n },
+    { type: "DEPOSIT PAWAPAY FEES", nombre: 1, centimes: -200n }, { type: "WITHDRAWAL", nombre: 1, centimes: -100000n }]);
+  const rapport = rapportMarkdown(x, "1", { du: T(0, 0, 0, 19), au: T(8, 0, 0, 21) });
+  assert.match(rapport, /Lignes hors paiement/);
+  assert.match(rapport, /\| DEPOSIT PASS THROUGH FEES \| 1 \| -3\.50 F \|/);
+  assert.match(rapport, /\| WITHDRAWAL \| 1 \| -1000\.00 F \|/);
+  // Un encaissement absent du relevé reste un écart, même sans aucune ligne d'échec possible.
+  const q = b("wk_Q", 300, T(11));
+  assert.deepEqual(cats(rapprocher(J, [p, q], l, [c(p), c(q)])), ["absent_du_releve:wk_Q", "concordant:wk_P"]);
+
+  // Rien n'est assoupli pour le reste : toute ligne non déclarée reste une ERREUR.
+  const erreur = (ligne: string, motif: RegExp, col = PP) =>
+    assert.throws(() => lireReleve("Creation date,MSISDN,Transaction ID,Amount,MNO,Type,Balance,Reason,Metadata\n" + ligne + "\n", col, J), motif);
+  erreur("2026-11-20 10:00:00,,,500,,Adjustment - Collections received,0,Correction,", /ni réussi ni en échec/);
+  erreur(`2026-11-20 10:00:00,226,${DEP},-3.50,ORANGE_BFA,Deposit pass through fees,0,,`, /ni réussi ni en échec/, { ...PP, hors: [] });
+  erreur(`2026-11-20 10:00:00,226,${DEP},200.50,ORANGE_BFA,Deposit,0,,`, /montant/);
+  erreur(`2026-11-20 10:00:00,226,${DEP},-200.00,ORANGE_BFA,Deposit,0,,`, /montant/);
+  erreur(`2026-11-20 10:00:00,226,${DEP},200.001,ORANGE_BFA,Deposit,0,,`, /montant/);
+  erreur("2026-11-20 10:00:00,226,,200,ORANGE_BFA,Deposit,0,,", /référence vide/);
+  erreur("2026-11-20 10:00:00,,,-3.505,,Withdrawal,0,,", /montant/);
+  erreur("2026-11-20 10:00:00,,,abc,,Withdrawal,0,,", /montant/);
+  erreur("2026-12-25 10:00:00,,,-3,,Withdrawal,0,,", /hors de la fenêtre/);
+  assert.throws(() => lireReleve("a,b,c,d\n", { ...PP, reference: "a", montant: "b", date: "c", statut: "d", hors: ["Deposit"] }), /à la fois réussi et hors paiement/);
+  assert.throws(() => lireReleve("a,b,c,d\n", { ...PP, reference: "a", montant: "b", date: "c", statut: "d", hors: ["Withdrawal", " "] }), /sans valeur vide/);
+  // Des listes de réussite vide restent refusées : le relevé doit dire ce qu'est un encaissement.
+  assert.throws(() => lireReleve("a,b,c,d\n", { ...PP, reference: "a", montant: "b", date: "c", statut: "d", reussi: [] }), /--reussi/);
+});
+
+test("relecture du profil pawaPay : ligne hors paiement créditrice, orpheline ou en double", () => {
+  const DEP = "3f2a9c1e-0b4d-4e8a-9c2f-1a2b3c4d5e6f", AUTRE = "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b";
+  const PP = { reference: "Transaction ID", montant: "Amount", date: "Creation date", statut: "Type", reussi: ["Deposit"], echec: [],
+               hors: ["Deposit PawaPay fees", "Withdrawal", "Refund"] };
+  const ENT = "Creation date,MSISDN,Transaction ID,Amount,MNO,Type,Balance,Reason,Metadata\n";
+  const dep = `2026-11-20 10:00:00,226,${DEP},200.00,ORANGE_BFA,Deposit,0,,\n`;
+  const p = b("wk_P", 200, T(10, 0, 5), "SUCCEEDED", DEP);
+  // I-a : une ligne hors paiement ne peut que débiter le portefeuille ; un crédit (+500 « Withdrawal ») est une ERREUR.
+  assert.throws(() => lireReleve(ENT + `2026-11-20 10:00:00,226,${AUTRE},500,,Withdrawal,0,,\n`, PP, J), /hors paiement.*créditrice|crédit/);
+  assert.throws(() => lireReleve(ENT + `2026-11-20 10:00:00,226,${DEP},2.50,,Deposit PawaPay fees,0,,\n`, PP, J), /crédit/);
+  // I-b : une ligne hors paiement qui porte une référence doit porter celle d'un encaissement du relevé ; sinon : à instruire.
+  const rembourse = rapprocher(J, [p], lireReleve(ENT + dep + `2026-11-20 12:00:00,226,${AUTRE},-200.00,ORANGE_BFA,Refund,0,,\n`, PP, J), [c(p)]);
+  assert.deepEqual(cats(rembourse), ["concordant:wk_P", `hors_paiement_orphelin:${AUTRE}`]);
+  assert.equal(rembourse.ecartNul, false);
+  const frais = rapprocher(J, [p], lireReleve(ENT + dep + `2026-11-20 10:00:00,226,${DEP},-2.50,,Deposit PawaPay fees,0,,\n`, PP, J), [c(p)]);
+  assert.deepEqual(cats(frais), ["concordant:wk_P"]);
+  assert.equal(frais.ecartNul, true);
+  // M-1 : la même ligne hors paiement deux fois (exports qui se chevauchent) : à instruire, jamais comptée deux fois en silence.
+  const retrait = "2026-11-20 18:00:00,,,-1000.00,,Withdrawal,0,Règlement,\n";
+  const double = rapprocher(J, [p], [...lireReleve(ENT + dep + retrait, PP, J), ...lireReleve(ENT + retrait, PP, J)], [c(p)]);
+  assert.deepEqual(cats(double), ["concordant:wk_P", "doublon_releve:WITHDRAWAL"]);
+  assert.equal(double.ecartNul, false);
+});
+
 test("couverture : le relevé doit couvrir de J − 1 à J + 1 jour + 10 min", () => {
   verifierCouverture(J, { du: T(0, 0, 0, 19), au: T(0, 10, 0, 21) });
   assert.throws(() => verifierCouverture(J, { du: T(0, 0, 0, 20), au: T(8, 0, 0, 21) }), /relevé insuffisant/);
@@ -223,5 +297,34 @@ test("outil de bout en bout : vrai paiement confirmé par webhook ; juste → 0,
     const court = await lancer(p.montant, "SUCCESS", new Date(jour0 + 86_400_000).toISOString());
     assert.equal(court.code, 2, court.sortie);
     assert.match(court.sortie, /relevé insuffisant/);
+
+    // Profil pawaPay (journal du portefeuille) : rapproché par la référence du fournisseur, frais et retrait totalisés,
+    // sans --echec ; un ajustement manuel, type non déclaré, arrête l'outil (code 2).
+    const [f] = await sql<{ rf: string }>(URL_ADMIN, "SELECT reference_fournisseur AS rf FROM app.payment WHERE reference = $1", [a.reference]);
+    assert.ok(f.rf, "le paiement porte la référence du fournisseur");
+    const pawapay = async (extra = "") => {
+      const le = p.le.toISOString().replace("T", " ").replace(/\.\d+Z$/, "");
+      writeFileSync(join(d, "pawapay.csv"), "Creation date,MSISDN,Transaction ID,Amount,MNO,Type,Balance,Reason,Metadata\n"
+        + `${le},22670000000,${f.rf},${p.montant}.00,MOOV_BFA,Deposit,0,,\n${le},22670000000,${f.rf},-2.50,MOOV_BFA,Deposit PawaPay fees,0,,\n`
+        + `${le},,,-100,,Withdrawal,0,Règlement,\n${extra}`);
+      try {
+        const { stdout } = await promisify(execFile)("node", [join(process.cwd(), "src/rapprochement.ts"), "--proprietaire", v.tenant, "--jour", p.jour,
+          "--releve", join(d, "pawapay.csv"), "--releve-du", du, "--releve-au", au, "--col-reference", "Transaction ID", "--col-montant", "Amount",
+          "--col-date", "Creation date", "--col-statut", "Type", "--reussi", "Deposit", "--hors-paiement", "Deposit PawaPay fees,Withdrawal"],
+          { env: { ...process.env, WAKATNET_ADMIN_DATABASE_URL: URL_ADMIN, NODE_NO_WARNINGS: "1" } });
+        return { code: 0, sortie: stdout };
+      } catch (e) {
+        const x = e as { code: number; stdout: string; stderr: string };
+        return { code: x.code, sortie: x.stdout + x.stderr };
+      }
+    };
+    const pp = await pawapay();
+    assert.equal(pp.code, 0, pp.sortie);
+    assert.match(pp.sortie, /ÉCART NUL/);
+    assert.match(pp.sortie, /\| DEPOSIT PAWAPAY FEES \| 1 \| -2\.50 F \|/);
+    assert.match(pp.sortie, /\| WITHDRAWAL \| 1 \| -100\.00 F \|/);
+    const ajuste = await pawapay(`${p.le.toISOString()},,,500,,Adjustment - Collections received,0,Correction,\n`);
+    assert.equal(ajuste.code, 2, ajuste.sortie);
+    assert.match(ajuste.sortie, /Adjustment - Collections received/);
   });
 });

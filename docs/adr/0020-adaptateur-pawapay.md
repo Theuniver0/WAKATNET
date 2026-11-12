@@ -101,4 +101,7 @@ Restent aussi à vérifier :
 - la valeur du code Orange en bac à sable ;
 - le minimum et le maximum du Burkina (`GET /v2/active-conf`), aujourd'hui fixés à 100 F faute de valeur publiée ;
 - le format réel des callbacks signés (étiquette, `keyid`) ;
-- le relevé du compte pour le rapprochement (`docs/PILOTE.md` §4).
+- le relevé du compte pour le rapprochement (`docs/PILOTE.md` §4) : **format documenté et outil adapté le 12/11/2026**.
+  - Le relevé est le journal du portefeuille, et l'outil de rapprochement, tel qu'il était, ne pouvait pas le lire : lignes de frais, retraits sans référence, aucun échec, « 100.00 ».
+  - Il accepte désormais `--hors-paiement`, un `--echec` facultatif et les décimales nulles (profil dans `PILOTE.md` §4).
+  - Restent à confirmer sur un export réel : le format de la date, le signe et les décimales des montants, et le libellé exact des types.

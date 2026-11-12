@@ -1120,3 +1120,23 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `nuit` (run 43327951145) : `ansible`, `sauvegarde` et `charge` verts. Le runner accepte les conteneurs systemd privilégiés du banc Ansible ;
   - `ci` : `api`, `e2e`, `radius` et `wg-agent` verts.
   - Le point 3 de l'ADR 0021 est clos.
+
+## 12/11/2026 — Rapprochement : relevé pawaPay (ADR 0020, PILOTE.md §4)
+
+- **Constat** : d'après la documentation de pawaPay (Dashboard > Statements, lue le 12/11/2026), le relevé est le **journal du portefeuille** (`Creation date, MSISDN, Transaction ID, Amount, MNO, Type, Balance, Reason, Metadata`), et non une liste de paiements. On y trouve : aucune colonne de statut, aucun dépôt échoué, des lignes de frais séparées, des retraits sans référence, et des montants probablement en « 100.00 ». L'outil de rapprochement, tel qu'il était, ne pouvait pas le lire : il sortait en code 2 tous les jours.
+- **Fait** (`apps/api/src/rapprochement.ts`) :
+  - `--hors-paiement TYPE,…` : lignes totalisées par type au rapport, ni rapprochées ni comptées comme écarts ;
+  - `--echec` facultatif ;
+  - « N.00 » accepté pour un encaissement, une décimale non nulle restant refusée ;
+  - profil pawaPay dans `PILOTE.md` §4.
+- **Relu par un second agent** (règle 4) : aucun bloquant.
+  - Corrigés :
+    - **I-a** : une ligne hors paiement créditrice passait sans signal. Elle provoque désormais une erreur (code 2) ;
+    - **I-b** : une ligne hors paiement sous une référence sans encaissement (remboursement déclaré par erreur) donnait « écart nul ». Elle est désormais à instruire (`hors_paiement_orphelin`) ;
+    - **M-1** : une ligne hors paiement en double était comptée deux fois. Elle est désormais à instruire (`doublon_releve`), et comptée une fois ;
+    - **M-3** : commentaires et `PILOTE.md` mis à jour.
+  - Différés :
+    - **M-2** : contrôle de continuité de la colonne `Balance`, à écrire une fois le format réel connu ;
+    - **M-4** : type contenant une virgule, aucun n'est documenté ; il donne le code 2, jamais un silence.
+- **Preuves** : `apps/api/tests/run.sh` : 196/196. Dont l'outil en ligne de commande sur un vrai paiement en base, relevé au format pawaPay : écart nul, frais et retrait totalisés, code 2 sur un ajustement manuel. Les trois tests de la relecture ont été écrits avant le correctif, mais leur échec préalable n'a pas été observé à l'exécution.
+- **Non prouvé** : un export réel. Restent à confirmer le format de la date, le signe et les décimales, le libellé des types, et si les frais portent le `Transaction ID` du dépôt. Le jeton du bac à sable est nécessaire.
