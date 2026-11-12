@@ -292,6 +292,7 @@ Contrôle côté serveur. `acct_interim` détecte l'épuisement et inscrit la se
   - après un redémarrage du nœud, un seul nouveau client est créé par seconde ; avec moins de 50 routeurs, la reprise prend environ 50 s, et les routeurs basculent sur B entre-temps ;
   - pendant la reprise, les paquets des routeurs pas encore recréés sont **jetés**, Accounting compris. RouterOS devrait les réémettre, mais c'est à vérifier.
   - À mesurer au ticket 10 (L8).
+  - **Mesuré le 12/11/2026 (L8, `test_clients.py`)** : la limite ne vaut que pour une IP sans client. Un client **expiré** (`lifetime`) est recréé par une nouvelle recherche en base, sans limite. En régime établi, il n'y a donc **aucun plafond** du nombre de routeurs (500 routeurs à 200/s sans perte, ticket 10). Seule la **reprise à froid** d'un nœud est limitée : environ 53 s pour 50 routeurs, environ 9 min pour 500 (`RAPPORT.md` §6). La protection contre un déni de service par des IP inconnues de l'overlay reste entière.
 - Pas de cache négatif. Le risque est faible : seule une IP autorisée par un pair WireGuard (`AllowedIPs`) peut émettre dans l'overlay.
 
 ## 17. Planification et déclencheur de coupure (hors processus FreeRADIUS, règle 1)

@@ -49,6 +49,11 @@ ROUTEURS = {
     # compteur (renvois, réponse à l'authentificateur faux). Voir test_t09.py.
     "r13": ("10.213.1.130", True, "WAKATNET_SECRET_R1", 1, 1),
     "r14": ("10.213.1.140", True, "WAKATNET_SECRET_R2", 1, 1),
+    # L8 (rate_limit des clients dynamiques) : trois routeurs dont le PREMIER paquet est celui de
+    # test_clients.py::test_l8_* (aucun autre test ne doit les utiliser).
+    "r15": ("10.213.1.150", True, "WAKATNET_SECRET_R1", 1, 1),
+    "r16": ("10.213.1.160", True, "WAKATNET_SECRET_R1", 1, 1),
+    "r17": ("10.213.1.170", True, "WAKATNET_SECRET_R1", 1, 1),
 }
 
 # Adresse de NŒUD du test (ticket 09) : le déclencheur de coupure tourne dans le conteneur de

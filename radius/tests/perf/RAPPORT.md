@@ -86,7 +86,7 @@ Une heure de panne pour 1 000 sessions ouvertes, soit 30 Interim par session : *
 | 200/s pendant 60 s, 6 min plus tard | 200,0/s, **0 perte**, p95 3,81 ms |
 
 - **La reprise après un redémarrage du nœud est lente.** Un seul nouveau client par seconde : 50 routeurs se recréent en environ 53 s, 500 en environ 9 min. Pendant ce temps, les routeurs pas encore recréés n'obtiennent aucune réponse et basculent sur B (ADR 0006 §16).
-- **Hypothèse infirmée** : j'avais estimé qu'avec `lifetime = 300` et un nouveau client par seconde, le nœud ne pourrait entretenir qu'environ 300 routeurs. **La mesure ne le montre pas** : aucune perte à 500 routeurs, 6 minutes après la création, quand la plupart des clients avaient dépassé leurs 300 s. La raison n'est **pas établie** : expiration paresseuse ou limite non appliquée au renouvellement, je ne l'ai pas vérifié dans le code. À trancher avec L8 avant de dépasser quelques centaines de routeurs par nœud.
+- **Hypothèse infirmée, puis expliquée (L8, 12/11/2026)** : j'avais estimé qu'avec `lifetime = 300` et un nouveau client par seconde, le nœud ne pourrait entretenir qu'environ 300 routeurs. Ce n'est pas le cas. Dans FreeRADIUS 3.2.10, `rate_limit` ne s'applique **qu'à une IP qui n'a encore aucun client** ; un client expiré est recréé par une nouvelle recherche en base, sans limite. C'est prouvé par `test_clients.py::test_l8_*` : trois clients expirés recréés dans la même milliseconde, et un routeur désactivé pendant l'attente qui cesse de répondre. Seule la reprise à froid est donc lente.
 
 ## 7. Index et plans d'exécution
 
@@ -138,7 +138,10 @@ Phases « débit » et « serveur » rejouées (`PHASES="debit serveur" perf/per
 | `radius.post_auth` | 11 984 | 1,42 ms | 2,14 ms | 3,62 ms |
 
 - `authorize` : p95 de 1,65 à 1,73 ms avant 0012, 1,40 ms après. Le débit sans perte reste d'au moins 400/s.
-- **`post_auth` est un peu plus lent après 0012** : p95 de 2,14 ms, contre 1,87 et 2,01 ms avant (+7 à +14 %) ; p50 de 1,42 ms contre 1,15 et 1,19 ms (+19 à +23 %). L'écart dépasse la variation entre deux passes. Il n'est **pas expliqué** : les comptes bornés par `LIMIT` devraient coûter moins, pas plus. Hypothèse non vérifiée : la sous-requête `count(*) FROM (… LIMIT n)` change le plan. Sans effet sur la réponse, `post_auth` étant hors décision (ticket 07), mais il occupe la connexion un peu plus longtemps. À mesurer à part avant de conclure.
+- **`post_auth` après 0012** : les durées côté serveur ci-dessus (p95 de 2,14 ms, contre 1,87 et 2,01 ms avant) comparent des **passes différentes**. Une mesure A/B contrôlée l'a tranché, sur la même base et les mêmes données, en alternant les deux corps de fonction sur 3 tours (`perf/ab-post-auth.sh`, `resultats/2026-11-12-ab-post-auth/`) :
+  - **Reject** : le nouveau corps est **plus rapide**, 0,31 à 0,33 ms contre 0,45 à 0,49 ms (environ −32 %). C'est l'effet des comptes bornés ;
+  - **Accept** : écart de ±0,02 ms, de signe variable d'une série à l'autre. Le chemin Accept est le même code dans les deux versions : ce n'est pas significatif ;
+  - **conclusion** : 0012 n'a pas ralenti `post_auth`. L'écart entre passes venait de la variation d'une passe à l'autre. La durée vue côté serveur (environ 1,4 à 2 ms) est surtout faite d'autre chose que le corps de la fonction (0,06 à 0,5 ms) : analyse de la requête, aller-retour réseau, journalisation de chaque instruction.
 - Les 14 pertes de la phase serveur en Accept ont la même cause qu'au §4 : la mesure ferme volontairement les connexions de `wk_radius`.
 - Les Reject en mode Accept (`trop_d_appareils`, 1 à 6 par palier) ont la même cause qu'au §3 : un artefact du jeu de données.
 - Fichiers bruts de cette mesure : `resultats/2026-11-12-apres-0012/`. Ceux des §3 et §4 sont dans `resultats/2026-11-12-passe1-avant-0012/` et `resultats/2026-11-12-passe2-avant-0012/`.
