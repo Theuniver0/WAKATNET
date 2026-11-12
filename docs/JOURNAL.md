@@ -1079,3 +1079,17 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Proposé** (`docs/adr/0021-integration-continue.md`, statut « proposé ») : GitHub Actions sur `ubuntu-24.04`, qui appelle les harnais existants. API, e2e, RADIUS et wg-agent à chaque PR ; Ansible, sauvegardes et charge chaque nuit. Aucun secret, permissions en lecture, actions épinglées par empreinte. Écartés : un runner auto-hébergé (exclu sur un VPS de production) et le statu quo.
 - **Non vérifié** : la durée des harnais sur un runner hébergé, la visibilité du dépôt et le forfait de minutes, le banc Ansible privilégié sur le runner.
 - **En attente** : la décision de Yacouba. Aucun workflow écrit.
+
+## 12/11/2026 — ADR 0021 décidée (option A) : workflows de CI écrits
+
+- **Fait** :
+  - `.github/workflows/ci.yml` : `api`, `e2e`, `radius` et `wg-agent` sur chaque PR et chaque poussée vers `main` ;
+  - `.github/workflows/nuit.yml` : `ansible`, `sauvegarde` (posix puis S3 verrouillé) et `charge`, à 02:17 UTC et à la demande ;
+  - P6 amendée : « tests verts » veut dire désormais les statuts de la CI.
+- **Durcissement** : `permissions: contents: read`, aucun secret, `persist-credentials: false`, actions épinglées par empreinte (checkout v7.0.1, setup-node v7.1.0), `ubuntu-24.04`, Node 22.23.4, délai par job.
+- **Écart trouvé** : Playwright (1.63.0) n'est pas dans `package-lock.json`. Il vient d'une installation globale sur le poste de développement. Le job l'installe en version épinglée ; l'ajouter au verrou reste à faire.
+- **Vérifié** : analyse YAML (déclencheurs, permissions, runner, délais, empreintes de 40 caractères).
+- **Non vérifié** :
+  - `actionlint` : téléchargement refusé dans la session ;
+  - `shellcheck` : absent du poste ;
+  - aucun run sur GitHub tant que la branche n'est pas poussée. Les durées et le banc Ansible privilégié restent à confirmer au premier run.

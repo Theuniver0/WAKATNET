@@ -1,0 +1,83 @@
+# WAKATNET — intégration continue, premier niveau (ADR 0021) : chaque PR et chaque poussée vers main.
+# Les harnais créent leur pile Docker jetable et leurs secrets aléatoires : aucun secret GitHub, aucune
+# machine réelle. Les noms des jobs (api, e2e, radius, wg-agent) sont les statuts exigés par la
+# protection de main : ne pas les renommer sans mettre la protection à jour.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  api:
+    name: api
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Typage et tests de l'API (PostgreSQL 16, migrations de production)
+        run: apps/api/tests/run.sh
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      PLAYWRIGHT_VERSION: "1.63.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+      - name: pdftotext (poppler-utils)
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends poppler-utils
+      - name: Dépendances du dépôt (verrouillées)
+        run: npm ci
+      # Les tests chargent « playwright » hors du dépôt (createRequire), comme sur le poste de développement :
+      # installé en version épinglée, et trouvé par NODE_PATH.
+      - name: Playwright et Chromium
+        run: |
+          npm install -g "playwright@${PLAYWRIGHT_VERSION}"
+          echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
+          "$(npm prefix -g)/bin/playwright" install --with-deps chromium
+      - name: Achat de bout en bout, tableau de bord, axe-core
+        run: apps/api/tests/e2e.sh
+
+  radius:
+    name: radius
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Matrice T du cœur RADIUS (passage probant)
+        run: radius/tests/run.sh
+
+  wg-agent:
+    name: wg-agent
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: wg-agent (Go, -race) et pare-feu nftables
+        run: apps/wg-agent/tests/run.sh

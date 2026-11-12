@@ -1,6 +1,6 @@
 # ADR 0021 — Intégration continue : GitHub Actions sur les harnais existants
 
-- **Statut** : **proposé** le 12/11/2026. À décider par Yacouba. Deux réglages ne se font pas depuis le dépôt et lui reviennent : la protection de `main` et la vérification du forfait de minutes GitHub.
+- **Statut** : proposé le 12/11/2026, **décidé par Yacouba le 12/11/2026 : option A**. Deux réglages ne se font pas depuis le dépôt et lui reviennent : la protection de `main` et la vérification du forfait de minutes GitHub.
 - **Références** : `CONTRIBUTING.md` §6 (P1 : jamais « c'est fait » sans preuve ; P6 : fusion après tests verts) ; SPEC §13 et §14 ; ADR 0008 (migrations et tests) ; harnais `apps/api/tests/{run,e2e,charge}.sh`, `radius/tests/run.sh`, `apps/wg-agent/tests/{run,pare-feu}.sh`, `infra/ansible/essais/essai.sh`, `infra/noeud/essais/{sauvegarde,sauvegarde-s3}.sh`.
 
 ## Contexte
@@ -114,8 +114,12 @@
 
 ## Actions
 
-1. [ ] Yacouba décide (A, B ou C).
-2. [ ] Si A : écrire `.github/workflows/ci.yml` (deux niveaux, durcissement du point 3), et le valider localement avec `actionlint` avant la poussée.
+1. [x] Yacouba décide : A.
+2. [x] `.github/workflows/ci.yml` (premier niveau) et `.github/workflows/nuit.yml` (second niveau). Validés localement par une analyse YAML (déclencheurs, permissions, runner épinglé, délais, actions épinglées par empreinte). **`actionlint` n'a pas tourné** : son téléchargement a été refusé dans la session de développement.
 3. [ ] Premier run : mesurer les durées, fixer les `timeout-minutes`, et corriger ce qui dépend du poste de développement (proxy, chemin de l'autorité de certification).
 4. [ ] Yacouba : protéger `main` (statuts requis : `api`, `e2e`, `radius`, `wg-agent`), puis vérifier le forfait de minutes.
-5. [ ] Amender P6 dans `CONTRIBUTING.md`.
+5. [x] P6 amendée dans `CONTRIBUTING.md`.
+
+## Écart constaté en écrivant le workflow
+
+`e2e.sh` charge `playwright` hors du dépôt (`createRequire`) : sur le poste de développement, il vient d'une installation globale (version 1.63.0, par `NODE_PATH`), absente de `package-lock.json`. Le job `e2e` l'installe donc en version épinglée. Le mieux serait de l'ajouter aux dépendances de développement verrouillées ; ce n'est pas fait ici, pour ne pas toucher au verrou dans cette PR.
