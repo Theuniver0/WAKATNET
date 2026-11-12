@@ -1,8 +1,41 @@
 import { useState, type FormEvent } from "react";
-import { envoyer, lire, type PointDeVente } from "./api.ts";
+import { envoyer, lire, modifier, type PointDeVente } from "./api.ts";
 import { Alerte, Champ, Choix, Ecran, Info, useAction, useCharge } from "./ui.tsx";
 
 type Utilisateur = { id: string; email: string; role: string; point_of_sale_id: string | null; actif: boolean };
+
+// Revue de sécurité M3 : couper l'accès d'un gérant ou d'un vendeur (PUT /v1/utilisateurs/:id { actif: false }).
+// Ses sessions sont fermées sur-le-champ ; l'action est définitive et auditée (migration 0030).
+function AccesLigne({ u, pdv, apres }: { u: Utilisateur; pdv: string; apres: () => void }) {
+  const [confirme, setConfirme] = useState(false);
+  const { erreur, lancer, occupe } = useAction();
+  const couper = () => void lancer(async () => {
+    await modifier(`/v1/utilisateurs/${u.id}`, { actif: false });
+    setConfirme(false);
+    apres();
+  });
+  return (
+    <tr>
+      <th scope="row">{u.email}</th>
+      <td>{u.role === "gerant" ? "Gérant" : "Vendeur"}</td>
+      <td>{pdv}</td>
+      <td>{u.actif ? "Actif" : "Suspendu"}</td>
+      <td>
+        {u.actif && !confirme
+          ? <button type="button" className="danger" onClick={() => setConfirme(true)} aria-label={`Couper l'accès de ${u.email}`}>Couper l'accès</button>
+          : null}
+        {confirme ? (
+          <div className="ligne">
+            <span>{u.email} sera déconnecté tout de suite et ne pourra plus se connecter. Action définitive.</span>
+            <button type="button" className="danger" onClick={couper} disabled={occupe}>Confirmer la coupure</button>
+            <button type="button" className="secondaire" onClick={() => setConfirme(false)}>Annuler</button>
+          </div>
+        ) : null}
+        <Alerte message={erreur} />
+      </td>
+    </tr>
+  );
+}
 
 export function PointsDeVente() {
   const pdv = useCharge(() => lire<PointDeVente[]>("/v1/points-de-vente"));
@@ -59,15 +92,10 @@ export function PointsDeVente() {
         {users.donnees && users.donnees.length > 0 ? (
           <table>
             <caption>Gérants et vendeurs</caption>
-            <thead><tr><th scope="col">Adresse e-mail</th><th scope="col">Rôle</th><th scope="col">Point de vente</th><th scope="col">État</th></tr></thead>
+            <thead><tr><th scope="col">Adresse e-mail</th><th scope="col">Rôle</th><th scope="col">Point de vente</th><th scope="col">État</th><th scope="col">Actions</th></tr></thead>
             <tbody>
               {users.donnees.filter((u) => u.role === "gerant" || u.role === "vendeur").map((u) => (
-                <tr key={u.id}>
-                  <th scope="row">{u.email}</th>
-                  <td>{u.role === "gerant" ? "Gérant" : "Vendeur"}</td>
-                  <td>{nomPdv(u.point_of_sale_id)}</td>
-                  <td>{u.actif ? "Actif" : "Suspendu"}</td>
-                </tr>
+                <AccesLigne key={u.id} u={u} pdv={nomPdv(u.point_of_sale_id)} apres={users.recharger} />
               ))}
             </tbody>
           </table>

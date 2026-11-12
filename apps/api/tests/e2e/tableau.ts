@@ -200,7 +200,30 @@ try {
   assert.equal(await pv.getByRole("link", { name: "Imprimer (PDF)", exact: true }).count(), 0, "ni n'imprime");
   await auditer(pv, "Tickets papier (vendeur)");
   await ctxV.close();
-  console.log("ok : parcours 4 — point de vente, vendeur, lot de 12, PDF lisible, remis, activation suivie");
+
+  // Le vendeur s'en va : le propriétaire coupe son accès depuis l'écran (revue de sécurité M3).
+  const ctxC = await navigateur.newContext();
+  const pc = await ctxC.newPage();
+  surveiller(pc, erreursNavigateur);
+  await pc.goto(`${TABLEAU}#/connexion`);
+  await pc.getByLabel("Adresse e-mail").fill(email);
+  await pc.getByLabel("Mot de passe").fill(MDP_TEST);
+  await pc.getByRole("button", { name: "Se connecter" }).click();
+  await titre(pc, "Tableau de bord");
+  await pc.getByRole("link", { name: "Points de vente", exact: true }).click();
+  await titre(pc, "Points de vente et vendeurs");
+  await pc.getByRole("button", { name: `Couper l'accès de ${emailVendeur}` }).click();
+  await auditer(pc, "Couper l'accès (confirmation)");
+  await pc.getByRole("button", { name: "Confirmer la coupure" }).click();
+  await pc.getByRole("row", { name: new RegExp(`${emailVendeur.replace(/[.]/g, "\\.")}.*Suspendu`) }).waitFor();
+  await ctxC.close();
+  const [{ sessions }] = await sql<{ sessions: number }>(URL_ADMIN,
+    "SELECT count(*)::int AS sessions FROM app.session_utilisateur s JOIN app.utilisateur u ON u.id = s.utilisateur_id WHERE u.email = $1", [emailVendeur]);
+  assert.equal(sessions, 0, "sessions du vendeur fermées");
+  const reconnexion = await app.inject({ method: "POST", url: "/v1/connexion", headers: { "x-wakatnet-requete": "1" },
+                                         payload: { email: emailVendeur, mot_de_passe: MDP_TEST } });
+  assert.equal(reconnexion.statusCode, 401, "le vendeur ne peut plus se connecter");
+  console.log("ok : parcours 4 — point de vente, vendeur, lot de 12, PDF lisible, remis, activation suivie, accès du vendeur coupé");
 
   // ======================================================= parcours 5 : suivre l'argent
   // Propriétaire avec une vente en ligne réelle (MockProvider, webhook), connecté par l'écran.

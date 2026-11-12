@@ -917,3 +917,13 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Vérifié** : chaque libellé de bouton et d'écran cité a été relevé dans `apps/dashboard/src`, et les droits du gérant et du vendeur dans `apps/api/src/exploitation.ts`. Rendu relu page par page.
 - **Trouvé en l'écrivant** : la coupure de l'accès d'un vendeur (M3) existe dans l'API (`PUT /v1/utilisateurs/:id`), mais **aucun écran** ne l'offre. Le guide dit d'appeler Telecom Universel.
 - **Non vérifié** : la compréhension par un vrai propriétaire, à éprouver au premier accueil. Les étapes sur le routeur suivent `docs/ONBOARDING_ROUTEUR.md`, qui n'a pas encore été joué sur CHR.
+
+### Écran : couper l'accès d'un gérant ou d'un vendeur (12/11/2026)
+
+- **Demande** de Yacouba, après le guide du pilote, qui avait montré le manque : M3 existait dans l'API, mais sans écran.
+- **Fait** : écran « Points de vente et vendeurs », colonne Actions.
+  - Bouton « Couper l'accès », puis « Confirmer la coupure » ou « Annuler », sur le modèle de la révocation d'un routeur.
+  - Il appelle `PUT /v1/utilisateurs/:id { actif: false }`. L'état passe à « Suspendu ».
+- **Preuve** : `apps/api/tests/e2e.sh`, SUCCÈS. Au parcours 4, le propriétaire coupe l'accès du vendeur depuis l'écran ; ses sessions sont fermées en base ; sa reconnexion est refusée (401). axe-core : 12 écrans sans violation sérieuse, dont la confirmation.
+- **Guide** mis à jour, PDF régénéré (6 pages) ; `docs/REVUE_SECURITE.md` (M3) mis à jour.
+- **Constaté** : le démon Docker de l'environnement s'est encore arrêté ; relancé avant l'e2e.
