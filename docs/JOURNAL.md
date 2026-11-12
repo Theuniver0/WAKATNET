@@ -977,3 +977,30 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/e2e.sh` : SUCCÈS. Le parcours 1 suit le lien dans le navigateur avant d'obtenir la commande d'enrôlement ; axe-core : 14 écrans sans violation sérieuse.
 - **Guide du pilote** mis à jour (étape 1, dépannage), PDF régénéré (6 pages).
 - **Reste** : F9 accepté pour l'instant ; fournisseur d'e-mail à choisir (Yacouba), avec les conditions de l'ADR 0017.
+
+### Revue de sécurité M8 : sauvegardes verrouillées (12/11/2026)
+
+- **Demande** de Yacouba : « tranche M8 : fournisseur S3 avec verrouillage ». Décision : `docs/adr/0018-sauvegardes-verrouillees.md`.
+- **Vérifié sur sources** :
+  - pgBackRest relit un dépôt S3 **versionné** tel qu'il était à une date donnée (`--repo-target-time`, depuis la 2.54) ;
+  - la 2.59.2 corrige cette relecture au-delà de 1 000 versions (#2854) ;
+  - Backblaze B2 documente l'Object Lock en mode conformité, irréversible ;
+  - Cloudflare R2 n'a pas d'Object Lock ; Wasabi facture 90 jours minimum par objet.
+- **Décidé** :
+  - Backblaze B2, région EU Central : fournisseur de stockage seulement, jamais hébergeur de A ni de B ;
+  - bucket versionné, verrouillé en mode conformité 30 jours ; clé des nœuds sans droit sur les réglages du bucket ;
+  - pgBackRest 2.59.2 au moins, contrôlé par Ansible ;
+  - procédure « Restaurer après l'effacement du dépôt » (RUNBOOK §7), et exercice sur B2 avant G-PILOTE.
+- **Prouvé** par le banc `infra/noeud/essais/sauvegarde-s3.sh` (Ubuntu 26.04, pgBackRest 2.58, S3 de test moto derrière nginx) :
+  - avec les clés du nœud, l'attaquant efface la stanza et tous les objets ;
+  - ses 986 effacements définitifs de versions sont refusés ;
+  - `--repo-target-time` retrouve la sauvegarde, et la base revient avec sa ligne témoin.
+- **Trouvé en l'éprouvant** :
+  - l'image MinIO n'existe plus sur Docker Hub, d'où moto ;
+  - le serveur TLS intégré de moto ferme ses connexions sans la notification TLS de fin, ce qu'OpenSSL 3 refuse : nginx placé devant ;
+  - pgBackRest refuse `--target-action` sans type de cible ;
+  - le banc Ansible échouait dès que l'image en cache avait plus d'une heure (apt hors ligne) : la liste des paquets est désormais datée au démarrage.
+- **Autres preuves** :
+  - `infra/noeud/essais/sauvegarde.sh` : SUCCÈS ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes ; ansible-lint, profil production, sans remarque.
+- **Non vérifié** : B2 lui-même (en-têtes exigés par un bucket verrouillé, prix, nom de région). D'où l'exercice de mise en service.
