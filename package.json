@@ -1,0 +1,7 @@
+{
+  "name": "wakatnet",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/api"],
+  "engines": { "node": ">=22.18 <23" }
+}

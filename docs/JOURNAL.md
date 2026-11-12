@@ -582,3 +582,113 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - en Reject, le nouveau corps est **plus rapide** (environ −32 %) ;
   - en Accept, c'est le même code, et l'écart (±0,02 ms) n'est pas significatif ;
   - la hausse vue entre passes (+7 à +23 %) était de la variation d'une passe à l'autre ; RAPPORT §6 et §9 corrigés.
+
+### Clôture de la phase 1 et ouverture de la phase 2 (12/11/2026)
+
+- PR n°20 fusionnée par Yacouba.
+- **Décision de Yacouba (12/11/2026)** : « pas besoin d'essais, finis le travail, je vais essayer à la fin ». Les essais sur CHR (LABO-00, 09, 16, 18, 19, T9 et T12 sur un vrai routeur) sont **reportés à la fin**, et non supprimés. Conséquences :
+  - l'étiquette `phase-1` n'est pas posée : le critère 2 du PRD de la phase 1 reste ouvert ;
+  - aucun script ni aucune configuration ne doit être appliqué au routeur d'un tiers avant ces essais (G-PILOTE l'exige de toute façon).
+- Constaté dans ce conteneur : pas de KVM, `download.mikrotik.com` refusé par le proxy (403). Un CHR est donc impossible ici. En revanche, `wireguard-go` est utilisable (`/dev/net/tun` présent), mais le module WireGuard du noyau est absent. Prisma 7.10.1 s'installe, moteur de schéma compris.
+- Phase 2 : PRD et tickets 01 à 07 rédigés dans `.scratch/phase-2-multi-proprietaires/`, validés par délégation. ADR 0012 (contrats) ; il amende l'ADR 0008 : un seul historique de migrations, Prisma comme client seulement. `docs/IDEES.md` créé.
+- Écart de numérotation relevé : `docs/PLAN.md` appelle « LABO-08 » les utilisateurs locaux, alors que `docs/LABO.md` les numérote LABO-05 (LABO-08 est la vérification TLS de `/tool fetch`). Les documents de la phase 2 suivent `docs/LABO.md`.
+
+### Phase 2, ticket 02 : socle applicatif, RLS, tests d'isolement (12/11/2026)
+
+- Espace de travail npm (racine), `apps/api` : Fastify 5.12.8, Prisma 7.10.1 (client seulement, adaptateur `pg`), TypeScript exécuté par Node 22 sans compilation ; versions exactes dans `package-lock.json`.
+- Migration `0013_app_cloisonnement.sql` :
+  - rôle `wk_api` (journal des instructions coupé, `statement_timeout` à 5 s) ;
+  - `app.enrollment_token` ;
+  - colonnes d'enrôlement de `app.router` ;
+  - RLS sur six tables, avec un contexte posé par transaction (ADR 0012 §6).
+- `prisma/schema.prisma` est tiré de la base. Un test le compare à la base migrée, et une dérive provoquée a bien fait échouer ce test.
+  - **Constaté** : `prisma db pull --print` échoue avec un `prisma.config.ts` (7.10.1). Le test tire donc dans une copie.
+- **Preuves** :
+  - `apps/api/tests/run.sh` (pile neuve) : 14 tests, SUCCÈS. Ils couvrent les isolements A/B par l'API et en SQL direct, zéro ligne sans contexte, la fin du contexte avec la transaction, le refus d'écrire chez un autre (WITH CHECK), l'absence de tout droit sur `radius`, la configuration interdite en production et le masquage du jeton dans les journaux ;
+  - `radius/tests/run.sh` (pile neuve) : 280 passés, 12 ignorés (étapes orchestrées), SUCCÈS. La matrice T est inchangée par la RLS.
+
+### Phase 2, tickets 03 et 04 : API d'enrôlement, scripts RouterOS, login.html (12/11/2026)
+
+- Les deux tickets partagent un commit : le générateur de scripts (ticket 04) **est** la réponse de l'API d'enrôlement (ticket 03).
+- **Migration 0014** :
+  - `app.enroll_register` fait en **une** transaction la consommation du jeton (ligne verrouillée), l'allocation de l'adresse (verrou consultatif, sans réemploi, sans `.0` ni `.255`), le secret RADIUS (pgcrypto, 32 caractères) et l'audit ;
+  - `app.enroll_token_valide` vérifie le jeton.
+- **API** :
+  - `POST /v1/sites/{site}/enrollments` ;
+  - `GET` et `POST /enroll/{jeton}` ;
+  - `GET /v1/routers/{id}/uninstall.rsc`, propre au routeur, avec les valeurs d'origine relevées ;
+  - le contrat `apps/api/openapi.yaml` est confronté aux routes servies par un test.
+- **Scripts** (`apps/api/src/routeros.ts`) : étapes 1 et 2, désinstallation. Toute valeur venue du routeur est échappée, et les scripts sont en ASCII seul.
+  - Audit `mikrotik-routeros-config` : `docs/AUDIT_SCRIPTS_ROUTEROS.md`. Un défaut probable a été corrigé : `place-before` vers une règle dynamique du hotspot.
+  - **Deux points critiques restent suspendus au CHR** : la vérification TLS de `/tool fetch` en 7.15 (LABO-08), et la remontée d'un `:error` à travers `/import`.
+- **`routeros/hotspot/login.html`** (3,5 Ko, autonome) : code en majuscules avant le CHAP. Le MD5 intégré a été vérifié contre `crypto` sur 200 entrées aléatoires. La page n'est pas installée par l'enrôlement (ADR 0012 §9).
+- **Preuves** :
+  - `apps/api/tests/run.sh` (pile neuve) : 43 tests, SUCCÈS. Ils couvrent le jeton stocké en empreinte, le GET qui ne consomme pas, le 404 identique, 6 POST concurrents pour un seul routeur, le 422 et le 409 qui laissent le jeton intact, l'expiration, l'adressage (10.213.1.0/24 plein, donc passage à 10.213.2.x), l'absence du jeton et du secret dans le journal, et R1 à R7 sur le texte des scripts ;
+  - `radius/tests/run.sh` (pile neuve, avec 0014) : 280 passés, SUCCÈS.
+- **Non prouvé** : aucune exécution sur RouterOS (écart R8, PRD §6).
+
+### Phase 2, ticket 05 : wg-agent et pare-feu du nœud (12/11/2026)
+
+- **`apps/wg-agent`** (Go 1.24, `wgctrl`, `pgx`) :
+  - la planification est une fonction pure ;
+  - la boucle fait `LISTEN wakatnet_pairs`, avec un tour de filet toutes les 30 s ;
+  - seuls les pairs sont configurés : ni la clé privée, ni le port, ni l'interface.
+- **Migration 0015** :
+  - rôle `wk_wg` (EXECUTE sur `app.wg_pairs()` seule, journal coupé) ;
+  - déclencheur `NOTIFY` sur `app.router`.
+- **Garde anti-effacement, amendée (ADR 0012 §1)** : la première version bloquait tout retrait quand la base ne rendait aucun pair. Le test de la boucle l'a montré : il était alors impossible de révoquer le **dernier** routeur. Une seule règle demeure : au-delà de `max(5, 20 %)` retraits par tour, rien n'est retiré, sauf garde levée à la main.
+- **`infra/nftables/wakatnet.nft`** : rien ne transite par `wg0`. En entrée, seuls 1812/1813 et ICMP sont acceptés depuis le tunnel ; en sortie, seuls 1700/3799 et ICMP. Le rechargement est atomique, et les autres interfaces ne sont pas touchées (anti-lockout).
+- **`infra/systemd/wakatnet-wg-agent.service`** : seule capacité, `CAP_NET_ADMIN`. L'unité est vérifiée par `systemd-analyze` (matrice T).
+- **Preuves** :
+  - `apps/wg-agent/tests/run.sh` (pile neuve) : tests Go avec `-race` sur une **vraie** interface WireGuard (`wireguard-go`, le module du noyau étant absent du banc) ;
+    - ajout, correction d'un `AllowedIPs` élargi, retrait d'un pair étranger, changement de clé, base injoignable sans aucun changement, interface jamais recréée ;
+    - boucle complète contre PostgreSQL : ajout appliqué en **28 ms**, révocation en **25 ms**, avec un tour de filet réglé à 60 s ;
+  - pare-feu prouvé dans des espaces de noms réseau. Sans les règles, r1 joint r2 **à travers** le nœud ; avec elles, plus jamais. Le nœud répond au ping, TCP 22 est rejeté et compté, la sortie vers 3799 est permise et vers un autre port refusée ;
+  - `radius/tests/run.sh` (pile neuve, avec 0015) : 281 passés, SUCCÈS.
+- **Constaté** :
+  - l'archive Debian n'est pas joignable depuis ce conteneur (proxy CONNECT seul : 405 en HTTP). Le conteneur de test est donc construit sur Ubuntu 24.04, avec la chaîne Go recopiée de l'image officielle ;
+  - `wireguard-go` exige `WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1` sous Linux.
+- **Non prouvé ici** : le module WireGuard du noyau sur un nœud Debian. `wgctrl` passe alors par netlink plutôt que par la socket de `wireguard-go`, avec la même API. À rejouer en phase 5.
+
+### Phase 2, ticket 06 : révocation d'un routeur (12/11/2026)
+
+- `POST /v1/routers/{id}/revoke` : idempotente, avec une seule entrée d'audit. Migration 0016 : `wk_api` peut modifier la **seule** colonne `actif`, et seulement sur ses routeurs (RLS).
+- Effets prouvés :
+  - en base, `client_lookup` ne rend plus le routeur (test HTTP) ;
+  - sur le tunnel, le pair est retiré en 25 ms (`wg-agent`, ticket 05) ;
+  - dans FreeRADIUS, le routeur est oublié au plus tard à l'expiration du client dynamique (`test_clients.py::test_l8_*`, phase 1).
+- Sessions ouvertes : fermées comme sessions fantômes, puisqu'un Disconnect ne passerait plus (ticket 06 précisé).
+- **Preuves** : `apps/api/tests/run.sh` (pile neuve) donne 46 tests, SUCCÈS. Ils couvrent la révocation, le 404 chez un autre propriétaire, et `wk_api` qui ne change que `actif` et seulement chez lui.
+
+### Phase 2, ticket 07 : import Mikhmon ; revue de fin de phase (12/11/2026)
+
+- **Import** : `POST /v1/imports/mikhmon`, avec un CSV (`name`, `password`, `profile`) et une correspondance « profil → forfait ».
+  - Migration 0017 : colonne `origine`, forme du code selon l'origine (les tickets importés admettent 0, O, 1, I et L), et `app.voucher_importer` en **un seul appel par lot**.
+  - Le rapport donne une ligne par entrée du CSV, et compte les codes courts.
+  - Le rejeu ne crée aucun doublon.
+- **Revue en deux axes** (deux agents qui n'ont pas écrit le code) :
+  - **Bloquant**, confirmé par la matrice : `test_droits.py` ne connaissait pas `voucher_importer`. **Corrigé**.
+  - **Important** :
+    - l'import passait par une ligne SQL par entrée, dans une transaction interactive limitée à 5 s : un gros export Mikhmon aurait échoué. **Corrigé** : un appel par lot. **Mesuré** : 20 000 tickets en 1,24 s, et 20 001 lignes donnent 422 ;
+    - le test d'isolement pouvait passer à vide (`plan`, `voucher` et `enrollment_token` vides). **Corrigé** : il remplit les six tables pour A et B, et vérifie qu'elles sont remplies ;
+    - deux règles du pare-feu routeur n'étaient pas justifiées. **Justifiées** dans l'ADR 0012 §9, sans changement de code.
+  - **Mineurs corrigés** :
+    - `wk_api` ne lit plus `plan` ni `voucher` (moindre privilège) ;
+    - un identifiant au-delà de 2^63 − 1 donne 401 ou 422 au lieu de 500 ;
+    - 422 strict sur les corps invalides, et le corps d'un 404 est identique pour un jeton expiré, consommé ou inconnu ;
+    - ADR §4 et §10, et `openapi.yaml` (401 et 403), alignés sur le code ;
+    - walled garden reporté à la phase 3, et note sur l'ASCII des scripts, consignés dans l'ADR.
+  - **Mineurs non corrigés, notés** :
+    - la branche n'est pas `ticket/NN-titre` (livraison par une seule branche, décidée par Yacouba) ;
+    - pas de PAP **à travers FreeRADIUS** pour un ticket importé : seul l'appel SQL à `radius.authorize` est testé, et c'est la même fonction ;
+    - pas de test de bout en bout « révocation par l'API → NOTIFY → pair retiré » : chaque maillon est prouvé séparément.
+  - **Point ambigu, à trancher par Yacouba** : l'enrôlement exige un hotspot déjà configuré. Le « CHR vierge » de la porte du §12 s'entend donc comme un CHR avec hotspot, mais sans utilisateur.
+- **Preuves**, toutes depuis des piles neuves : `apps/api/tests/run.sh` (55 tests), `apps/wg-agent/tests/run.sh` (Go `-race` et pare-feu) et `radius/tests/run.sh` (281 passés) donnent SUCCÈS. shellcheck 0.10.0 ne relève rien sur les cinq scripts de test et de migration.
+
+### État de la phase 2
+
+1. Tests verts en une commande, sur trois bancs : **oui**.
+2. Scripts audités par `mikrotik-routeros-config` : **oui** (`docs/AUDIT_SCRIPTS_ROUTEROS.md`).
+3. Exécution sur CHR, vierge et déjà configuré : **non**. L'écart a été décidé par Yacouba, qui fera les essais à la fin. En dépendent : LABO-05, LABO-08 (vérification TLS de `/tool fetch` en 7.15, **critique**), LABO-14 et les points [LABO] de l'ADR 0012 §9.
+4. Revue en deux axes : **faite**, constats traités.
+5. Étiquette `phase-2` : **non posée**, elle attend le point 3.

@@ -32,6 +32,15 @@ ATTENDU = {
     "radius.sessions_to_cut(p_limite integer)": {"wk_coa"},
     "radius.coa_target(p_session bigint)": {"wk_coa"},
     "radius.mark_cut(p_session bigint, p_result text)": {"wk_coa"},
+    # Phase 2, ticket 02 : contexte de la RLS, lu par les politiques sous wk_api (ADR 0012 §6).
+    "app.tenant_courant()": {"wk_api"},
+    # Ticket 03 : enrôlement (jeton, adresse, secret) en une transaction ; l'allocation est interne.
+    "app.enroll_token_valide(p_empreinte bytea)": {"wk_api"},
+    "app.enroll_register(p_empreinte bytea, p_cle text, p_coa_port integer, p_inventaire jsonb)": {"wk_api"},
+    # Ticket 05 : wg-agent ne lit que les pairs voulus.
+    "app.wg_pairs()": {"wk_wg"},
+    # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
+    "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
 }
 
 
@@ -65,14 +74,16 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     with admin() as c:
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa')) r(rolname)
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg')) r(rolname)
                                WHERE ns.nspname IN ('app', 'radius') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
-                      ("wk_acct", "radius.acct_stop"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
+                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.enroll_register"),
+                      ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.tenant_courant"), ("wk_api", "app.voucher_importer"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
                       ("wk_coa", "radius.sessions_to_cut"), ("wk_maint", "radius.close_ghost_sessions"),
                       ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
-                      ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth")]
+                      ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
+                      ("wk_wg", "app.wg_pairs")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():

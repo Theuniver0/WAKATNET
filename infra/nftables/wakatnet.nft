@@ -1,0 +1,41 @@
+#!/usr/sbin/nft -f
+# WAKATNET — pare-feu du tunnel sur un nœud (SPEC §6.1, ADR 0012 §8, ticket 05 de la phase 2).
+# Ticket : .scratch/phase-2-multi-proprietaires/issues/05-wg-agent.md
+#
+# Ne règle QUE le trafic de l'interface wg0 : l'accès d'administration du nœud (SSH sur
+# l'interface publique) est réglé ailleurs et n'est jamais touché ici (anti-lockout).
+# Rechargement sans coupure : la table est détruite puis recréée dans la MÊME transaction nft.
+
+table inet wakatnet
+delete table inet wakatnet
+
+table inet wakatnet {
+	chain entree {
+		type filter hook input priority filter; policy accept;
+		iifname != "wg0" return
+		ct state established,related accept
+		ct state invalid drop
+		# Routeurs → nœud : RADIUS authentification et accounting.
+		udp dport { 1812, 1813 } accept
+		icmp type echo-request limit rate 20/second burst 50 packets accept
+		counter reject with icmpx type admin-prohibited
+	}
+
+	chain transfert {
+		type filter hook forward priority filter; policy accept;
+		# Aucun transfert depuis ou vers le tunnel : deux propriétaires ne se voient jamais,
+		# et un routeur ne peut pas sortir sur Internet par le nœud.
+		iifname "wg0" counter drop
+		oifname "wg0" counter drop
+	}
+
+	chain sortie {
+		type filter hook output priority filter; policy accept;
+		oifname != "wg0" return
+		ct state established,related accept
+		# Nœud → routeurs : CoA / Disconnect (port porté par chaque routeur : 1700 ou 3799), ICMP.
+		udp dport { 1700, 3799 } accept
+		icmp type echo-request accept
+		counter reject with icmpx type admin-prohibited
+	}
+}

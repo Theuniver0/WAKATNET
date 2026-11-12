@@ -22,7 +22,8 @@
     - `parametre` (`radius.parametre`) ;
     - `lecteur_battement` (retard du lecteur `detail`) ;
     - fonctions, rôles et droits.
-- **Passage à Prisma (phase 2)** : le schéma `app` est repris par `prisma db pull`, puis marqué « déjà appliqué » par une migration de base (`prisma migrate resolve --applied`). Ensuite, **seul Prisma** modifie `app` ; `infra/sql/app/` est gelé. Le risque de double propriété ne dure donc que jusqu'à la phase 2.
+- **[amendé le 12/11/2026 par l'ADR 0012 §5]** Le passage décrit ci-dessous n'a pas lieu : `infra/sql/` reste le seul historique de migrations, et Prisma n'est que le client de l'API (schéma tiré par `prisma db pull`, test de divergence).
+- ~~**Passage à Prisma (phase 2)**~~ : le schéma `app` est repris par `prisma db pull`, puis marqué « déjà appliqué » par une migration de base (`prisma migrate resolve --applied`). Ensuite, **seul Prisma** modifie `app` ; `infra/sql/app/` est gelé. Le risque de double propriété ne dure donc que jusqu'à la phase 2.
 - **Test de fumée après chaque migration** (ADR 0006 §13) : en tant que `wk_radius`, `client_lookup` et `authorize` répondent sans erreur sur une donnée de référence.
 
 ## 2. Schéma compatible avec le partitionnement
