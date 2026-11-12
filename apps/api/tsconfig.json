@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src", "tests", "prisma.config.ts"]
+  "include": ["src", "tests", "prisma.config.ts", "../../packages/payments/src"]
 }

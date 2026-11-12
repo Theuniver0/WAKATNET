@@ -28,7 +28,7 @@ function inscription(surcharge: Record<string, unknown> = {}) {
     cle: nouvelleCle(), identity: 'Zone "Wend-Panga" $1', modele: "hAP ax2", version: "7.15.3 (stable)",
     listen_port: 13231, coa_port: 3799, coa_accept: false,
     hotspots: [{ serveur: "hotspot1", profil: "hsprof1", use_radius: false, html_directory: "hotspot",
-                 radius_accounting: true, radius_interim_update: "received" }],
+                 radius_accounting: true, radius_interim_update: "received", adresse: "10.5.50.1", dns: "Login.Wifi" }],
     ...surcharge,
   };
 }
@@ -100,6 +100,8 @@ test("étape 2 : routeur créé, secret créé, reconnu par client_lookup, jeton
     assert.equal(rt.site, A.site);
     assert.equal(rt.coa, 3799);
     assert.equal(rt.inv.identity, corps.identity);
+    const [{ h }] = await sql<{ h: string[] }>(URL_ADMIN, "SELECT hotspot_hotes AS h FROM app.site WHERE id = $1", [A.site]);
+    assert.ok(h.includes("10.5.50.1") && h.includes("login.wifi"), `hôtes du hotspot relevés : ${h}`);
     const [o1, o2, o3, o4] = rt.ip.split(".").map(Number);
     assert.deepEqual([o1, o2], [10, 213]);
     assert.ok(o3 >= 1 && o3 <= 254 && o4 >= 1 && o4 <= 254, rt.ip);

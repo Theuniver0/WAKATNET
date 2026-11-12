@@ -13,7 +13,7 @@ test("chaque route servie est dans openapi.yaml, et réciproquement", async () =
   for (const ligne of texte.split("\n")) {
     const p = /^  (\/[^:]+):$/.exec(ligne);
     if (p) { chemin = p[1].replace(/\{([^}]+)\}/g, ":$1"); continue; }
-    const m = /^    (get|post|put|patch|delete):$/.exec(ligne);
+    const m = /^    (get|post|put|patch|delete):/.exec(ligne);
     if (m && chemin) contrat.add(`${m[1].toUpperCase()} ${chemin}`);
   }
   const base = ouvrirBase(config().urlBase);

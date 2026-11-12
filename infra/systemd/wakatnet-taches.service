@@ -1,0 +1,33 @@
+# WAKATNET — tâche périodique : expiration, rapprochement des paiements, frais papier (ADR 0013 §6).
+# Ticket : .scratch/phase-3-portail-paiement/issues/05-rapprochement.md
+[Unit]
+Description=WAKATNET : rapprochement des paiements et frais papier
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Un tour vérifie au plus 200 paiements ; chaque appel au fournisseur est borné (15 s).
+TimeoutStartSec=55s
+DynamicUser=yes
+# Fichier réservé à root, jamais versionné : WAKATNET_API_DATABASE_URL, WAKATNET_CLE_MARCHANDS,
+# WAKATNET_CLE_HMAC (S1, S2 ; ADR 0013 §8).
+EnvironmentFile=/etc/wakatnet/api.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/wakatnet/apps/api/src/taches.ts
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Pas de MemoryDenyWriteExecute : le JIT de Node en a besoin.

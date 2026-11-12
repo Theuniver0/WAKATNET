@@ -1,5 +1,9 @@
 // WAKATNET — aides des tests de l'API. PostgreSQL réel (§14.4 : faux aux frontières seulement).
 // Variables posées par tests/run.sh : URL admin (données de test) et URL wk_api (code testé).
+import { randomBytes } from "node:crypto";
+
+// MockProvider : autorisé explicitement pour les tests seulement (packages/payments/src/mock.ts).
+process.env.WAKATNET_MOCK = "1";
 import pg from "pg";
 import { construire } from "../src/app.ts";
 import { ouvrirBase, type Base } from "../src/base.ts";
@@ -50,8 +54,11 @@ export async function routeur(tenant: string, site: string): Promise<string> {
 }
 
 
+/** Clés de chiffrement jetables, propres à ce processus de test. */
+export const CLES = { marchands: randomBytes(32), hmac: randomBytes(32) };
+
 export function config(surcharge: Partial<Config> = {}): Config {
-  return { urlBase: URL_API, authDev: true, urlPublique: "https://api.test.invalid", noeuds: NOEUDS, ...surcharge };
+  return { urlBase: URL_API, authDev: true, urlPublique: "https://api.test.invalid", urlPortail: "https://portail.test.invalid", noeuds: NOEUDS, cles: CLES, ...surcharge };
 }
 
 export async function avecApp<T>(travail: (app: ReturnType<typeof construire>, base: Base) => Promise<T>,

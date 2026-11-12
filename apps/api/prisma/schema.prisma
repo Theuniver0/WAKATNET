@@ -1,6 +1,7 @@
 generator client {
   provider            = "prisma-client"
   output              = "../genere/prisma"
+  previewFeatures     = ["partialIndexes"]
   importFileExtension = "ts"
   moduleFormat        = "esm"
 }
@@ -37,6 +38,7 @@ model plan {
   bind_mac         Boolean   @default(false)
   scope            String    @default("tenant")
   site_id          BigInt?
+  payment          payment[]
   tenant           tenant    @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   site             site?     @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   voucher          voucher[]
@@ -67,27 +69,41 @@ model router {
 }
 
 model site {
-  id               BigInt             @id @default(autoincrement())
-  tenant_id        BigInt
-  nom              String
-  enrollment_token enrollment_token[]
-  plan             plan[]
-  router           router[]
-  tenant           tenant             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  voucher          voucher[]
+  id                     BigInt                   @id @default(autoincrement())
+  tenant_id              BigInt
+  nom                    String
+  public_id              String                   @unique @default(dbgenerated("translate(encode(gen_random_bytes(12), 'base64'::text), '+/'::text, '-_'::text)"))
+  hotspot_hotes          String[]                 @default([])
+  enrollment_token       enrollment_token[]
+  payment                payment[]
+  plan                   plan[]
+  recuperation_tentative recuperation_tentative[]
+  router                 router[]
+  tenant                 tenant                   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  voucher                voucher[]
 
   @@unique([tenant_id, id])
   @@schema("app")
 }
 
 model tenant {
-  id        BigInt      @id @default(autoincrement())
-  nom       String
-  suspendu  Boolean     @default(false)
-  cree_le   DateTime    @default(now()) @db.Timestamptz(6)
-  audit_log audit_log[]
-  plan      plan[]
-  site      site[]
+  id                  BigInt           @id @default(autoincrement())
+  nom                 String
+  suspendu            Boolean          @default(false)
+  cree_le             DateTime         @default(now()) @db.Timestamptz(6)
+  settlement_mode     String           @default("A")
+  commission_bps      Int              @default(1000)
+  commission_min      BigInt           @default(0)
+  offline_fee_bps     Int              @default(1000)
+  offline_fee_min     BigInt           @default(10)
+  plafond_decouvert   BigInt           @default(3000)
+  frais_papier_depuis DateTime         @default(now()) @db.Timestamptz(6)
+  audit_log           audit_log[]
+  compte_marchand     compte_marchand?
+  payment             payment[]
+  payment_event       payment_event[]
+  plan                plan[]
+  site                site[]
 
   @@schema("app")
 }
@@ -112,6 +128,7 @@ model voucher {
   cree_le            DateTime  @default(now()) @db.Timestamptz(6)
   mac_liee           String?
   origine            String    @default("wakatnet")
+  payment            payment?
   site               site?     @relation(fields: [tenant_id, f_site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   plan               plan      @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -133,5 +150,89 @@ model enrollment_token {
   router      router?   @relation(fields: [router_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   site        site      @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model compte_marchand {
+  tenant_id   BigInt   @id
+  fournisseur String
+  webhook_id  String   @unique @default(dbgenerated("translate(encode(gen_random_bytes(18), 'base64'::text), '+/'::text, '-_'::text)"))
+  cles        Bytes
+  maj_le      DateTime @default(now()) @db.Timestamptz(6)
+  tenant      tenant   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment {
+  id                    BigInt          @id @default(autoincrement())
+  tenant_id             BigInt
+  site_id               BigInt
+  plan_id               BigInt
+  montant               BigInt
+  devise                String          @default("XOF")
+  operateur             String
+  fournisseur           String
+  reference             String          @unique
+  reference_fournisseur String?
+  statut                String          @default("CREATED")
+  numero_clair          String?
+  numero_hmac           Bytes
+  numero_masque         String
+  purge_numero_le       DateTime        @db.Timestamptz(6)
+  jeton_appareil        Bytes
+  soumission            String
+  voucher_id            BigInt?         @unique
+  cree_le               DateTime        @default(now()) @db.Timestamptz(6)
+  maj_le                DateTime        @default(now()) @db.Timestamptz(6)
+  expire_le             DateTime        @db.Timestamptz(6)
+  verifier_jusqu_au     DateTime        @db.Timestamptz(6)
+  prochaine_verif_le    DateTime        @db.Timestamptz(6)
+  detail                Json            @default("{}")
+  tenant                tenant          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  plan                  plan            @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  site                  site            @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
+  voucher               voucher?        @relation(fields: [voucher_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  payment_event         payment_event[]
+
+  @@unique([tenant_id, soumission])
+  @@index([prochaine_verif_le], map: "payment_a_verifier", where: raw("(statut = ANY (ARRAY['CREATED'::text, 'PENDING'::text, 'EXPIRED'::text, 'FAILED'::text]))"))
+  @@index([site_id, numero_hmac], map: "payment_numero")
+  @@schema("app")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model payment_event {
+  id           BigInt   @id @default(autoincrement())
+  fournisseur  String
+  id_evenement String
+  tenant_id    BigInt
+  payment_id   BigInt?
+  recu_le      DateTime @default(now()) @db.Timestamptz(6)
+  corps        Bytes
+  payment      payment? @relation(fields: [payment_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant       tenant   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, fournisseur, id_evenement])
+  @@schema("app")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model recuperation_tentative {
+  id          BigInt   @id @default(autoincrement())
+  site_id     BigInt
+  numero_hmac Bytes
+  jeton       Bytes
+  reussie     Boolean
+  le          DateTime @default(now()) @db.Timestamptz(6)
+  site        site     @relation(fields: [site_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([jeton, le], map: "recuperation_jeton")
+  @@index([site_id, numero_hmac, le], map: "recuperation_numero")
   @@schema("app")
 }

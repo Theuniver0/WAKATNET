@@ -1,0 +1,11 @@
+# WAKATNET — un tour de la tâche périodique toutes les 60 s (ADR 0013 §6).
+[Unit]
+Description=WAKATNET : tâche périodique toutes les 60 s
+
+[Timer]
+OnBootSec=60s
+OnUnitInactiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

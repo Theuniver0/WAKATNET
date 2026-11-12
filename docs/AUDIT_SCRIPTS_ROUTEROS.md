@@ -60,3 +60,7 @@ Un défaut probable a été corrigé pendant l'audit. Deux points critiques rest
 - Aucune valeur venue du routeur (nom de profil, identity) n'est recopiée sans échappement de `\`, `"`, `$` et `?`. Un caractère de contrôle fait refuser la génération.
 - Le secret n'apparaît que dans l'étape 2, qui s'efface d'elle-même après l'activation. Il ne reste sur le routeur qu'en cas d'échec du tunnel, pour permettre la relance.
 - La désinstallation rétablit `use-radius`, `radius-accounting`, `radius-interim-update` et `/radius incoming accept` à leurs valeurs **relevées** à l'enrôlement, et non à des valeurs supposées.
+
+## Complément (phase 3, 12/11/2026)
+
+L'étape 1 relève en plus `hotspot-address` et `dns-name` de chaque profil hotspot. Ce sont les seules cibles admises de l'auto-connexion du portail (ADR 0013 §12, I1). **[LABO]** : noms exacts de ces propriétés, et forme de `hotspot-address` quand elle n'est pas posée.

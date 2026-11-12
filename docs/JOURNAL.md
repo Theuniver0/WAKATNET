@@ -692,3 +692,58 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 3. Exécution sur CHR, vierge et déjà configuré : **non**. L'écart a été décidé par Yacouba, qui fera les essais à la fin. En dépendent : LABO-05, LABO-08 (vérification TLS de `/tool fetch` en 7.15, **critique**), LABO-14 et les points [LABO] de l'ADR 0012 §9.
 4. Revue en deux axes : **faite**, constats traités.
 5. Étiquette `phase-2` : **non posée**, elle attend le point 3.
+
+### Ouverture de la phase 3 : portail et paiement, mode A (12/11/2026)
+
+- Demande de Yacouba : « continue avec la phase 3 ». PRD et tickets 01 à 08 rédigés dans `.scratch/phase-3-portail-paiement/`, validés par délégation. Le ticket 08 (vrai adaptateur) est **en attente** de la piste B : réponses des agrégateurs et clés de bac à sable. La spec interdit de deviner une API (§7.3).
+- ADR 0013 (contrats) :
+  - `verify()` fait foi, et le webhook n'est qu'un déclencheur ;
+  - grand livre en en-tête et lignes, équilibre vérifié à la validation, ajout seul imposé y compris au propriétaire des tables ;
+  - comptes du mode A ;
+  - commission arrondie au franc, 0,5 vers le haut ;
+  - **écart avec D10, assumé** : pas de BullMQ en phase 3, une minuterie systemd suffit ;
+  - portail servi par le processus de l'API, sur l'IP dédiée ;
+  - garde contre une redirection ouverte pour l'auto-connexion.
+
+### Phase 3, ticket 02 : grand livre (12/11/2026)
+
+- `infra/sql/ledger/0018_ledger_socle.sql` (ADR 0013 §3 à §5) : en-tête et lignes, débit **ou** crédit sur chaque ligne, équilibre vérifié à la validation par des déclencheurs différés. **Ajout seul** : `UPDATE`, `DELETE` et `TRUNCATE` sont refusés par déclencheur, propriétaire des tables compris, et aucun rôle de connexion n'a de droit. `ledger.ecrire` est la seule porte, idempotente sur sa clé ; une même clé avec un autre contenu est refusée. `ledger.commission` arrondit au franc, 0,5 vers le haut. `migrer.sh` lit désormais aussi `infra/sql/ledger/`.
+- **Trouvé et corrigé en exécution** :
+  - un déclencheur différé s'exécute **à la validation, avec les droits du rôle de connexion**, et non ceux de la fonction `SECURITY DEFINER` qui a écrit. Les fonctions de vérification sont donc `SECURITY DEFINER`. Les tests du grand livre, lancés en superutilisateur, ne le voyaient pas ; ceux du paiement passent par `wk_api` et le couvrent ;
+  - la clé étrangère `ledger.compte → app.tenant` faisait échouer la remise à zéro des tests de la phase 1 (`TRUNCATE … CASCADE` atteignait le grand livre). Elle est retirée, et le propriétaire est vérifié à la création du compte. Le grand livre survit ainsi à toute suppression applicative.
+- **Preuves** : 7 tests de propriétés (fast-check 4.10.2) sur PostgreSQL réel, dont 60 suites aléatoires d'opérations avec doublons de clés :
+  - soldes égaux au modèle ;
+  - rejeu complet sans nouvelle ligne ;
+  - Σ débits = Σ crédits, par transaction et en tout ;
+  - écritures déséquilibrées et lignes invalides refusées sans trace ;
+  - ajout seul vérifié ;
+  - commission exacte sur la table du §8.1, les frais de l'ADR 0002 et 200 tirages contre une référence en `BigInt`.
+
+### Phase 3, tickets 03 à 07 : paiement, crédits, rapprochement, portail, achat de bout en bout (12/11/2026)
+
+- **`packages/payments`** : interface `FournisseurPaiement` (§7.3), normalisation XOF (A8) et `MockProvider` scriptable. Le scénario se lit dans les deux derniers chiffres du numéro. Le mock exige `WAKATNET_MOCK=1` et est refusé en production.
+- **Migration 0019** :
+  - paiement : trois formes du numéro, jeton d'appareil en empreinte, clé de soumission (P9) ;
+  - CHECK « confirmé ⇔ ticket » ;
+  - compte marchand chiffré par l'API (AES-256-GCM), webhook à identifiant aléatoire ;
+  - `paiement_transition` : ligne verrouillée, idempotente ; vers `SUCCEEDED`, ticket, lien et commission dans **une** transaction (A7) ; `MISMATCH` final, avec alerte ;
+  - crédits du mode A et découvert plafonné.
+- **Migration 0020** : tâche périodique (expiration, rapprochement à 2 min puis toutes les 5 min pendant 24 h, frais papier, purge des numéros), lancée par une minuterie systemd.
+- **Migration 0021** : récupération d'un achat (jeton d'appareil ; repli numéro + 4 caractères ; tentatives limitées, sérialisées et journalisées).
+- **Portail** (`apps/api/src/portail.ts`) : pages de 1,6 à 2,5 Ko, sans ressource externe, CSP stricte. Il fonctionne sans JavaScript. Auto-connexion par GET, vers les seuls hôtes du hotspot relevés à l'enrôlement.
+  - `routeros/hotspot/redirection.html` : page `login.html` du routeur, qui renvoie vers le portail, générée par site.
+- **Relecture de l'argent par un second agent** (règle 4) : 1 bloquant, 4 importants, 8 mineurs. Tous traités ou acceptés avec leur motif (ADR 0013 §12). Le bloquant était le contournement de la limite de récupération par des requêtes parallèles.
+- **Preuves**, depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 92 tests, SUCCÈS. Ils couvrent P1, P2, P3, P4, P5, P6, P7, P8 et P9, la propriété « confirmé ⇔ ticket ⇔ une commission » sur 40 paiements aléatoires, les crédits, le découvert, la suspension de la vente en ligne (un ticket existant reste accepté au plafond : test dû depuis le ticket 1.2), les frais papier (une fois, jamais rétroactifs, sans famine), la purge, la récupération et le contrat OpenAPI ;
+  - `apps/api/tests/e2e.sh` : **Chromium sans interface**. Parcours : page de redirection du faux hotspot, portail, forfait, Moov, attente, ticket, auto-connexion GET, code accepté par `radius.authorize`. Puis P6 : page fermée pendant l'attente, et ticket proposé au retour. SUCCÈS ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
+  - shellcheck ne relève rien.
+- **Non fait** :
+  - ticket 08 (vrai adaptateur) : il attend les clés de bac à sable et la documentation officielle d'un agrégateur ;
+  - P10 (reversements, mode B verrouillé).
+- **Piste B (Yacouba)** :
+  - mini-navigateurs iOS et Android : LABO-11 (lien `tel:`), LABO-12 (GET d'auto-connexion), LABO-14 ;
+  - variables `-esc` de la page de redirection ;
+  - `hotspot-address` et `dns-name` ;
+  - références d'opérateur alphanumériques (récupération).
+- **G-ARGENT n'est pas franchie** : il faut le ticket 08 en bac à sable et `docs/CONFORMITE.md` rempli.
