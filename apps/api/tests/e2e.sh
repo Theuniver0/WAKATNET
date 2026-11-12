@@ -3,8 +3,8 @@
 # Ticket : .scratch/phase-3-portail-paiement/issues/07-achat-bout-en-bout.md
 # PostgreSQL neuf et jetable (migrations de production), puis tests/e2e/achat.ts et
 # tests/e2e/tableau.ts (ticket 08 de la phase 4) sur l'hôte. Exige aussi pdftotext (poppler-utils).
-# Exige Docker, Node 22 officiel et Playwright avec Chromium (préinstallés dans le conteneur
-# de développement ; sur un poste : npx playwright install chromium).
+# Exige Docker, Node 22 officiel, `npm ci` (Playwright est dans le verrou) et Chromium pour cette version
+# de Playwright (préinstallé dans le conteneur de développement ; sur un poste : npx playwright install chromium).
 set -euo pipefail
 ICI="$(cd "$(dirname "$0")" && pwd)"
 DEPOT="$(cd "$ICI/../../.." && pwd)"
@@ -27,6 +27,11 @@ sleep 1
 docker exec -e PGUSER=wakatnet_admin -e PGDATABASE=wakatnet --env-file "$SECRETS" "$NOM" \
   bash /depot/infra/sql/migrer.sh 2>&1 | grep -E "à jour|ERREUR|fumée"
 PORT="$(docker port "$NOM" 5432/tcp | head -1 | sed 's/.*://')"
+
+# Client Prisma généré (apps/api/genere, ignoré par git), comme le fait tests/Dockerfile : sans lui,
+# un dépôt fraîchement cloné (CI) ne trouve pas genere/prisma/client.ts.
+echo "=== Client Prisma généré ==="
+(cd "$DEPOT" && npm run generer -w apps/api >/dev/null)
 
 echo "=== Tableau de bord construit (vite build) ==="
 (cd "$DEPOT" && npm run build -w apps/dashboard >/dev/null)

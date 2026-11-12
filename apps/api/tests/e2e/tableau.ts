@@ -13,6 +13,7 @@ import { construire } from "../../src/app.ts";
 import { base32Encoder, chiffrerTotp, hotp, pasTotp } from "../../src/auth.ts";
 import { ouvrirBase } from "../../src/base.ts";
 import { ExpediteurMemoire } from "../../src/courriel.ts";
+import { FauxPawapay } from "../aide-pawapay.ts";
 import { CLES, config, empreinteTest, MDP_TEST, routeur, session, sql, URL_ADMIN } from "../aide.ts";
 import { attendreStatut, jeton, numero, soumission, vendeur } from "../aide-paiement.ts";
 
@@ -37,6 +38,9 @@ const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.mi
 const base = ouvrirBase(config().urlBase);
 // Expéditeur en mémoire (ADR 0017) : le lien de vérification de l'adresse est lu ici, puis suivi dans le navigateur.
 const expediteur = new ExpediteurMemoire();
+// Faux pawaPay local (ADR 0020) : le compte marchand est vérifié chez le fournisseur à l'enregistrement.
+const fauxPawapay = await new FauxPawapay().demarrer();
+process.env.WAKATNET_PAWAPAY_URL = fauxPawapay.url;
 const app = construire(config(), base, { journal: false, expediteur });     // dossierTableau par défaut : apps/dashboard/dist
 await app.listen({ port: 0, host: "127.0.0.1" });
 // « localhost » : contexte sûr pour Chromium, le cookie Secure de session y est accepté.
@@ -133,6 +137,22 @@ try {
   const redirection = await telecharger(page, page.getByRole("link", { name: "Page de connexion du hotspot", exact: true }));
   assert.match((await redirection.body()).toString("utf8"), /<html/i);
   console.log("ok : parcours 1 — compte créé sans session, connexion refusée avant confirmation, lien suivi, connexion, site déclaré, commande d'enrôlement affichée");
+
+  // Compte marchand pawaPay (ADR 0020) : argent réel refusé avant G-ARGENT ; bac à sable accepté, adresse des callbacks.
+  await page.getByRole("link", { name: "Compte marchand", exact: true }).click();
+  await titre(page, "Compte marchand");
+  await page.getByLabel("Environnement").selectOption({ label: "Production (argent réel)" });
+  await page.getByLabel("Jeton d'API pawaPay").fill("jeton-de-test-pawapay-0123456789");
+  await page.getByRole("button", { name: "Enregistrer" }).click();
+  await page.getByText(/G-ARGENT/).waitFor();
+  await page.getByLabel("Environnement").selectOption({ label: "Bac à sable (essais, sans argent réel)" });
+  await page.getByLabel("Jeton d'API pawaPay").fill("jeton-de-test-pawapay-0123456789");
+  await page.getByRole("button", { name: "Enregistrer" }).click();
+  await page.getByText(/\/webhooks\/pawapay\/[A-Za-z0-9_-]{24}/).waitFor();
+  await auditer(page, "Compte marchand");
+  const [{ f }] = await sql<{ f: string }>(URL_ADMIN, "SELECT fournisseur AS f FROM app.compte_marchand WHERE tenant_id = $1", [tenant]);
+  assert.equal(f, "pawapay");
+  console.log("ok : compte marchand pawaPay (bac à sable) enregistré, argent réel refusé avant G-ARGENT");
 
   // ======================================================= parcours 2 : créer ses forfaits
   await page.getByRole("link", { name: "Forfaits", exact: true }).click();
@@ -325,6 +345,7 @@ try {
 } finally {
   await navigateur.close();
   await app.close();
+  await fauxPawapay.arreter();
   await base.$disconnect();
 }
 console.log(echec ? "ÉCHEC" : "SUCCÈS");

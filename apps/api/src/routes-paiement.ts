@@ -3,7 +3,8 @@
 import type { FastifyInstance } from "fastify";
 import type { Base } from "./base.ts";
 import { enTantQue } from "./base.ts";
-import { FournisseurInconnu, validerCles } from "./fournisseurs.ts";
+import { CompteInvalide, FournisseurIndisponible } from "../../../packages/payments/src/index.ts";
+import { creerFournisseur, FournisseurInconnu, validerCles } from "./fournisseurs.ts";
 import type { ServicePaiement } from "./paiement.ts";
 
 const ID_WEBHOOK = /^[A-Za-z0-9_-]{24}$/;
@@ -23,6 +24,14 @@ export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique
       if (e instanceof FournisseurInconnu) return rep.code(422).send({ erreur: e.message });
       throw e;
     }
+    // ADR 0020 : le compte est vérifié chez le fournisseur avant d'être enregistré (jeton, callbacks signés).
+    try {
+      await creerFournisseur(fournisseur, valides, null).verifierCompte?.();
+    } catch (e) {
+      if (e instanceof CompteInvalide) return rep.code(422).send({ erreur: e.message });
+      if (e instanceof FournisseurIndisponible) return rep.code(503).send({ erreur: "fournisseur injoignable : réessayez dans quelques minutes" });
+      throw e;
+    }
     const chiffre = service.chiffrerCles(req.tenantId, valides);
     let webhook: string;
     try {
@@ -32,7 +41,7 @@ export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique
       });
     } catch (e) {
       if (/paiements encore ouverts/.test(String(e))) {
-        return rep.code(409).send({ erreur: "changement de fournisseur impossible tant que des paiements sont ouverts (24 h au plus)" });
+        return rep.code(409).send({ erreur: "changement de compte marchand impossible tant que des paiements sont ouverts (24 h au plus)" });
       }
       throw e;
     }
@@ -52,7 +61,9 @@ export function routesWebhook(app: FastifyInstance, service: ServicePaiement | n
         return rep.code(404).send({ erreur: "inconnu" });
       }
       const corps = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-      const r = await service.webhook(req.params.fournisseur, req.params.webhook, req.headers, corps);
+      // Requête telle que reçue : une signature RFC 9421 (pawaPay) couvre la méthode, l'hôte et le chemin (ADR 0020).
+      const r = await service.webhook(req.params.fournisseur, req.params.webhook, req.headers, corps,
+                                      { methode: req.method, autorite: String(req.headers.host ?? ""), chemin: req.url.split("?")[0] });
       return rep.code(r.code).send(r.corps);
     });
   });

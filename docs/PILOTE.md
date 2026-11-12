@@ -18,9 +18,9 @@
 | Condition | État | Qui |
 |---|---|---|
 | Phase 3 verte avec le `MockProvider` | Fait (P1 à P9, grand livre) | — |
-| **Adaptateur réel en bac à sable** (ticket 3.08) | **Non fait** : il faut les clés de bac à sable de l'agrégateur retenu (D2) | Yacouba fournit les clés, puis l'agent écrit l'adaptateur |
-| Format du relevé du compte marchand (colonnes, statuts, fuseau, référence portée) | **Inconnu**, il vient avec l'adaptateur. L'outil de rapprochement se règle par options | Agent, avec l'adaptateur |
-| Écran « compte marchand » du tableau de bord (mode A) | **Manque** : la route `PUT /v1/compte-marchand` existe, aucun écran ne s'en sert. Ses champs dépendent du fournisseur | Agent, avec l'adaptateur |
+| **Adaptateur réel en bac à sable** (ticket 3.08) | **Écrit** : pawaPay v2 (ADR 0020), prouvé contre un faux serveur aux formes de la documentation officielle. **Bac à sable réel non joué** : il faut le jeton | Yacouba ouvre un compte de bac à sable pawaPay et fournit le jeton ; l'agent joue les numéros de test du Burkina |
+| Format du relevé du compte marchand (colonnes, statuts, fuseau, référence portée) | **Encore inconnu** : pawaPay offre un relevé par API (« Statements ») et un export du tableau de bord, non lus. Notre référence voyage dans `clientReferenceId` (ADR 0020). L'outil de rapprochement se règle par options | Agent, au bac à sable |
+| Écran « compte marchand » du tableau de bord (mode A) | **Fait** : environnement et jeton pawaPay, adresse des callbacks à recopier ; argent réel refusé tant que `WAKATNET_ARGENT_REEL` n'est pas posée | — |
 | `docs/CONFORMITE.md` : contrat de l'agrégateur, statut d'agrément vérifié, juriste, CIL, ARCEP, comptable (mentions de facture) | **Tout est [À CONFIRMER]** | Yacouba (piste B) |
 
 ### G-PILOTE : phase 5 verte

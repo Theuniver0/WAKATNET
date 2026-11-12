@@ -52,5 +52,5 @@ Référence « Standards » des revues. Chaque règle est vérifiable à la rele
 - **P3.** Chaque commit cite le chemin de son ticket (`.scratch/phase-N-titre/issues/NN-titre.md`) ou, hors ticket, la section de `docs/SPEC.md` qu'il réalise.
 - **P4.** Un ADR (`docs/adr/NNNN-titre.md`) par décision d'architecture ; `docs/JOURNAL.md` mis à jour à chaque session.
 - **P5.** Une idée hors périmètre (SPEC §2) va dans `docs/IDEES.md`, pas dans le code.
-- **P6.** Une branche par ticket (`ticket/NN-titre`), fusion locale dans `main` après revue sans réserve et tests verts.
+- **P6.** Une branche par ticket (`ticket/NN-titre`), fusion dans `main` après revue sans réserve et tests verts. « Tests verts » veut dire : les statuts `api`, `e2e`, `radius` et `wg-agent` de la CI verts sur le dernier commit de la PR (ADR 0021), et non une sortie recopiée.
 - **P7.** Fins de ligne LF (voir `.gitattributes`), sauf `*.bat` / `*.cmd`.

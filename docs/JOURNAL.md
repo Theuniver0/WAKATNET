@@ -1041,3 +1041,58 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `radius/tests/run.sh test_droits.py` : 12 passés ;
   - `apps/api/tests/e2e.sh` : SUCCÈS. Inscription sans session, connexion refusée, lien suivi, connexion, raccordement ; axe-core : 13 écrans.
 - **Non vérifié** : Brevo lui-même (délivrabilité vers Gmail et Outlook depuis le Burkina, mention de marque sur l'offre gratuite, restriction des clés par IP, DPA).
+
+### G-ARGENT préparée : adaptateur réel pawaPay v2 (12/11/2026)
+
+- **Demande** de Yacouba : « tranche G-ARGENT : prépare l'adaptateur réel ». Décision : `docs/adr/0020-adaptateur-pawapay.md`.
+- **G-ARGENT reste fermée** : elle exige aussi `docs/CONFORMITE.md` (contrat, avis juridique, autorisations), qui revient à Yacouba.
+- **Choix** : pawaPay, premier du classement de D2.
+- **Réseau** : la documentation était bloquée par l'environnement par défaut. Un environnement personnel « WAKATNET » (réseau par défaut + `docs.pawapay.io`) a été créé avec l'accord de Yacouba. L'outil de lecture web résolvait encore mal le domaine ; la documentation a été téléchargée en Markdown par le proxy de la session (`llms.txt`), puis dépouillée par un agent, en citant les pages.
+- **Ce que la documentation a changé** :
+  - `depositId` en UUID v4, d'où une dérivation depuis notre référence ;
+  - montant rendu en « 100.00 », que l'ancienne normalisation aurait classé en écart ;
+  - signature RFC 9421 sur la méthode, l'hôte et le chemin, d'où la requête transmise à `parseWebhook`, devenu asynchrone ;
+  - signature en DER ;
+  - `NOT_FOUND` vaut un échec sûr.
+- **Fait** :
+  - `packages/payments/src/pawapay.ts` ;
+  - fabrique et garde de l'argent réel (`WAKATNET_ARGENT_REEL`, posée par Yacouba après G-ARGENT) ;
+  - vérification du compte à l'enregistrement ;
+  - écran « Compte marchand » ;
+  - migration 0035.
+- **Relu par un second agent** (règle 4) ; corrigés :
+  - bac à sable en production : tickets délivrés avec des numéros de test publics ;
+  - changement de compte avec des paiements ouverts ;
+  - relecture des clés non bornée ;
+  - callback sans `clientReferenceId` ;
+  - `UNKNOWN_ERROR` classé comme refus ;
+  - adresse de test.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 194 tests, SUCCÈS. Dont des tests de propriétés (UUID, montants), une vraie paire de clés ECDSA, des callbacks falsifiés refusés, et un achat de bout en bout jusqu'au ticket ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS. Écran « Compte marchand », argent réel refusé ; axe-core : 14 écrans.
+- **Non prouvé** : le bac à sable réel de pawaPay (jeton de Yacouba, sur une plateforme d'essai), le format réel des callbacks signés, le minimum du Burkina, le relevé pour le rapprochement.
+
+## 12/11/2026 — ADR 0021 proposée : intégration continue
+
+- **Constat** : aucun workflow GitHub. La PR #28 (code d'argent) n'a aucune vérification, et toutes les preuves viennent d'un seul poste.
+- **Proposé** (`docs/adr/0021-integration-continue.md`, statut « proposé ») : GitHub Actions sur `ubuntu-24.04`, qui appelle les harnais existants. API, e2e, RADIUS et wg-agent à chaque PR ; Ansible, sauvegardes et charge chaque nuit. Aucun secret, permissions en lecture, actions épinglées par empreinte. Écartés : un runner auto-hébergé (exclu sur un VPS de production) et le statu quo.
+- **Non vérifié** : la durée des harnais sur un runner hébergé, la visibilité du dépôt et le forfait de minutes, le banc Ansible privilégié sur le runner.
+- **En attente** : la décision de Yacouba. Aucun workflow écrit.
+
+## 12/11/2026 — ADR 0021 décidée (option A) : workflows de CI écrits
+
+- **Fait** :
+  - `.github/workflows/ci.yml` : `api`, `e2e`, `radius` et `wg-agent` sur chaque PR et chaque poussée vers `main` ;
+  - `.github/workflows/nuit.yml` : `ansible`, `sauvegarde` (posix puis S3 verrouillé) et `charge`, à 02:17 UTC et à la demande ;
+  - P6 amendée : « tests verts » veut dire désormais les statuts de la CI.
+- **Durcissement** : `permissions: contents: read`, aucun secret, `persist-credentials: false`, actions épinglées par empreinte (checkout v7.0.1, setup-node v7.1.0), `ubuntu-24.04`, Node 22.23.4, délai par job.
+- **Écart trouvé** : Playwright (1.63.0) n'est pas dans `package-lock.json`. Il vient d'une installation globale sur le poste de développement. Le job l'installe en version épinglée ; l'ajouter au verrou reste à faire.
+- **Vérifié** : analyse YAML (déclencheurs, permissions, runner, délais, empreintes de 40 caractères).
+- **Non vérifié** :
+  - `actionlint` : téléchargement refusé dans la session ;
+  - `shellcheck` : absent du poste ;
+  - aucun run sur GitHub tant que la branche n'est pas poussée. Les durées et le banc Ansible privilégié restent à confirmer au premier run.
+- **Premier run de la CI** (`63e5841`) : `api` et `wg-agent` verts. `e2e` en échec : `genere/prisma/client.ts` est introuvable. Le client Prisma est ignoré par git et n'existait que sur le poste de développement. Échec reproduit en local en retirant `apps/api/genere`. Correctif : `e2e.sh` et `charge.sh` génèrent le client (`npm run generer`), comme `tests/Dockerfile`. Après correctif, `e2e.sh` est en SUCCÈS en local, à partir d'un client absent.
+- **Playwright verrouillé** : `playwright` 1.63.0 (version exacte) dans les `devDependencies` de `apps/api`. Le job `e2e` ne télécharge plus que Chromium, et l'installation globale par `NODE_PATH` a disparu.
+  - Preuves : `e2e.sh` lancé sans `NODE_PATH` : SUCCÈS (résolu depuis `node_modules`, 1.63.0) ; `apps/api/tests/run.sh` : 194/194.

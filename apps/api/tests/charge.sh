@@ -33,6 +33,8 @@ WAKATNET_CLE_MARCHANDS="$(head -c 32 /dev/urandom | base64)"
 WAKATNET_CLE_HMAC="$(head -c 32 /dev/urandom | base64)"
 export WAKATNET_CLE_MARCHANDS WAKATNET_CLE_HMAC WAKATNET_MOCK=1
 cd "$DEPOT/apps/api"
+# Client Prisma généré (genere/, ignoré par git), comme le fait tests/Dockerfile : indispensable sur un clone neuf (CI).
+npm run generer >/dev/null
 
 echo "=== API de production (src/serveur.ts), processus à part, journal d'accès actif ==="
 WAKATNET_API_PORT=3917 node src/serveur.ts > "$JOURNAL" 2>&1 &

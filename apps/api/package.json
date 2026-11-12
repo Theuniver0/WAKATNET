@@ -18,6 +18,7 @@
     "@types/pg": "8.23.1",
     "axe-core": "4.14.0",
     "fast-check": "4.10.2",
+    "playwright": "1.63.0",
     "prisma": "7.10.1",
     "typescript": "5.9.3"
   }

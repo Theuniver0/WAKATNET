@@ -1,0 +1,67 @@
+# WAKATNET — intégration continue, second niveau (ADR 0021) : bancs lents ou lourds, chaque nuit et à la
+# demande. Un échec ici ne bloque aucune fusion, mais se corrige ; aucun banc n'est désactivé pour passer.
+name: nuit
+
+on:
+  schedule:
+    - cron: "17 2 * * *" # 02:17 UTC, soit 02:17 à Ouagadougou
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nuit
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ansible:
+    name: ansible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Paquet « ansible » 14 (ansible-core 2.21), pour le connecteur community.docker de l'essai seulement.
+      - name: Ansible dans un environnement virtuel
+        run: |
+          python3 -m venv "$RUNNER_TEMP/ansible"
+          "$RUNNER_TEMP/ansible/bin/pip" install -q "ansible==14.0.0"
+          echo "WAKATNET_ANSIBLE_BIN=$RUNNER_TEMP/ansible/bin" >> "$GITHUB_ENV"
+      - name: Essai réel des rôles sur deux nœuds jetables
+        run: infra/ansible/essais/essai.sh
+
+  sauvegarde:
+    name: sauvegarde
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Sauvegarde et restauration (pgBackRest, dépôt chiffré)
+        run: infra/noeud/essais/sauvegarde.sh
+      - name: Dépôt S3 verrouillé contre un nœud compromis (M8)
+        run: infra/noeud/essais/sauvegarde-s3.sh
+
+  charge:
+    name: charge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.23.4"
+          cache: npm
+      - name: Dépendances du dépôt (verrouillées)
+        run: npm ci
+      - name: Charge HTTP du portail et du paiement (MockProvider)
+        run: apps/api/tests/charge.sh
