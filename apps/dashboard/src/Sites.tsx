@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { envoyer, lire, type Routeur, type Site } from "./api.ts";
+import { envoyer, lire, type Moi, type Routeur, type Site } from "./api.ts";
 import { dateHeure } from "./format.ts";
 import { Alerte, Champ, Ecran, Info, useAction, useCharge } from "./ui.tsx";
 
@@ -62,7 +62,26 @@ function RouteurLigne({ r, site, apres }: { r: Routeur; site: string; apres: () 
   );
 }
 
-export function Sites() {
+/** Revue de sécurité M4 (ADR 0017) : sans adresse vérifiée, le raccordement d'un routeur est refusé. */
+function AdresseNonVerifiee() {
+  const { erreur, info, lancer, occupe } = useAction();
+  const renvoyer = () => void lancer(async () => {
+    await envoyer("/v1/verification/envoyer");
+    return "Lien envoyé : ouvrez l'e-mail, puis cliquez sur « Confirmer mon adresse ».";
+  });
+  return (
+    <div className="carte" role="region" aria-labelledby="titre-verification">
+      <h2 id="titre-verification">Adresse e-mail à confirmer</h2>
+      <p>Tant que votre adresse n'est pas confirmée, vous ne pouvez pas raccorder de routeur. Ouvrez le lien reçu par e-mail,
+        ou demandez la validation de votre compte à Telecom Universel.</p>
+      <button type="button" className="secondaire" onClick={renvoyer} disabled={occupe}>Renvoyer le lien</button>
+      <Alerte message={erreur} />
+      <Info message={info} />
+    </div>
+  );
+}
+
+export function Sites({ moi }: { moi: Moi }) {
   const [nom, setNom] = useState("");
   const sites = useCharge(() => lire<Site[]>("/v1/sites"));
   const routeurs = useCharge(() => lire<Routeur[]>("/v1/routers"));
@@ -74,6 +93,7 @@ export function Sites() {
   const nomSite = (id: string) => sites.donnees?.find((s) => s.id === id)?.nom ?? `Site ${id}`;
   return (
     <Ecran titre="Sites et routeurs">
+      {!moi.email_verifie ? <AdresseNonVerifiee /> : null}
       <form onSubmit={ajouter} className="carte ligne">
         <Champ libelle="Nom du site" valeur={nom} onChange={setNom} requis />
         <button type="submit" disabled={occupe}>Ajouter le site</button>

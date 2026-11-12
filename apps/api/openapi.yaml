@@ -61,6 +61,18 @@ paths:
         "403": { description: En-tête anti-CSRF manquant }
         "409": { description: Adresse déjà utilisée }
         "422": { description: Saisie invalide }
+  # ADR 0017 (revue M4) : vérification de l'adresse du propriétaire, exigée pour raccorder un routeur.
+  /v1/verification/confirmer:
+    post:
+      summary: Lien de vérification suivi (jeton à usage unique, 24 h) ; la page demande un clic, un GET ne consomme rien
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [jeton], properties: { jeton: { type: string } } } } } }
+      responses: { "200": { description: Adresse vérifiée }, "404": { description: Lien invalide ou expiré } }
+  /v1/verification/envoyer:
+    post:
+      summary: Nouveau lien de vérification pour le propriétaire connecté (3 par heure)
+      security: []
+      responses: { "202": { description: Lien envoyé }, "401": { description: Connexion requise }, "403": { description: Réservé au propriétaire }, "429": { description: Déjà vérifiée, ou trop de liens }, "503": { description: Envoi d'e-mails pas encore en service } }
   /v1/connexion:
     post:
       summary: Connexion ; même réponse que le compte existe ou non
@@ -79,7 +91,7 @@ paths:
     get:
       summary: Utilisateur de la session
       security: []
-      responses: { "200": { description: Rôle, propriétaire, point de vente, TOTP validé }, "401": { description: Connexion requise } }
+      responses: { "200": { description: Rôle, propriétaire, point de vente, TOTP validé, adresse vérifiée }, "401": { description: Connexion requise } }
   /v1/totp:
     post:
       summary: Double authentification du super-admin (RFC 6238) ; un code ne sert qu'une fois
@@ -127,6 +139,8 @@ paths:
     get: { summary: "Propriétaires, solde, ventes et commission (super-admin, TOTP validé)", responses: { "200": { description: Liste }, "401": { description: Connexion requise }, "403": { description: Super-admin avec TOTP exigé } } }
   /admin/v1/proprietaires/{id}:
     put: { summary: "Suspension, commission, plafond (super-admin) ; audité", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Réglé }, "404": { description: Inconnu }, "422": { description: Saisie invalide } } }
+  /admin/v1/proprietaires/{id}/acces:
+    put: { summary: "Quota d'enrôlement et validation de l'adresse du propriétaire (super-admin, ADR 0017) ; audité", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Réglé }, "404": { description: Inconnu }, "422": { description: Saisie invalide } } }
   /admin/v1/proprietaires/{id}/recharges:
     post: { summary: "Rechargement des crédits, idempotent sur la référence (super-admin) ; audité", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "201": { description: Rechargé }, "404": { description: Inconnu }, "409": { description: Référence déjà utilisée pour un autre montant }, "422": { description: Saisie invalide } } }
   /v1/routers:
@@ -152,7 +166,8 @@ paths:
                 properties: { commande: { type: string }, expire_le: { type: string, format: date-time } }
         "404": { description: Site inconnu ou d'un autre propriétaire }
         "401": { description: Identité absente ou invalide }
-        "403": { description: Propriétaire suspendu }
+        "403": { description: Propriétaire suspendu, ou adresse e-mail non vérifiée (ADR 0017) }
+        "409": { description: "Quota de routeurs atteint : routeurs enrôlés, révoqués compris, plus jetons ouverts (ADR 0017)" }
   /v1/imports/mikhmon:
     post:
       summary: Importe des tickets Mikhmon (CSV name, password, profile) ; rejouable sans doublon

@@ -218,3 +218,88 @@ func attendre(t *testing.T, limite time.Duration, ok func() bool) {
 }
 
 var _ = netip.Addr{}
+
+// Revue de sécurité M7 (migration 0032) : un « routeur » (second wireguard-go) fait une vraie poignée de main avec
+// wg0 ; l'agent note son IP publique (ici 127.0.0.1) en base, et le portail la reconnaît comme celle du site.
+func TestIPPubliqueDuRouteurNotee(t *testing.T) {
+	admin := os.Getenv("WAKATNET_TEST_ADMIN_URL")
+	if admin == "" {
+		t.Skip("WAKATNET_TEST_ADMIN_URL absent")
+	}
+	b := ouvrir(t)
+	ctx, arreter := context.WithCancel(context.Background())
+	defer arreter()
+	c, err := pgx.Connect(ctx, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	var tenant, site, routeur int64
+	if err := c.QueryRow(ctx, "INSERT INTO app.tenant (nom) VALUES ('wg-points') RETURNING id").Scan(&tenant); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.QueryRow(ctx, "INSERT INTO app.site (tenant_id, nom) VALUES ($1, 's') RETURNING id", tenant).Scan(&site); err != nil {
+		t.Fatal(err)
+	}
+	kR, _ := wgtypes.GeneratePrivateKey()
+	if err := c.QueryRow(ctx, `INSERT INTO app.router (tenant_id, site_id, overlay_ip, shortname, wg_public_key)
+	                           SELECT $1, $2, coalesce(max(overlay_ip), '10.213.8.0'::inet) + 1, 'r-wg-points-' || $1::bigint, $3
+	                             FROM app.router WHERE overlay_ip << '10.213.8.0/24'::inet
+	                           RETURNING id`, tenant, site, kR.PublicKey().String()).Scan(&routeur); err != nil {
+		t.Fatal(err)
+	}
+
+	// Le routeur : son propre wireguard-go, qui appelle wg0 sur 127.0.0.1 avec un keepalive d'une seconde.
+	const nomR = "wgr0"
+	cmd := exec.Command("wireguard-go", "-f", nomR)
+	cmd.Env = append(os.Environ(), "WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("wireguard-go (routeur) : %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+	for i := 0; ; i++ {
+		if _, err := b.wg.Device(nomR); err == nil {
+			break
+		}
+		if i > 50 {
+			t.Fatal("interface du routeur absente")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if out, err := exec.Command("ip", "link", "set", nomR, "up").CombinedOutput(); err != nil {
+		t.Fatalf("ip link set up : %v %s", err, out)
+	}
+	portR, ka := 51821, time.Second
+	_, tout, _ := net.ParseCIDR("10.213.0.0/16")
+	if err := b.wg.ConfigureDevice(nomR, wgtypes.Config{PrivateKey: &kR, ListenPort: &portR, Peers: []wgtypes.PeerConfig{{
+		PublicKey: b.privK.PublicKey(), Endpoint: &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 51820},
+		PersistentKeepaliveInterval: &ka, AllowedIPs: []net.IPNet{*tout},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	a := &Agent{WG: b.wg, Nom: iface, Journal: journal()}
+	go a.Boucle(ctx, time.Second, 200*time.Millisecond)
+	debut := time.Now()
+	attendre(t, 15*time.Second, func() bool {
+		var ip *string
+		_ = c.QueryRow(ctx, "SELECT host(ip_publique) FROM app.router WHERE id = $1", routeur).Scan(&ip)
+		return ip != nil && *ip == "127.0.0.1"
+	})
+	t.Logf("IP publique du routeur notée en %v", time.Since(debut))
+	var reconnu, autre bool
+	if err := c.QueryRow(ctx, "SELECT app._depuis_routeur($1, '127.0.0.1'), app._depuis_routeur($1, '127.0.0.2')", site).Scan(&reconnu, &autre); err != nil {
+		t.Fatal(err)
+	}
+	if !reconnu || autre {
+		t.Fatalf("reconnaissance de l'IP du routeur : %v (attendu vrai), autre IP : %v (attendu faux)", reconnu, autre)
+	}
+	// Routeur révoqué : son IP ne vaut plus rien.
+	if _, err := c.Exec(ctx, "UPDATE app.router SET actif = false WHERE id = $1", routeur); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.QueryRow(ctx, "SELECT app._depuis_routeur($1, '127.0.0.1')", site).Scan(&reconnu); err != nil || reconnu {
+		t.Fatalf("routeur révoqué encore reconnu : %v %v", reconnu, err)
+	}
+	b.intacte(t)
+}

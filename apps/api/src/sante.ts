@@ -52,6 +52,13 @@ export const REGLES: Regle[] = [
   { id: "sonde_lente", titre: "authorize lent (sonde > 100 ms)", active: (v) => (v("sonde_authorize_ms") ?? 0) > 100 },
   { id: "spool_bloque", titre: "Spool d'accounting en attente depuis plus de 10 min", active: (v) => (v("spool_age_s") ?? 0) > 600 },
   { id: "routeurs_muets", titre: "Routeurs sans échange WireGuard depuis plus de 3 min", active: (v) => (v("routeurs_sans_handshake") ?? 0) > 0 },
+  // Migration 0032 (revue M7) : sur le primaire, aucun routeur actif n'a d'IP notée depuis 10 min. wg-agent n'écrit
+  // plus (arrêté, ancien, schéma en retard) : les hotspots ont perdu leur budget de paiement propre.
+  // ADR 0017 (revue M4) : les adresses de l'overlay ne reviennent jamais ; prévenir avant qu'il soit plein.
+  { id: "overlay_plein", titre: "Overlay rempli à plus de 80 % (adresses de routeurs, révoqués compris)",
+    active: (v) => (v("overlay_utilise") ?? 0) > 0.8 * 254 * 254 },
+  { id: "ip_routeurs", titre: "wg-agent ne note plus l'IP publique des routeurs (budget de paiement des hotspots perdu)",
+    active: (v) => v("en_recuperation") === 0 && (v("routeurs_actifs") ?? 0) > 0 && v("routeurs_ip_recente") === 0 },
   { id: "replication_a", titre: "Le nœud B ne réplique plus", active: (v) => v("en_recuperation") === 0 && v("replicas_en_flux") === 0 },
   { id: "replication_retard", titre: "Retard de réplication supérieur à 5 min",
     active: (v) => (v("replication_retard_s") ?? 0) > 300 },

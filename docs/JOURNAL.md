@@ -868,3 +868,112 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - envoi réel vers Telegram ;
   - LABO-16 et LABO-09 sur CHR ;
   - B chez un second hébergeur (ADR 0004).
+
+### Phase 6 : préparation du pilote (12/11/2026)
+
+- **Demande** de Yacouba : « continue avec la phase 6 ». Pas de PRD (SPEC §14.3) : le pilote se joue sur le terrain. L'agent livre les outils et les procédures, et s'arrête aux portes.
+- **Rapprochement quotidien** (`apps/api/src/rapprochement.ts`, `docs/PILOTE.md` §4) : code d'argent, donc tests de propriétés et relecture par un second agent (règle 4).
+  - Première relecture : trois cas disaient « écart nul » alors qu'un franc manquait (B1 paiement de 23:55 sans encaissement, B2 statut inconnu lu comme un échec, B3 ligne CSV mal découpée), plus I1 à I4. Tous corrigés.
+  - Contre-relecture : tous fermés ; deux nouveaux cas importants corrigés (N1 second encaissement sous la référence d'un paiement d'un autre jour, N2 virgule finale dans `--echec`), et N3 (commission figée recalculée au taux et au plancher), N4, N5 (dates impossibles), lancement par lien symbolique.
+- **Mise en production** (ADR 0016) : API en service systemd derrière nginx (écart assumé avec D7) ; filtrage par `Host`, limites par IP, TLS Let's Encrypt ; pare-feu public en `drop` avec retour arrière programmé avant chargement. Ferme M1 et F10, F5 ; réduit M7.
+- **Procédures** : `docs/PILOTE.md`, `docs/MISE_EN_PRODUCTION.md`, `docs/ONBOARDING_ROUTEUR.md`.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 158 tests, SUCCÈS (rapprochement de bout en bout sur une vraie base, `TZ=Europe/Paris`, chemin avec espace et accent) ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes (nginx : `Host`, `X-Forwarded-For`, 429 à la 7e connexion ; pare-feu) ; ansible-lint, profil production, sans remarque ;
+  - `systemd-analyze verify` sur `wakatnet-api.service`.
+- **Portes : G-ARGENT et G-PILOTE FERMÉES** (`docs/PILOTE.md` §2). Arrêt obligatoire : rien ne touche à un franc réel ni au routeur d'un tiers sans Yacouba.
+- **Non prouvé ici** : scripts RouterOS sur CHR, Debian 13, vrai VPS, Let's Encrypt réel, format du relevé de l'agrégateur.
+
+### Revue de sécurité, M2 et M7 : limites par source (12/11/2026)
+
+- **Demande** de Yacouba : il n'existe pas de phase 7 au SPEC (§12 s'arrête au pilote). Parmi les trois pistes proposées sans franchir de porte, il a retenu « fermer M2 et M7 ».
+- **Migration 0031** et `apps/api/src/cle-ip.ts` :
+  - source = IPv4, ou /64 d'une IPv6 (un abonné en reçoit un entier ; compter par adresse ne le limiterait pas). Gardée en HMAC du jour, jamais en clair ;
+  - M7 : garde des paiements par (site, source), plafond de 100 par minute et par site ;
+  - M2 : 5 essais par (adresse, source), 10 par adresse pour les sources inconnues ; cookie d'appareil connu, posé à une connexion réussie, avec son propre budget ;
+  - l'API refuse de démarrer en production sans `WAKATNET_TRUST_PROXY` ; nginx compte lui aussi par /64 ; Ansible redémarre l'API après les migrations.
+- **Relu par un second agent** (règle 4) sur la première version :
+  - elle ne faisait que déplacer le blocage d'un compte (6 /64 suffisaient) : le cookie d'appareil connu répond ;
+  - plafond de paiements à 300 : régression contre l'envoi massif de demandes, ramené à 100 ;
+  - IP gardée en clair et reliable au paiement par l'horodatage : remplacée par le HMAC du jour ;
+  - et : nginx comptait par adresse IPv6 entière, l'API pouvait tourner sur l'ancien code après la migration, la purge n'avait pas d'index, la documentation était périmée.
+- **Restes, honnêtes** :
+  - M7 n'est que réduit : 4 sources bloquent encore un site. Le fermer demande l'IP publique du routeur, vue par `wg-agent` : décision de Yacouba ;
+  - M2 : un titulaire sans appareil connu attend 15 min pendant une attaque d'au moins 2 sources.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 165 tests, SUCCÈS. Dont 40 demandes parallèles d'une source → 30 acceptées, appareil connu qui passe une attaque distribuée, en-tête `X-Forwarded-For` forgé hors du proxy non cru ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, neuf étapes ; ansible-lint, profil production, sans remarque.
+- **Non prouvé** : la clé /64 de nginx sur une vraie IPv6 (le banc tourne en IPv4 seulement ; `nginx -t` valide la syntaxe).
+
+### Guide imprimable du propriétaire et du vendeur (12/11/2026)
+
+- **Demande** de Yacouba : « fais le point 3 » (SPEC §14.4, guide du propriétaire et du vendeur pour le pilote).
+- **Livré** : `docs/guides/guide-pilote.html` (source), `docs/guides/imprimer.mjs` (rendu par Playwright et Chromium), `docs/guides/guide-pilote.pdf` (6 pages A4).
+  - Partie 1, propriétaire : compte, raccordement, page de connexion, forfaits, points de vente, tickets papier et leur coût, vente en ligne (pas encore ouverte), suivi de l'argent ;
+  - partie 2, vendeur, sur une page : connexion, vente, aide au client, mémo de caisse ;
+  - partie 3 : dépannage, retrait d'un routeur, sécurité.
+- **Vérifié** : chaque libellé de bouton et d'écran cité a été relevé dans `apps/dashboard/src`, et les droits du gérant et du vendeur dans `apps/api/src/exploitation.ts`. Rendu relu page par page.
+- **Trouvé en l'écrivant** : la coupure de l'accès d'un vendeur (M3) existe dans l'API (`PUT /v1/utilisateurs/:id`), mais **aucun écran** ne l'offre. Le guide dit d'appeler Telecom Universel.
+- **Non vérifié** : la compréhension par un vrai propriétaire, à éprouver au premier accueil. Les étapes sur le routeur suivent `docs/ONBOARDING_ROUTEUR.md`, qui n'a pas encore été joué sur CHR.
+
+### Écran : couper l'accès d'un gérant ou d'un vendeur (12/11/2026)
+
+- **Demande** de Yacouba, après le guide du pilote, qui avait montré le manque : M3 existait dans l'API, mais sans écran.
+- **Fait** : écran « Points de vente et vendeurs », colonne Actions.
+  - Bouton « Couper l'accès », puis « Confirmer la coupure » ou « Annuler », sur le modèle de la révocation d'un routeur.
+  - Il appelle `PUT /v1/utilisateurs/:id { actif: false }`. L'état passe à « Suspendu ».
+- **Preuve** : `apps/api/tests/e2e.sh`, SUCCÈS. Au parcours 4, le propriétaire coupe l'accès du vendeur depuis l'écran ; ses sessions sont fermées en base ; sa reconnexion est refusée (401). axe-core : 12 écrans sans violation sérieuse, dont la confirmation.
+- **Guide** mis à jour, PDF régénéré (6 pages) ; `docs/REVUE_SECURITE.md` (M3) mis à jour.
+- **Constaté** : le démon Docker de l'environnement s'est encore arrêté ; relancé avant l'e2e.
+
+### Revue de sécurité M7 : budget propre à l'IP publique du routeur (12/11/2026)
+
+- **Demande** de Yacouba : « ferme M7 avec l'IP du routeur vue par wg-agent ».
+- **Fait** :
+  - `wg-agent` relève le point de terminaison de chaque pair de `wg0` (poignée de main de moins de 3 min) et l'écrit par `app.wg_points_noter`. Sans effet sur une réplique ; au plus une écriture par routeur toutes les 5 min ; IP effacée à la révocation, ou après un jour sans être revue. Les IP ne sont pas journalisées ;
+  - migration 0032 : une demande qui vient de l'IP d'un routeur actif du site, vue il y a moins de 10 min, a son propre budget (30 par minute), hors plafond. IPv4 : égalité ; IPv6 : même /64 ;
+  - règle de santé `ip_routeurs` : sur le primaire, routeurs actifs mais aucune IP notée.
+- **Relu par un second agent** (règle 4) ; constats repris :
+  - D1 : `DROP` de l'ancienne signature, donc paiements en erreur entre la migration et l'API. Corrigé par `p_ip DEFAULT NULL`, et un test appelle l'ancienne signature ;
+  - H1 et D2 : le plafond des autres sources, que j'avais baissé à 60, aurait affaibli la garde quand le routeur n'est pas reconnu. Remis à 100, avec l'alerte ;
+  - P1 : IP du routeur gardée sans limite. Désormais effacée ;
+  - une IPv6 à zone faisait échouer tout le lot : écartée.
+- **Reste de M7, honnête** : un voisin de NAT ou de CGNAT de même IP publique partage le budget du routeur et peut le vider ; un routeur non reconnu (double WAN, CGNAT qui sépare TCP et UDP, clients en IPv6, `wg-agent` arrêté) retombe sur la garde de 0031.
+- **Preuves** :
+  - `apps/wg-agent/tests/run.sh` : SUCCÈS. Dont une **vraie poignée de main** entre deux `wireguard-go` : l'agent note l'IP du « routeur » en base en 6,4 s, la base la reconnaît pour son site, puis plus du tout une fois le routeur révoqué ;
+  - `apps/api/tests/run.sh` : 168 tests, SUCCÈS. Dont : le hotspot achète alors que 100 sources saturent le site, budget propre de 30, IP périmée, routeur révoqué ou d'un autre site, /64, écritures bornées de `wg_points_noter` ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS.
+- **Non prouvé** : l'hypothèse de terrain (les clients d'un hotspot sortent vers le portail par l'IP du tunnel du routeur) sur un vrai MikroTik et un vrai opérateur. À vérifier au pilote : la règle `ip_routeurs` et `paiement_demande.routeur` le montrent.
+
+### Revue de sécurité M4 : quota d'enrôlement et vérification de l'adresse (12/11/2026)
+
+- **Demande** de Yacouba : « tranche M4 : quota de routeurs et vérification de l'e-mail ». Décision : `docs/adr/0017-quota-et-verification.md`.
+- **Constaté en lisant le code** :
+  - un enrôlement s'obtient sans routeur (jeton, puis clé tirée au hasard) et consomme une adresse de l'overlay jamais réemployée ;
+  - un quota sur les seuls routeurs actifs ne protège donc de rien, et un quota par compte, sans vérification de l'adresse, se contourne en ouvrant d'autres comptes.
+- **Fait** (migration 0033) :
+  - quota par propriétaire, 10 par défaut, réglable par le super-admin ; il compte les routeurs enrôlés, révoqués compris, et les jetons ouverts, sous verrou ;
+  - raccorder un routeur exige une adresse vérifiée, par un lien (jeton de 256 bits, 24 h, usage unique, consommé au clic seulement ; 3 liens par heure, 5 en tout) ou par le super-admin ;
+  - envoi d'e-mails derrière une interface : aucun fournisseur choisi, donc validation par le super-admin pendant le pilote ;
+  - alerte `overlay_plein` à 80 % ;
+  - écrans : bandeau « Adresse e-mail à confirmer » avec « Renvoyer le lien », page « Confirmer mon adresse », Administration (état de l'adresse, « Valider l'adresse », quota).
+- **Relu par un second agent** : M4 est fermé tant que la vérification se fait à la main. Corrigés :
+  - C2 : envoi répété d'e-mails à l'adresse d'un tiers ;
+  - C3 : comptes ouverts avant la migration ;
+  - C4 : message d'erreur du fournisseur dans le journal ;
+  - C5 : inscription en échec si l'envoi échoue ;
+  - C6 : purge des liens.
+  
+  C1 (adresses jetables une fois le lien en service) devient une liste de conditions dans l'ADR, à remplir avant de brancher un fournisseur.
+- **Trouvé en l'éprouvant** :
+  - une table sans clé primaire rendait `prisma db pull` instable. Clé ajoutée ; deux régénérations donnent le même fichier ;
+  - une régénération sur un schéma devenu invalide échouait sans rien dire, car sa sortie était masquée : schéma repris de la version commitée.
+- **Preuves** :
+  - `apps/api/tests/run.sh` : 174 tests, SUCCÈS. Dont : quota avec routeur révoqué et jeton expiré ; 12 commandes parallèles pour un quota de 4, donc 4 acceptées ; adresse non vérifiée (403) ; lien d'inscription suivi ; lien rejoué ou expiré ; limites de 3 par heure et 5 en tout ; validation par le super-admin, auditée ;
+  - `radius/tests/run.sh test_droits.py` : 12 passés ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS. Le parcours 1 suit le lien dans le navigateur avant d'obtenir la commande d'enrôlement ; axe-core : 14 écrans sans violation sérieuse.
+- **Guide du pilote** mis à jour (étape 1, dépannage), PDF régénéré (6 pages).
+- **Reste** : F9 accepté pour l'instant ; fournisseur d'e-mail à choisir (Yacouba), avec les conditions de l'ADR 0017.

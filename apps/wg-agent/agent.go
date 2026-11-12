@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -82,6 +83,72 @@ func LireBase(conn *pgx.Conn) func(context.Context) ([]Pair, error) {
 	}
 }
 
+// PointVu : IP publique d'un routeur, vue comme point de terminaison de son pair sur wg0 (revue de sécurité M7,
+// migration 0032). WireGuard ne la change que sur un paquet authentifié par la clé du routeur.
+type PointVu struct {
+	Cle string
+	IP  netip.Addr
+	Vu  time.Time
+}
+
+// PointsVus : pairs dont la dernière poignée de main date de moins de 3 min (keepalive de 25 s, nouvelle poignée
+// de main toutes les 2 min). Une IPv4 notée en IPv6 est ramenée à l'IPv4. Fonction pure.
+func PointsVus(pairs []wgtypes.Peer, maintenant time.Time) []PointVu {
+	var out []PointVu
+	for _, p := range pairs {
+		if p.Endpoint == nil || p.LastHandshakeTime.IsZero() {
+			continue
+		}
+		age := maintenant.Sub(p.LastHandshakeTime)
+		if age > 3*time.Minute || age < -time.Minute {
+			continue
+		}
+		ip, ok := netip.AddrFromSlice(p.Endpoint.IP)
+		// Une adresse à zone (fe80::…%eth0) ferait échouer tout le lot à la conversion en inet : écartée.
+		if !ok || p.Endpoint.Zone != "" {
+			continue
+		}
+		out = append(out, PointVu{Cle: p.PublicKey.String(), IP: ip.Unmap(), Vu: p.LastHandshakeTime})
+	}
+	return out
+}
+
+// Noter : relève les points de terminaison et les écrit. Hors chemin critique : une erreur est seulement
+// journalisée par l'appelant, et ne touche jamais aux pairs. Les IP ne sont pas journalisées.
+func (a *Agent) Noter(ctx context.Context, noter func(context.Context, []PointVu) (int, error)) error {
+	dev, err := a.WG.Device(a.Nom)
+	if err != nil {
+		return fmt.Errorf("interface %s : %w", a.Nom, err)
+	}
+	points := PointsVus(dev.Peers, time.Now())
+	if len(points) == 0 {
+		return nil
+	}
+	n, err := noter(ctx, points)
+	if err != nil {
+		return fmt.Errorf("IP des routeurs : %w", err)
+	}
+	if n > 0 {
+		a.Journal.Info("IP publiques des routeurs notées", "nombre", n)
+	}
+	return nil
+}
+
+// NoterBase : app.wg_points_noter (rôle wk_wg, EXECUTE seul ; sans effet sur une réplique).
+func NoterBase(conn *pgx.Conn) func(context.Context, []PointVu) (int, error) {
+	return func(ctx context.Context, points []PointVu) (int, error) {
+		cles := make([]string, len(points))
+		ips := make([]string, len(points))
+		vus := make([]time.Time, len(points))
+		for i, p := range points {
+			cles[i], ips[i], vus[i] = p.Cle, p.IP.String(), p.Vu
+		}
+		var n int
+		err := conn.QueryRow(ctx, "SELECT app.wg_points_noter($1::text[], $2::text[]::inet[], $3::timestamptz[])", cles, ips, vus).Scan(&n)
+		return n, err
+	}
+}
+
 // Boucle : connexion (variables PG* de l'environnement), LISTEN, un tour à chaque notification
 // et au moins toutes les `periode`. Base perdue : reconnexion après `pause`, aucun retrait.
 func (a *Agent) Boucle(ctx context.Context, periode, pause time.Duration) {
@@ -111,12 +178,15 @@ func (a *Agent) session(ctx context.Context, periode time.Duration) error {
 		return err
 	}
 	lire := LireBase(conn)
+	noter := NoterBase(conn)
 	for {
 		if _, err := a.Tour(ctx, lire); err != nil {
 			a.Journal.Error("tour", "erreur", err.Error())
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
+		} else if err := a.Noter(ctx, noter); err != nil {
+			a.Journal.Error("points", "erreur", err.Error())
 		}
 		attente, annuler := context.WithTimeout(ctx, periode)
 		_, err := conn.WaitForNotification(attente)

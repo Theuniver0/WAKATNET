@@ -1,0 +1,7 @@
+# WAKATNET — pare-feu de l'interface publique (essais/essai.sh, étape 9) : appliqué sur A seulement,
+# après les étapes de réplication (dans le banc, le lien entre nœuds passe par l'interface « publique »).
+- name: Pare-feu public
+  hosts: noeud_a
+  become: true
+  roles:
+    - parefeu

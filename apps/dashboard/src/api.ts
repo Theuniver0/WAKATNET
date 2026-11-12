@@ -64,7 +64,7 @@ export const messageDe = (e: unknown): string => (e instanceof Error ? e.message
 
 // Types des réponses (lus dans apps/api/src, l'OpenAPI ne les décrit pas).
 export type Role = "proprietaire" | "gerant" | "vendeur" | "super_admin";
-export type Moi = { id: string; role: Role; email: string; tenant_id: string | null; point_of_sale_id: string | null; totp_ok: boolean };
+export type Moi = { id: string; role: Role; email: string; tenant_id: string | null; point_of_sale_id: string | null; totp_ok: boolean; email_verifie: boolean };
 export type Site = { id: string; nom: string };
 export type Routeur = { id: string; site_id: string; overlay_ip: string; nom: string; actif: boolean; enrole_le: string | null };
 export type Forfait = {
@@ -85,4 +85,5 @@ export type Paiement = { reference: string; statut: string; montant_xof: number;
 export type Proprietaire = {
   id: string; nom: string; suspendu: boolean; commission_bps: number; plafond_decouvert_xof: number; solde_credits_xof: number;
   ventes_en_ligne_xof: number; commissions_xof: number; frais_papier_xof: number;
+  quota_routeurs: number; routeurs_enroles: number; email_verifie: boolean;
 };

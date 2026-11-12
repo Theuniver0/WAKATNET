@@ -40,6 +40,7 @@
     mode: preserve
   loop: [infra/, apps/api/src/, apps/api/prisma/, apps/api/package.json, apps/api/prisma.config.ts, apps/api/tsconfig.json,
          packages/payments/, package.json, package-lock.json]
+  register: noeud_wakatnet_code
   notify: [Installer les dépendances de l'API, Générer le client Prisma]
 
 - name: Dépendances et client Prisma à jour avant d'activer les unités
@@ -105,6 +106,14 @@
 
 # root lit les mots de passe des rôles (fichier root 0600) ; migrer.sh tourne en tant que postgres et
 # les lit dans son environnement (\getenv), jamais sur une ligne de commande.
+# L'API écrit : elle ne tourne que sur le primaire (ADR 0016 §1). Après une bascule, inverser les rôles dans
+# l'inventaire et repasser Ansible (RUNBOOK §3).
+- name: API sur le primaire, arrêtée sur la réplique
+  ansible.builtin.systemd_service:
+    name: wakatnet-api.service
+    enabled: "{{ wakatnet_role == 'primaire' }}"
+    state: "{{ 'started' if wakatnet_role == 'primaire' else 'stopped' }}"
+
 - name: Schéma (migrer.sh), sur le primaire seulement
   when: wakatnet_role == "primaire"
   ansible.builtin.shell: |
@@ -115,3 +124,12 @@
     executable: /bin/bash
   register: noeud_wakatnet_migrations
   changed_when: "'application :' in noeud_wakatnet_migrations.stdout"
+
+# Le code et le schéma vont ensemble : une API restée sur l'ancien code appellerait des fonctions retirées par
+# une migration (relecture de la migration 0031). Redémarrée APRÈS les migrations ; quelques secondes d'erreurs
+# sur la connexion et le paiement restent possibles entre la migration et le redémarrage.
+- name: API redémarrée sur le nouveau code et le nouveau schéma
+  when: wakatnet_role == "primaire" and (noeud_wakatnet_code.changed or noeud_wakatnet_migrations.changed)
+  ansible.builtin.systemd_service:
+    name: wakatnet-api.service
+    state: restarted

@@ -1,5 +1,5 @@
 # WAKATNET — rôles appliqués sur les nœuds d'essai (essais/essai.sh). Sous-ensemble du site.yml :
-# wireguard (module du noyau), freeradius (garde de version, éprouvée à part) et noeud_wakatnet (Node
+# wireguard (module du noyau), parefeu (éprouvé à part, étape 9), freeradius (garde de version, éprouvée à part) et noeud_wakatnet (Node
 # téléchargé depuis nodejs.org) ne s'appliquent pas dans ces conteneurs.
 - name: Nœuds d'essai
   hosts: noeuds
@@ -9,3 +9,4 @@
     - socle
     - postgresql
     - pgbackrest
+    - frontal

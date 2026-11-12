@@ -30,6 +30,8 @@ export type Config = {
   dossierTableau?: string | null;
   /** Fichiers d'état des nœuds écrits par le collecteur (WAKATNET_ETATS_NOEUDS, séparés par des virgules). */
   etatsNoeuds?: string[];
+  /** Proxy inverse de confiance (ADR 0016 §2 : nginx local) ; absent : aucune confiance dans X-Forwarded-For. */
+  trustProxy?: string;
 };
 
 import { lireCle } from "./chiffrement.ts";
@@ -57,8 +59,13 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
   const dossierTableau = env.WAKATNET_TABLEAU_DIR || undefined;
+  const trustProxy = env.WAKATNET_TRUST_PROXY || undefined;
+  if (trustProxy !== undefined && !/^[0-9a-f.:/,]+$/i.test(trustProxy)) throw new ConfigInvalide("WAKATNET_TRUST_PROXY : adresses IP séparées par des virgules");
+  // Sans lui, derrière nginx, toutes les requêtes viennent de 127.0.0.1 : les limites par source (M2, M7)
+  // retomberaient en silence sur une seule source. Refusé en production (relecture de la migration 0031).
+  if (trustProxy === undefined && env.NODE_ENV === "production") throw new ConfigInvalide("WAKATNET_TRUST_PROXY requis en production (ADR 0016 §2)");
   const etatsNoeuds = (env.WAKATNET_ETATS_NOEUDS ?? "/var/lib/wakatnet/sante/etat.json").split(",").filter(Boolean);
-  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(dossierTableau ? { dossierTableau } : {}) };
+  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

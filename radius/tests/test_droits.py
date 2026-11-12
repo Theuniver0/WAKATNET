@@ -39,6 +39,8 @@ ATTENDU = {
     "app.enroll_register(p_empreinte bytea, p_cle text, p_coa_port integer, p_inventaire jsonb)": {"wk_api"},
     # Ticket 05 : wg-agent ne lit que les pairs voulus.
     "app.wg_pairs()": {"wk_wg"},
+    # Migration 0032 (revue M7) : wg-agent note l'IP publique des routeurs ; écriture bornée, sans effet sur une réplique.
+    "app.wg_points_noter(p_cles text[], p_ips inet[], p_vus timestamp with time zone[])": {"wk_wg"},
     # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
     "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
     # Phase 3 (ADR 0013 §11) : tout ce qui touche à l'argent passe par ces fonctions ; rien sur ledger.
@@ -47,7 +49,7 @@ ATTENDU = {
     "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
     "app.portail_site(p_public_id text)": {"wk_api"},
     "app.portail_forfaits(p_public_id text)": {"wk_api"},
-    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text)": {"wk_api"},
+    "app.paiement_creer(p_public_id text, p_plan bigint, p_operateur text, p_numero_clair text, p_numero_hmac bytea, p_numero_masque text, p_jeton bytea, p_soumission text, p_reference text, p_source text, p_ip inet)": {"wk_api"},
     "app.paiement_transition(p_reference text, p_vers text, p_reference_fournisseur text, p_montant bigint, p_devise text, p_origine text)": {"wk_api"},
     "app.paiement_evenement(p_fournisseur text, p_id_evenement text, p_tenant bigint, p_reference text, p_corps bytea)": {"wk_api"},
     "app.paiement_du_proprietaire(p_reference text, p_tenant bigint)": {"wk_api"},
@@ -63,9 +65,14 @@ ATTENDU = {
     # Phase 4 (ADR 0014) : comptes et sessions par fonctions ; super_admin_creer réservé à la main.
     "app.inscription(p_nom_proprietaire text, p_email text, p_mot_de_passe text)": {"wk_api"},
     "app.connexion_lire(p_email text)": {"wk_api"},
-    "app.connexion_echouee(p_email text)": {"wk_api"},
     "app.session_ouvrir(p_utilisateur bigint, p_empreinte bytea)": {"wk_api"},
     "app.session_lire(p_empreinte bytea)": {"wk_api"},
+    # Migration 0033 (revue M4, ADR 0017) : vérification de l'adresse, quota d'enrôlement, réglages du super-admin.
+    "app.session_email_verifie(p_empreinte bytea)": {"wk_api"},
+    "app.verification_creer(p_utilisateur bigint, p_empreinte bytea)": {"wk_api"},
+    "app.verification_consommer(p_empreinte bytea)": {"wk_api"},
+    "app.enrolement_autorise(p_utilisateur bigint)": {"wk_api"},
+    "app.admin_acces(p_tenant bigint, p_quota integer, p_valider_email boolean, p_admin bigint)": {"wk_api"},
     "app.session_fermer(p_empreinte bytea)": {"wk_api"},
     "app.totp_secret(p_empreinte bytea)": {"wk_api"},
     "app.totp_valider(p_empreinte bytea, p_pas bigint)": {"wk_api"},
@@ -90,8 +97,8 @@ ATTENDU = {
     # Phase 5, ticket 05 : mesures de santé du nœud (ADR 0015 §6).
     "app.sante()": {"wk_sante"},
     # Phase 5, ticket 08 : corrections de la revue de sécurité (E2, M2, M3).
-    "app.connexion_reserver(p_email text)": {"wk_api"},
-    "app.connexion_reussie(p_essai bigint)": {"wk_api"},
+    "app.connexion_reserver(p_email text, p_source text, p_appareil bytea)": {"wk_api"},
+    "app.connexion_reussie(p_essai bigint, p_appareil bytea)": {"wk_api"},
     "app.totp_reserver(p_empreinte bytea)": {"wk_api"},
     "app.totp_reussi(p_essai bigint)": {"wk_api"},
     "app.utilisateur_desactiver(p_utilisateur bigint, p_auteur bigint)": {"wk_api"},
@@ -132,10 +139,10 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                                WHERE ns.nspname IN ('app', 'radius', 'ledger') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
-                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
+                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_acces"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
                       ("wk_api", "app.admin_regler"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
-                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_echouee"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"),
-                      ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
+                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"),
+                      ("wk_api", "app.enrolement_autorise"), ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
                       ("wk_api", "app.inscription"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"), ("wk_api", "app.paiement_etat"),
@@ -144,15 +151,16 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.paiements_expirer"), ("wk_api", "app.paiements_par_numero"), ("wk_api", "app.portail_forfaits"),
                       ("wk_api", "app.portail_site"), ("wk_api", "app.releve"), ("wk_api", "app.reversement_avant_envoi"),
                       ("wk_api", "app.reversement_creer"), ("wk_api", "app.reversement_renvoi_permis"), ("wk_api", "app.reversement_verdict"),
-                      ("wk_api", "app.reversements_a_traiter"), ("wk_api", "app.session_fermer"),
+                      ("wk_api", "app.reversements_a_traiter"), ("wk_api", "app.session_email_verifie"), ("wk_api", "app.session_fermer"),
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),
                       ("wk_api", "app.stats_ventes_papier"), ("wk_api", "app.synthese_argent"), ("wk_api", "app.tenant_courant"),
                       ("wk_api", "app.totp_reserver"), ("wk_api", "app.totp_reussi"), ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"),
-                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.voucher_importer"),
+                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.verification_consommer"), ("wk_api", "app.verification_creer"),
+                      ("wk_api", "app.voucher_importer"),
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
-                      ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs")]
+                      ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs"), ("wk_wg", "app.wg_points_noter")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():

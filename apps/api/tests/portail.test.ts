@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MockProvider } from "../../../packages/payments/src/index.ts";
 import { lienConnexion, messageErreur } from "../src/portail.ts";
-import { avecApp, sql, URL_ADMIN, entetes } from "./aide.ts";
+import { avecApp, CLES, routeur, sql, URL_ADMIN, entetes } from "./aide.ts";
+import { cleSource } from "../src/cle-ip.ts";
 import { attendreStatut, numero, statut, vendeur, type App, type Vendeur } from "./aide-paiement.ts";
 
 const L = "http://10.5.50.1/login";
@@ -242,5 +243,31 @@ test("poids des autres pages : ticket, paiement non abouti, en vérification, co
     assert.ok(!pages[2].includes("Aucun montant"), "MISMATCH : jamais « rien facturé »");
     // Aucune ressource CHARGÉE de l'extérieur ; le bouton « Se connecter » vers le hotspot est un lien, pas une ressource.
     for (const p of pages) assert.ok(Buffer.byteLength(p) < 100 * 1024 && !/src="https?:\/\//.test(p) && !/<link/.test(p));
+  });
+});
+
+test("revue de sécurité M7 : le portail transmet la source ; un tiers qui épuise son budget ne bloque pas le hotspot", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "portail garde source");
+    const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.site WHERE public_id = $1", [v.publicId]);
+    // La base garde le HMAC du jour de la source, jamais l'IP.
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, $2 FROM generate_series(1, 30)",
+              [id, cleSource("198.51.100.9", CLES.hmac)]);
+    const payer = async (remoteAddress: string) => {
+      const f = await app.inject({ url: `/p/${v.publicId}/payer?plan=${v.plan}`, remoteAddress });
+      const soumission = /name="soumission" value="([A-Za-z0-9_-]+)"/.exec(f.body)![1];
+      return app.inject({ method: "POST", url: `/p/${v.publicId}/payer`, remoteAddress,
+        headers: { cookie: cookieDe(f), "content-type": "application/x-www-form-urlencoded" },
+        payload: new URLSearchParams({ plan: v.plan, soumission, operateur: "moov_bf", numero: numero("07") }).toString() });
+    };
+    assert.equal((await payer("198.51.100.9")).statusCode, 429);
+    assert.equal((await payer("203.0.113.7")).statusCode, 303, "le client du hotspot achète");
+    // Plafond du site atteint par des sources nombreuses (migration 0032) : seule l'IP du routeur, vue par wg-agent,
+    // achète encore. Le portail transmet l'IP de la requête.
+    await sql(URL_ADMIN, "INSERT INTO app.paiement_demande (site_id, source) SELECT $1, 'x' || g FROM generate_series(1, 69) g", [id]);
+    assert.equal((await payer("203.0.113.8")).statusCode, 429);
+    const r = await routeur(v.tenant, id);
+    await sql(URL_ADMIN, "UPDATE app.router SET ip_publique = '203.0.113.8', ip_vue_le = now() WHERE id = $1", [r]);
+    assert.equal((await payer("203.0.113.8")).statusCode, 303, "le hotspot, derrière l'IP de son routeur, achète");
   });
 });

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>WAKATNET — Guide du propriétaire et du vendeur (pilote)</title>
+<!--
+  Source du guide imprimable (SPEC §14.4 ; tiré de docs/ONBOARDING_ROUTEUR.md, libellés relevés dans apps/dashboard/src).
+  PDF : node docs/guides/imprimer.mjs  → docs/guides/guide-pilote.pdf (A4). Modifier ce fichier, jamais le PDF.
+  Les cases « à compléter » sont remplies à la main par Telecom Universel avant d'imprimer, ou au stylo.
+-->
+<style>
+  @page { size: A4; margin: 16mm 15mm 18mm 15mm; }
+  :root { --encre: #1b1f24; --doux: #5a6270; --accent: #0b5cad; --fond: #eef4fb; --attention: #9a3412; --fond-att: #fff4e5; --trait: #c9d1db; }
+  * { box-sizing: border-box; }
+  body { font-family: "DejaVu Sans", "Liberation Sans", Arial, sans-serif; color: var(--encre); font-size: 10pt; line-height: 1.4; margin: 0; }
+  h1 { font-size: 22pt; margin: 0 0 4mm; color: var(--accent); }
+  h2 { font-size: 13.5pt; margin: 5.5mm 0 2mm; color: var(--accent); border-bottom: 1.5px solid var(--accent); padding-bottom: 1mm; break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 4mm 0 1.5mm; break-after: avoid; }
+  p { margin: 0 0 2mm; }
+  ol, ul { margin: 0 0 2mm; padding-left: 6mm; }
+  li { margin-bottom: 1.2mm; }
+  .bouton { display: inline-block; border: 1px solid var(--accent); border-radius: 2mm; padding: 0 1.6mm; font-weight: bold; color: var(--accent); white-space: nowrap; }
+  .ecran { font-weight: bold; }
+  code { font-family: "DejaVu Sans Mono", monospace; font-size: 9.5pt; background: #f2f4f7; padding: 0 1mm; border-radius: 1mm; }
+  .encadre { border-left: 4px solid var(--accent); background: var(--fond); padding: 2.5mm 3.5mm; margin: 3mm 0; break-inside: avoid; }
+  .attention { border-left-color: var(--attention); background: var(--fond-att); }
+  .attention strong:first-child { color: var(--attention); }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 3mm; break-inside: avoid; }
+  th, td { border: 1px solid var(--trait); padding: 1.6mm 2mm; text-align: left; vertical-align: top; }
+  th { background: #f2f4f7; }
+  .case { border-bottom: 1px dotted var(--doux); display: inline-block; min-width: 60mm; }
+  .coche { display: inline-block; width: 3.6mm; height: 3.6mm; border: 1px solid var(--encre); margin-right: 2mm; vertical-align: -0.6mm; }
+  .liste-coche { list-style: none; padding-left: 0; }
+  .couverture { height: 245mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .couverture .bandeau { background: var(--accent); color: #fff; padding: 10mm; border-radius: 3mm; }
+  .couverture .bandeau h1 { color: #fff; font-size: 28pt; }
+  .couverture .bandeau p { font-size: 13pt; margin: 0; }
+  .sommaire li { margin-bottom: 2mm; font-size: 11.5pt; }
+  .partie { break-before: page; }
+  .petit { font-size: 9pt; color: var(--doux); }
+  .deux { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .memo { border: 2px dashed var(--doux); padding: 3mm 4mm; border-radius: 2mm; break-inside: avoid; margin-top: 3mm; }
+  .memo h3 { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ couverture -->
+<section class="couverture">
+  <div>
+    <div class="bandeau">
+      <h1>WAKATNET</h1>
+      <p>Guide du propriétaire et du vendeur</p>
+      <p>Pilote — vente de tickets Wi-Fi sur routeur MikroTik</p>
+    </div>
+    <h2>Dans ce guide</h2>
+    <ol class="sommaire">
+      <li><strong>Partie 1 — Le propriétaire</strong> : créer son compte, raccorder son routeur, créer ses forfaits, ses points de vente et ses tickets papier, suivre ses ventes.</li>
+      <li><strong>Partie 2 — Le vendeur</strong> : vendre un ticket papier et aider un client.</li>
+      <li><strong>Partie 3 — En cas de problème</strong>, et pour retirer un routeur.</li>
+    </ol>
+  </div>
+  <div class="encadre">
+    <p><strong>Votre contact Telecom Universel</strong> (à compléter avant de remettre ce guide)</p>
+    <p>Nom : <span class="case"></span></p>
+    <p>Téléphone / WhatsApp : <span class="case"></span></p>
+    <p>Adresse du tableau de bord : <span class="case"></span> <span class="petit">(par exemple https://api.…/tableau/)</span></p>
+  </div>
+  <p class="petit">Version du pilote, novembre 2026. Ce guide décrit les écrans tels qu'ils sont ; s'ils changent, il sera réimprimé.</p>
+</section>
+
+<!-- ============================================================ partie 1 -->
+<section class="partie">
+<h1>Partie 1 — Le propriétaire</h1>
+
+<h2>Avant de commencer</h2>
+<ul class="liste-coche">
+  <li><span class="coche"></span>Un routeur <strong>MikroTik sous RouterOS 7.15 ou plus récent</strong>. Pour le vérifier, dans le terminal du routeur : <code>/system resource print</code>, ligne <code>version</code>. RouterOS 6 ne convient pas.</li>
+  <li><span class="coche"></span>Une connexion Internet sur le routeur : fibre, 4G ou Starlink. <strong>Aucun port à ouvrir</strong> : c'est le routeur qui appelle WAKATNET.</li>
+  <li><span class="coche"></span>Un accès administrateur au routeur : <strong>Winbox</strong>, ou le terminal.</li>
+  <li><span class="coche"></span>Une adresse e-mail, et un mot de passe de <strong>10 caractères au moins</strong>, que vous ne donnez à personne.</li>
+  <li><span class="coche"></span>Un téléphone pour tester, en fin de raccordement.</li>
+</ul>
+<div class="encadre"><strong>Le vocabulaire</strong>
+  <ul>
+    <li><strong>Site</strong> : un lieu où vous vendez du Wi-Fi (un maquis, une boutique, un quartier). Un site a un ou plusieurs routeurs.</li>
+    <li><strong>Forfait</strong> : ce que vous vendez (« 1 heure, 200 F »).</li>
+    <li><strong>Ticket</strong> : un code qui donne droit à un forfait. Le client le saisit sur la page de connexion du Wi-Fi.</li>
+    <li><strong>Point de vente</strong> : là où un vendeur remet les tickets papier contre des espèces.</li>
+  </ul>
+</div>
+
+<h2>Étape 1 — Créer votre compte et votre site</h2>
+<ol>
+  <li>Ouvrez l'adresse du tableau de bord (page de couverture), puis <span class="bouton">Créer mon compte</span>.</li>
+  <li>Saisissez le <strong>Nom de votre zone Wi-Fi</strong>, votre <strong>Adresse e-mail</strong> et votre <strong>Mot de passe</strong>.</li>
+  <li><strong>Confirmez votre adresse e-mail</strong> : ouvrez le lien reçu, puis <span class="bouton">Confirmer mon adresse</span>. Si vous n'avez rien reçu, votre contact Telecom Universel valide votre adresse ; sans elle, vous ne pouvez pas raccorder de routeur.</li>
+  <li>Allez dans <span class="ecran">Sites et routeurs</span>. Saisissez le <strong>Nom du site</strong> (par exemple « Maquis du marché »), puis <span class="bouton">Ajouter le site</span>.</li>
+</ol>
+
+<h2>Étape 2 — Raccorder le routeur</h2>
+<ol>
+  <li>Sur la ligne du site, cliquez <span class="bouton">Raccorder un routeur</span>. Une commande s'affiche ; cliquez <span class="bouton">Copier</span>.</li>
+  <li>Ouvrez Winbox, connectez-vous au routeur, puis <strong>New Terminal</strong>. Collez la commande (clic droit, <em>Paste</em>), puis <strong>Entrée</strong>.</li>
+  <li>Attendez la fin, environ une minute. Le routeur télécharge son script de raccordement, crée un tunnel sécurisé vers les deux serveurs de WAKATNET et les déclare pour l'authentification.</li>
+  <li>Revenez au tableau de bord : le routeur apparaît dans <strong>Routeurs raccordés</strong>.</li>
+</ol>
+<div class="encadre attention"><strong>Attention.</strong> La commande est <strong>valable 30 minutes</strong> et ne sert <strong>qu'une seule fois</strong>. Ne l'envoyez à personne : elle raccorde un routeur à <em>votre</em> compte. Si elle a expiré, cliquez de nouveau sur <span class="bouton">Raccorder un routeur</span>.</div>
+<p>Vos réglages existants (utilisateurs locaux, hotspot) <strong>ne sont pas effacés</strong>.</p>
+
+<h2>Étape 3 — Installer la page de connexion</h2>
+<ol>
+  <li>Sur la ligne du site, cliquez <span class="bouton">Page de connexion du hotspot</span> : un fichier <code>login.html</code> se télécharge.</li>
+  <li>Dans Winbox, menu <strong>Files</strong> : remplacez le fichier <code>hotspot/login.html</code> (ou celui du dossier de votre profil de hotspot) par celui-ci. Glissez-déposez le fichier dans la fenêtre.</li>
+  <li><strong>Testez</strong> avec un téléphone : connectez-le au Wi-Fi. La page WAKATNET doit s'ouvrir, avec <strong>J'ai un ticket</strong> et les forfaits.</li>
+</ol>
+
+<h2>Étape 4 — Créer vos forfaits</h2>
+<p>Écran <span class="ecran">Forfaits</span>, puis <span class="bouton">Créer le forfait</span>.</p>
+<table>
+  <tr><th style="width:32%">Champ</th><th>Ce qu'il veut dire</th></tr>
+  <tr><td><strong>Nom</strong></td><td>Ce que voit le client : « 1 heure », « Journée ».</td></tr>
+  <tr><td><strong>Prix (F)</strong></td><td>En francs CFA, sans centimes.</td></tr>
+  <tr><td><strong>Durée de connexion (minutes)</strong></td><td>Temps de connexion réellement utilisé. Le compteur s'arrête quand le client se déconnecte.</td></tr>
+  <tr><td><strong>Validité (heures)</strong></td><td>Délai à partir de la <strong>première</strong> connexion, connecté ou non. Ensuite, le ticket expire.</td></tr>
+  <tr><td><strong>Débit (ex. 2M/2M)</strong></td><td>Vitesse maximale : réception / envoi. Vide : pas de limite propre au forfait.</td></tr>
+  <tr><td><strong>Appareils</strong></td><td>Nombre d'appareils connectés en même temps avec le même ticket.</td></tr>
+</table>
+<p>Remplissez <strong>la durée, la validité, ou les deux</strong>. Exemple : « 1 heure à utiliser dans la journée » = durée 60, validité 24.</p>
+<p>Un forfait qu'on ne vend plus : <span class="bouton">Retirer de la vente</span>. Les tickets déjà vendus restent valables.</p>
+<div class="encadre"><strong>Pendant le pilote</strong> : des forfaits de <strong>500 F au plus</strong>.</div>
+</section>
+
+<section>
+<h2>Étape 5 — Points de vente et vendeurs</h2>
+<p>Écran <span class="ecran">Points de vente et vendeurs</span>.</p>
+<ol>
+  <li>Saisissez le <strong>Nom du point de vente</strong>, puis <span class="bouton">Ajouter le point de vente</span>.</li>
+  <li>Donnez un accès à chaque vendeur : <strong>Adresse e-mail</strong>, <strong>Rôle</strong>, <strong>Point de vente</strong>, <strong>Mot de passe provisoire</strong> (10 caractères au moins), puis <span class="bouton">Créer l'accès</span>.</li>
+  <li>Remettez le mot de passe provisoire <strong>de vive voix</strong> à la personne, pas par SMS ni par WhatsApp.</li>
+</ol>
+<table>
+  <tr><th style="width:22%">Rôle</th><th>Ce qu'il peut faire</th></tr>
+  <tr><td><strong>Gérant</strong></td><td>Générer et imprimer des tickets papier pour son point de vente, et voir ses ventes.</td></tr>
+  <tr><td><strong>Vendeur</strong></td><td>Voir les lots de son point de vente, les marquer remis, et voir ses ventes. Il ne génère ni n'imprime de tickets.</td></tr>
+</table>
+<div class="encadre attention"><strong>Un vendeur s'en va ?</strong> Coupez son accès le jour même : il pourrait encore lire les codes des nouveaux lots. Dans <strong>Accès créés</strong>, sur sa ligne : <span class="bouton">Couper l'accès</span>, puis <span class="bouton">Confirmer la coupure</span>. Il est déconnecté tout de suite et ne peut plus revenir ; c'est définitif. Pour le reprendre plus tard, créez-lui un nouvel accès avec une autre adresse e-mail.</div>
+
+<h2>Étape 6 — Les tickets papier (vente en espèces)</h2>
+<p>Écran <span class="ecran">Tickets papier</span>.</p>
+<ol>
+  <li>Choisissez le <strong>Forfait</strong>, le <strong>Point de vente</strong> et le <strong>Nombre de tickets</strong> (1 000 au plus), puis <span class="bouton">Générer les tickets</span>.</li>
+  <li>Sur la ligne du lot, <span class="bouton">Imprimer (PDF)</span> : 10 tickets par page A4, à découper.</li>
+  <li>Quand vous donnez le lot au vendeur : <span class="bouton">Marquer remis</span>. Vous savez ainsi qui a quels tickets.</li>
+</ol>
+<p>Le tableau <strong>Vos lots</strong> compte, pour chaque lot, les tickets <strong>générés</strong>, <strong>remis</strong>, <strong>activés</strong> (le client s'est connecté) et <strong>expirés</strong>. Les <strong>Statistiques par point de vente</strong> donnent la valeur activée, à comparer avec la caisse du vendeur.</p>
+<div class="encadre"><strong>Ce que coûte un ticket papier.</strong> À sa <strong>première connexion</strong>, chaque ticket papier prélève sur votre solde de crédits WAKATNET <strong>10 % de son prix, 10 F au moins</strong> : 10 F pour un ticket de 100 F, 30 F pour 300 F. Un ticket jamais utilisé ne coûte rien. Votre contact Telecom Universel recharge vos crédits.</div>
+<div class="encadre attention"><strong>Gardez les tickets imprimés comme de l'argent liquide.</strong> Un ticket perdu ou photographié peut être utilisé par quelqu'un d'autre.</div>
+
+<h2>Étape 7 — La vente en ligne (Orange Money, Moov Money)</h2>
+<p>Le client achète un forfait sur la page de connexion du Wi-Fi et reçoit son ticket aussitôt. L'argent arrive sur <strong>votre</strong> compte marchand ; WAKATNET prend 10 % de commission.</p>
+<div class="encadre attention"><strong>Pas encore ouverte pendant le pilote.</strong> Elle sera activée par Telecom Universel quand les contrats avec l'opérateur de paiement seront signés et les essais terminés. D'ici là, vendez en tickets papier.</div>
+
+<h2>Étape 8 — Suivre votre argent</h2>
+<ul>
+  <li><span class="ecran">Tableau de bord</span> : un résumé de votre activité.</li>
+  <li><span class="ecran">Suivi de l'argent</span> : la synthèse du mois ; pour une autre période, choisissez <strong>Du</strong> et <strong>Au</strong>, puis <span class="bouton">Afficher</span>. <strong>Relevés et facture</strong> : export en tableur (CSV) ou en PDF, et facture de commission du mois.</li>
+  <li><strong>Retrouver un paiement</strong> : saisissez le <strong>Numéro du payeur</strong>, puis <span class="bouton">Rechercher</span>. Utile quand un client dit avoir payé sans recevoir son ticket.</li>
+</ul>
+</section>
+
+<!-- ============================================================ partie 2 -->
+<section class="partie">
+<h1>Partie 2 — Le vendeur</h1>
+<p>Vous vendez des tickets Wi-Fi imprimés, contre des espèces, pour le compte du propriétaire.</p>
+
+<h2>Se connecter</h2>
+<ol>
+  <li>Ouvrez l'adresse du tableau de bord donnée par le propriétaire.</li>
+  <li>Saisissez votre <strong>Adresse e-mail</strong> et votre <strong>Mot de passe</strong>, puis <span class="bouton">Se connecter</span>.</li>
+  <li>Après 5 erreurs de mot de passe, il faut attendre 15 minutes.</li>
+</ol>
+<p>Écran <span class="ecran">Tickets papier</span> : les lots de votre point de vente. Quand le propriétaire vous donne un lot, vérifiez son numéro, puis <span class="bouton">Marquer remis</span> s'il ne l'a pas fait.</p>
+
+<h2>Vendre un ticket</h2>
+<ol>
+  <li>Le client choisit un forfait : vérifiez le <strong>nom et le prix imprimés sur le ticket</strong>.</li>
+  <li>Encaissez, puis remettez le ticket. Un ticket ne sert qu'à un seul client.</li>
+  <li>Le client se connecte au Wi-Fi. La page WAKATNET s'ouvre. Il saisit le code dans <strong>J'ai un ticket</strong>, puis valide.</li>
+</ol>
+
+<h2>Aider un client</h2>
+<table>
+  <tr><th style="width:38%">Le client dit…</th><th>Que faire</th></tr>
+  <tr><td>« La page ne s'ouvre pas. »</td><td>Vérifier qu'il est connecté au bon Wi-Fi, puis ouvrir n'importe quel site (par exemple <code>neverssl.com</code>) : la page s'affiche.</td></tr>
+  <tr><td>« Mon code est refusé. »</td><td>Vérifier le code lettre par lettre : la page le met en majuscules. Le ticket a peut-être déjà servi, ou expiré, ou il est pour un autre site. Appeler le propriétaire, sans rembourser seul.</td></tr>
+  <tr><td>« Je suis coupé. »</td><td>Son temps ou sa validité est écoulé. Il lui faut un nouveau ticket.</td></tr>
+  <tr><td>« J'ai payé par Orange ou Moov, je n'ai pas de ticket. »</td><td>Noter son numéro et l'heure, puis prévenir le propriétaire : il retrouve le paiement dans <strong>Suivi de l'argent</strong>.</td></tr>
+</table>
+
+<h2>En fin de journée</h2>
+<p>Comptez la caisse et les tickets restants. Le propriétaire compare avec les tickets <strong>activés</strong> de votre point de vente.</p>
+
+<div class="memo">
+  <h3>Mémo à garder près de la caisse</h3>
+  <div class="deux">
+    <div>
+      <p><strong>Vendre</strong> : vérifier le forfait → encaisser → remettre le ticket.</p>
+      <p><strong>Le client</strong> : Wi-Fi → page WAKATNET → <strong>J'ai un ticket</strong> → code.</p>
+    </div>
+    <div>
+      <p><strong>Problème</strong> : ne rien rembourser seul, appeler :</p>
+      <p>Propriétaire : <span class="case" style="min-width:40mm"></span></p>
+      <p>Telecom Universel : <span class="case" style="min-width:36mm"></span></p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================================================ partie 3 -->
+<section class="partie">
+<h1>Partie 3 — En cas de problème</h1>
+
+<h2>Le routeur et le Wi-Fi</h2>
+<table>
+  <tr><th style="width:30%">Ce que vous voyez</th><th style="width:30%">Cause probable</th><th>Que faire</th></tr>
+  <tr><td>La commande répond « jeton expiré » ou « déjà utilisé »</td><td>Plus de 30 minutes, ou commande déjà collée</td><td>Cliquer de nouveau sur <span class="bouton">Raccorder un routeur</span>, puis coller la nouvelle commande.</td></tr>
+  <tr><td>Le routeur n'apparaît pas au tableau de bord</td><td>Pas d'Internet sur le routeur, ou RouterOS trop ancien</td><td>Dans le terminal : <code>/ping 1.1.1.1</code>, puis <code>/system resource print</code> (version 7.15 au moins).</td></tr>
+  <tr><td>Les clients voient « serveur sans réponse »</td><td>Tunnel coupé</td><td><code>/interface wireguard peers print</code> : le dernier échange doit dater de moins de 3 minutes. Sinon, vérifier Internet, puis appeler votre contact.</td></tr>
+  <tr><td>Un code valable est refusé</td><td>Forfait réservé à un autre site, ou ticket déjà utilisé sur trop d'appareils</td><td>Vérifier le site du forfait dans <span class="ecran">Forfaits</span>.</td></tr>
+  <tr><td>« Adresse e-mail non vérifiée » au raccordement</td><td>Adresse pas encore confirmée</td><td>Ouvrir le lien reçu, ou <span class="bouton">Renvoyer le lien</span>, ou appeler votre contact.</td></tr>
+  <tr><td>« Quota de routeurs atteint »</td><td>10 routeurs par compte, routeurs retirés compris</td><td>Demander une hausse à votre contact.</td></tr>
+  <tr><td>Impossible de générer des tickets</td><td>Solde de crédits épuisé, au-delà du découvert autorisé</td><td>Demander une recharge à votre contact. Les tickets déjà imprimés restent valables.</td></tr>
+</table>
+<div class="encadre"><strong>Si les serveurs WAKATNET sont injoignables</strong>, les clients déjà connectés restent connectés, et votre routeur bascule de lui-même sur le second serveur. Il n'y a rien à faire sur le routeur.</div>
+
+<h2>Retirer un routeur</h2>
+<ol>
+  <li>Sur la ligne du routeur, <span class="bouton">Script de désinstallation</span>, puis collez-le dans le terminal du routeur. Il retire le tunnel, les serveurs d'authentification et la page de connexion de WAKATNET.</li>
+  <li>Au tableau de bord : <span class="bouton">Révoquer</span>, puis <span class="bouton">Confirmer la révocation</span>. Le routeur ne peut plus valider de tickets, même si la désinstallation n'a pas été faite.</li>
+</ol>
+<p><strong>Routeur volé ou perdu :</strong> révoquez-le tout de suite (étape 2 seulement), puis prévenez votre contact.</p>
+
+<h2>Sécurité, en bref</h2>
+<p>Votre mot de passe et la commande de raccordement ne se partagent pas. Les tickets imprimés valent de l'argent : rangez-les. Un vendeur qui part : coupez son accès le jour même (étape 5). Telecom Universel ne vous demandera <strong>jamais</strong> votre mot de passe.</p>
+
+</section>
+
+</body>
+</html>

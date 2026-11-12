@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { lireEtats } from "../src/etat.ts";
-import { compterSilences, evaluer, formatPrometheus, messageAlerte, envoyerTelegram, routeursSansHandshake, tourSante,
+import { compterSilences, evaluer, REGLES, formatPrometheus, messageAlerte, envoyerTelegram, routeursSansHandshake, tourSante,
          type ConfigSante, type Mesure } from "../src/sante.ts";
 import { avecApp, config, proprietaire, sql, URL_ADMIN, URL_API } from "./aide.ts";
 
@@ -145,4 +145,19 @@ test("GET /etat : HTML et JSON, sans donnée de propriétaire, sans cache", asyn
     assert.deepEqual(j.noeuds[0].composants, { authentification: "en_service", paiements: "perturbe", replication: "en_service" });
     assert.ok(!("alertes" in j.noeuds[0]), "le détail des alertes reste interne");
   }, config({ etatsNoeuds: [join(d, "etat.json")] }));
+});
+
+test("règle ip_routeurs (migration 0032) : sur le primaire, routeurs actifs sans aucune IP notée depuis 10 min", () => {
+  const r = REGLES.find((x) => x.id === "ip_routeurs")!;
+  const v = (m: Record<string, number>) => (nom: string) => m[nom];
+  assert.equal(r.active(v({ en_recuperation: 0, routeurs_actifs: 3, routeurs_ip_recente: 0 })), true, "wg-agent n'écrit plus");
+  assert.equal(r.active(v({ en_recuperation: 0, routeurs_actifs: 3, routeurs_ip_recente: 1 })), false);
+  assert.equal(r.active(v({ en_recuperation: 0, routeurs_actifs: 0, routeurs_ip_recente: 0 })), false, "aucun routeur : rien à dire");
+  assert.equal(r.active(v({ en_recuperation: 1, routeurs_actifs: 3, routeurs_ip_recente: 0 })), false, "réplique : l'agent n'y écrit pas");
+});
+
+test("règle overlay_plein (ADR 0017) : plus de 80 % des 64 516 adresses de l'overlay prises", () => {
+  const r = REGLES.find((x) => x.id === "overlay_plein")!;
+  assert.equal(r.active((n) => (n === "overlay_utilise" ? 51_612 : undefined)), false);
+  assert.equal(r.active((n) => (n === "overlay_utilise" ? 51_613 : undefined)), true);
 });

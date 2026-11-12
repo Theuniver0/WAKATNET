@@ -1,0 +1,20 @@
+#!/usr/sbin/nft -f
+# WAKATNET — interface publique du nœud {{ wakatnet_noeud }} (ADR 0016 §3). Géré par Ansible.
+# wg0, wk-noeuds et lo ont leurs propres tables : ignorés ici.
+table inet wakatnet_public
+delete table inet wakatnet_public
+
+table inet wakatnet_public {
+	chain entree {
+		type filter hook input priority filter; policy accept;
+		iifname { "lo", "wg0", "wk-noeuds" } return
+		ct state established,related accept
+		ct state invalid drop
+		icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 20/second accept
+		icmpv6 type { echo-request, destination-unreachable, packet-too-big, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
+		udp dport 68 accept                                   # renouvellement DHCP de l'hébergeur
+		tcp dport { {{ parefeu_port_ssh }}, 80, 443 } accept
+		udp dport { {{ parefeu_port_wg0 }}, {{ wk_noeuds_port }} } accept
+		counter drop
+	}
+}

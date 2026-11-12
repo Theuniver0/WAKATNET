@@ -1,0 +1,74 @@
+# nginx devant l'API (ADR 0016 §2) : TLS, filtrage par Host, limites par IP. L'API n'écoute qu'en local.
+- name: Paquets nginx et certbot
+  ansible.builtin.apt:
+    name: "{{ ['nginx'] + (['certbot'] if frontal_tls == 'letsencrypt' else []) }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Site par défaut du paquet retiré
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recharger nginx
+
+- name: Répertoire du défi ACME
+  ansible.builtin.file:
+    path: /var/www/acme
+    state: directory
+    mode: "0755"
+
+- name: Le certificat existe-t-il ?
+  ansible.builtin.stat:
+    path: "{{ frontal_certificat }}"
+  register: frontal_cert
+
+# Premier passage en Let's Encrypt : port 80 seul (défi ACME), certificat obtenu, puis configuration complète.
+- name: Configuration nginx de WAKATNET
+  ansible.builtin.template:
+    src: wakatnet.conf.j2
+    dest: /etc/nginx/sites-enabled/wakatnet.conf
+    mode: "0644"
+    # Fichier de contexte http : validé dans une configuration minimale qui l'inclut, avant d'être mis en place.
+    validate: >-
+      bash -c 'printf "events {}\nhttp { include /etc/nginx/mime.types; include %s; }\n" > /tmp/wakatnet-nginx-essai.conf
+      && nginx -t -q -c /tmp/wakatnet-nginx-essai.conf'
+  vars:
+    frontal_tls_pret: "{{ frontal_cert.stat.exists }}"
+  notify: Recharger nginx
+
+- name: Appliquer la configuration avant le défi ACME
+  ansible.builtin.meta: flush_handlers
+
+- name: Obtenir le certificat (certbot, webroot)
+  when: frontal_tls == "letsencrypt" and not frontal_cert.stat.exists
+  block:
+    - name: Exiger le courriel ACME
+      ansible.builtin.assert:
+        that: frontal_courriel_acme | length > 0
+        fail_msg: "frontal_courriel_acme : adresse de contact pour Let's Encrypt (avis d'expiration)."
+    - name: Certificat pour les deux noms
+      ansible.builtin.command:
+        argv: [certbot, certonly, --webroot, -w, /var/www/acme, --cert-name, wakatnet, --non-interactive, --agree-tos,
+               -m, "{{ frontal_courriel_acme }}", -d, "{{ frontal_nom_api }}", -d, "{{ frontal_nom_portail }}"]
+        creates: "{{ frontal_certificat }}"
+    - name: Configuration complète, certificat obtenu
+      ansible.builtin.template:
+        src: wakatnet.conf.j2
+        dest: /etc/nginx/sites-enabled/wakatnet.conf
+        mode: "0644"
+      vars:
+        frontal_tls_pret: true
+      notify: Recharger nginx
+
+- name: Le certificat fourni doit exister
+  ansible.builtin.assert:
+    that: frontal_cert.stat.exists
+    fail_msg: "frontal_tls=fourni : {{ frontal_certificat }} absent."
+  when: frontal_tls == "fourni"
+
+- name: Service nginx actif au démarrage
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started

@@ -10,7 +10,9 @@
 #   5. A redéclaré réplique : refusé, A reste primaire et en marche ;
 #   6. FreeRADIUS sans le dépôt de l'éditeur : la 3.2.5 d'Ubuntu est refusée par la garde de version ;
 #   7. B promu, puis PostgreSQL de A redémarré par systemd (redémarrage par l'hébergeur) : la garde contre le
-#      double primaire l'en empêche ; Ansible refuse aussi de déclarer A primaire (revue de sécurité E1).
+#      double primaire l'en empêche ; Ansible refuse aussi de déclarer A primaire (revue de sécurité E1) ;
+#   8. nginx devant une fausse API (ADR 0016 §2) : filtrage par Host, limite → 429, X-Forwarded-For non usurpable ;
+#   9. pare-feu public (ADR 0016 §3) : 443 ouvert, PostgreSQL fermé depuis l'autre nœud, retour arrière annulé.
 # Les « secrets » de l'essai (mot de passe de réplication, phrase de pgBackRest) sont aléatoires,
 # posés comme Yacouba les posera à la main, et jamais affichés.
 set -euo pipefail
@@ -63,8 +65,16 @@ all:
 EOF
 mkdir -p "$TMP/group_vars" && cp "$ANSIBLE/group_vars/noeuds.yml" "$TMP/group_vars/noeuds.yml"
 # Ubuntu 24.04 livre PostgreSQL 16 : pas de dépôt PGDG pour l'essai.
-JOUER=("$BIN/ansible-playbook" -i "$TMP/inventaire.yml" -e "wakatnet_depot=$DEPOT" -e postgresql_depot_pgdg=false)
+JOUER=("$BIN/ansible-playbook" -i "$TMP/inventaire.yml" -e "wakatnet_depot=$DEPOT" -e postgresql_depot_pgdg=false
+        -e frontal_tls=fourni -e frontal_nom_api=api.essai -e frontal_nom_portail=portail.essai
+        -e frontal_certificat=/etc/wakatnet/tls/cert.pem -e frontal_cle=/etc/wakatnet/tls/cle.pem -e frontal_ipv6=false)
 export ANSIBLE_CONFIG="$ANSIBLE/ansible.cfg" ANSIBLE_ROLES_PATH="$ANSIBLE/roles"
+
+etape "Certificat TLS auto-signé de l'essai (frontal_tls=fourni)"
+for c in "$A" "$B"; do
+  docker exec "$c" bash -c 'install -d -m 0755 /etc/wakatnet/tls && openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=api.essai" \
+    -addext "subjectAltName=DNS:api.essai,DNS:portail.essai" -keyout /etc/wakatnet/tls/cle.pem -out /etc/wakatnet/tls/cert.pem 2>/dev/null && chmod 0600 /etc/wakatnet/tls/cle.pem'
+done
 
 etape "Secrets posés à la main (simulés, jamais affichés)"
 MDP="$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -131,4 +141,45 @@ echo "A refusé au démarrage : « l'autre nœud est PRIMAIRE » (journal de l'u
 if "${JOUER[@]}" "$ANSIBLE/essais/essai.yml" --limit noeud_a > "$TMP/a3.log" 2>&1; then echec "Ansible a redémarré A en primaire"; fi
 grep -q "Primaire déclaré, mais l'autre nœud est-il déjà primaire" "$TMP/a3.log" || { tail -20 "$TMP/a3.log"; echec "refus d'Ansible attendu"; }
 echo "Ansible refuse aussi de déclarer A primaire"
+
+etape "8. nginx devant l'API : Host, limites, X-Forwarded-For"
+# Fausse API : rend l'adresse vue et l'en-tête X-Forwarded-For reçus (comme l'API, derrière le seul proxy local).
+docker exec -d "$A" python3 -c '
+import http.server, json
+class H(http.server.BaseHTTPRequestHandler):
+    def repondre(self):
+        b = json.dumps({"xff": self.headers.get("X-Forwarded-For"), "host": self.headers.get("Host"), "chemin": self.path}).encode()
+        self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    do_GET = do_POST = repondre
+    def log_message(self, *a): pass
+http.server.ThreadingHTTPServer(("127.0.0.1", 3000), H).serve_forever()'
+sleep 1
+requete() { docker exec "$B" curl -sk -o /tmp/r.json -w "%{http_code}" --resolve "$1:443:172.30.77.2" "${@:2}"; }
+[ "$(requete api.essai "https://api.essai/v1/moi")" = 200 ] || echec "api.essai/v1 doit atteindre l'API"
+[ "$(requete portail.essai "https://portail.essai/v1/moi")" = 404 ] || echec "portail.essai/v1 doit être refusé (404)"
+[ "$(requete api.essai "https://api.essai/p/ABCDEFGHIJKLMNOP")" = 404 ] || echec "api.essai/p doit être refusé (404)"
+[ "$(requete portail.essai "https://portail.essai/p/ABCDEFGHIJKLMNOP")" = 200 ] || echec "portail.essai/p doit atteindre l'API"
+if docker exec "$B" curl -sk --resolve autre.essai:443:172.30.77.2 https://autre.essai/ -o /dev/null; then echec "nom inconnu servi"; fi
+echo "Host : api et portail cloisonnés ; nom inconnu, poignée de main TLS refusée"
+requete api.essai -H "X-Forwarded-For: 6.6.6.6" "https://api.essai/v1/moi" >/dev/null
+docker exec "$B" grep -q '"xff": "172.30.77.3"' /tmp/r.json || { docker exec "$B" cat /tmp/r.json; echec "X-Forwarded-For usurpé"; }
+echo "X-Forwarded-For : l'IP source réelle remplace l'en-tête reçu (6.6.6.6 ignoré)"
+codes=""
+for _ in $(seq 1 12); do codes="$codes $(requete api.essai -X POST "https://api.essai/v1/connexion")"; done
+echo "12 connexions d'affilée :$codes"
+grep -q 429 <<<"$codes" || echec "aucune limite sur /v1/connexion"
+[ "$(awk '{print $1}' <<<"$codes")" = 200 ] || echec "la première connexion doit passer"
+codes=""
+for _ in $(seq 1 15); do codes="$codes $(requete portail.essai "https://portail.essai/p/ABCDEFGHIJKLMNOP/payer")"; done
+grep -q 429 <<<"$codes" && echec "l'affichage du formulaire (GET) ne doit pas consommer le budget de paiement"
+echo "GET /payer ×15 : jamais limité (budget de paiement réservé aux POST)"
+
+etape "9. Pare-feu public : 443 ouvert, PostgreSQL fermé, retour arrière annulé"
+"${JOUER[@]}" "$ANSIBLE/essais/parefeu.yml" > "$TMP/pf.log" 2>&1 || { tail -30 "$TMP/pf.log"; echec "parefeu"; }
+grep -q "Annuler le retour arrière" "$TMP/pf.log" || echec "étape d'annulation absente"
+[ "$(requete api.essai "https://api.essai/v1/moi")" = 200 ] || echec "443 fermé par le pare-feu"
+if docker exec "$B" pg_isready -q -h 172.30.77.2 -t 3; then echec "PostgreSQL de A joignable depuis l'interface publique"; fi
+docker exec "$A" systemctl list-timers --all --no-pager | grep -q wakatnet-parefeu-retour && echec "retour arrière toujours programmé"
+docker exec "$A" nft list table inet wakatnet_public >/dev/null || echec "table absente"
+echo "443 ouvert ; PostgreSQL fermé sur l'interface publique ; retour arrière annulé après la connexion neuve"
 etape "SUCCÈS"

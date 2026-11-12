@@ -1,0 +1,11 @@
+# Noms publics (ADR 0016 §2). [À CONFIRMER] : le domaine de la plateforme (ADR 0004, questions ouvertes).
+frontal_nom_api: "api.A_CONFIRMER.example"
+frontal_nom_portail: "portail.A_CONFIRMER.example"
+# letsencrypt : certbot (défi http-01) ; fourni : certificat posé à la main aux chemins ci-dessous.
+frontal_tls: letsencrypt
+frontal_certificat: "/etc/letsencrypt/live/wakatnet/fullchain.pem"
+frontal_cle: "/etc/letsencrypt/live/wakatnet/privkey.pem"
+frontal_courriel_acme: ""
+# Écoute IPv6 : vraie sur un nœud qui a une adresse IPv6 (Hetzner en fournit une) ; fausse sinon (nginx refuse
+# de démarrer sur une famille d'adresses absente).
+frontal_ipv6: true
