@@ -761,3 +761,17 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `apps/api/tests/e2e.sh` : Chromium, achat, auto-connexion et P6, SUCCÈS ;
   - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
   - shellcheck ne relève rien.
+
+### Ouverture de la phase 4 : exploitation commerciale (12/11/2026)
+
+- Demande de Yacouba : « continue avec la phase 4 ». PRD et tickets 01 à 08 rédigés dans `.scratch/phase-4-exploitation/`, validés par délégation.
+- ADR 0014 :
+  - sessions côté serveur, avec cookie `SameSite=Strict` et en-tête anti-CSRF ;
+  - scrypt pour les mots de passe ;
+  - quatre rôles ;
+  - TOTP pour le super-admin ;
+  - tableau de bord React servi par l'API (même origine) ;
+  - PDF et CSV sans dépendance ;
+  - mode B verrouillé par un drapeau de plateforme ;
+  - P10 sans écriture comptable du mode B.
+- L'en-tête de développement de l'ADR 0012 §7 sera retiré.
