@@ -112,7 +112,7 @@ def access_request(
     *,
     serveur: str,
     secret: bytes,
-    utilisateur: str,
+    utilisateur: str | bytes,
     mot_de_passe: str,
     methode: str = "chap",
     source: str | None = None,
@@ -127,7 +127,8 @@ def access_request(
     """Envoie un Access-Request ; renvoie la réponse vérifiée, ou None sans réponse."""
     auth_req = os.urandom(16)
     ident = os.urandom(1)[0]
-    corps = [_attr(1, utilisateur.encode())]
+    # bytes accepté : un User-Name qui n'est pas de l'UTF-8 valide (ticket 08).
+    corps = [_attr(1, utilisateur if isinstance(utilisateur, bytes) else utilisateur.encode())]
     if methode == "chap":
         chap_id = os.urandom(1)
         # CHAP-Challenge DISTINCT de l'authentificateur, comme le hotspot MikroTik :

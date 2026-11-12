@@ -111,7 +111,9 @@ echo "garde verifier-env.sh : refuse une variable absente ou un lifetime nul (at
 
 PRET=0
 for _ in $(seq 1 30); do
-  if $C logs freeradius 2>&1 | grep -q "Ready to process requests"; then PRET=1; break; fi
+  # Journal lu d'abord : sous pipefail, « logs | grep -q » est faux quand grep s'arrête tôt
+  # (SIGPIPE sur docker logs). Constaté le 12/11/2026 sur la garde du journal PostgreSQL.
+  if grep -q "Ready to process requests" <<<"$($C logs freeradius 2>&1)"; then PRET=1; break; fi
   sleep 1
 done
 [ "$PRET" = 1 ] || echec "FreeRADIUS n'est pas prêt après 30 s"
@@ -193,7 +195,7 @@ if [ "$#" = 0 ]; then
   $C restart freeradius >/dev/null 2>&1
   PRET=0
   for _ in $(seq 1 30); do
-    if $C logs --since "$DEPUIS" freeradius 2>&1 | grep -q "Ready to process requests"; then PRET=1; break; fi
+    if grep -q "Ready to process requests" <<<"$($C logs --since "$DEPUIS" freeradius 2>&1)"; then PRET=1; break; fi
     sleep 1
   done
   if [ "$PRET" = 1 ]; then echo "radiusd prêt sans base"; else echo "radiusd ne démarre pas sans base"; INDISPO=1; fi
@@ -204,7 +206,7 @@ if [ "$#" = 0 ]; then
   ( sleep 3; $C start postgres >/dev/null 2>&1 ) &
   RELANCE=$!
   pas i "$T8"
-  wait "$RELANCE"
+  wait "$RELANCE" || { echo "relance de la base en échec"; INDISPO=1; }
   pret_pg
   pas j "$T8"
   echo "--- base FIGÉE"
@@ -214,18 +216,31 @@ if [ "$#" = 0 ]; then
   ( sleep 3; $C unpause postgres >/dev/null 2>&1 ) &
   RELANCE=$!
   pas l "$T8"
-  wait "$RELANCE"
+  wait "$RELANCE" || { echo "reprise de la base en échec"; INDISPO=1; }
   pret_pg
   [ "$INDISPO" = "$INDISPO_AVANT" ] && echo "base indisponible : silence compté, accounting immédiat, démarrage sans base, retour < retry_delay + 1 s"
 fi
 
 etape "Journal du serveur sans ligne d'authentification (ticket 07)"
 # auth = no dans radiusd.conf : aucune ligne « Login OK / incorrect », qui porterait le code.
-if $C logs --no-color freeradius 2>&1 | grep -qE "Login (OK|incorrect)"; then
+if grep -qE "Login (OK|incorrect)" <<<"$($C logs --no-color freeradius 2>&1)"; then
   echo "ÉCHEC : lignes Login OK / incorrect dans le journal du serveur"
   INDISPO=1
 else
   echo "aucune ligne Login OK / incorrect"
+fi
+
+etape "Journal de PostgreSQL sans code de ticket (ADR 0006 §10, ticket 08)"
+# Les requêtes de FreeRADIUS portent le code en clair : aucune ne doit être recopiée dans
+# le journal de la base, même en erreur (délai, droit retiré). Les tests, eux, passent
+# leurs paramètres à part (psycopg) : une ligne « radius.f('… » vient donc de FreeRADIUS.
+# FUMEEFUM : code fictif (hors alphabet) de fumee.sh, dont les tests provoquent l'échec.
+JOURNAL_PG="$($C logs --no-color postgres 2>&1 | grep -vF "FUMEEFUM" || true)"
+if grep -qE "radius\.(authorize|post_auth|acct_[a-z_]+)\('[^']" <<<"$JOURNAL_PG"; then
+  echo "ÉCHEC : requête de FreeRADIUS (avec le code) recopiée dans le journal de PostgreSQL"
+  INDISPO=1
+else
+  echo "aucune requête de FreeRADIUS dans le journal de PostgreSQL"
 fi
 
 etape "Recherche de secrets dans les sorties (ADR 0008 §6)"

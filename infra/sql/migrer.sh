@@ -77,5 +77,6 @@ poser_mot_de_passe wk_maint WAKATNET_PG_MAINT_PASSWORD
 echo "migrations à jour"
 
 # Test de fumée du chemin critique (ADR 0009 §3) : une migration qui casse un droit ou une
-# fonction rendrait tout le parc muet. Le script échoue alors, et le déploiement s'arrête.
+# fonction rendrait tout le parc muet. Les migrations sont déjà validées à ce point : le
+# script ne les annule pas, il échoue pour que le défaut soit vu et corrigé aussitôt.
 bash "$ICI/fumee.sh"

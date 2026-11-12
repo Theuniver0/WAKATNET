@@ -141,6 +141,10 @@ def donnees():
             INSERT INTO app.plan (id, tenant_id, nom, prix_xof, uptime_limit_s, devices, bind_mac)
             OVERRIDING SYSTEM VALUE VALUES (9, 1, '1 heure, lié au premier appareil', 100, 3600, 1, true);
         """)
+        # Identifiants explicites ci-dessus : les séquences doivent suivre, sinon toute insertion
+        # ordinaire (le client de fumée de fumee.sh, ticket 08) heurterait l'identifiant 1.
+        for table in ("app.tenant", "app.site", "app.router", "app.plan"):
+            c.execute(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), (SELECT max(id) FROM {table}))")
         # Rôle de test (ADR 0007) : seul autorisé sur la fonction interne à instant injecté.
         c.execute("""
             DO $$ BEGIN

@@ -421,3 +421,37 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Décision proposée** (ADR 0009 §5) : accepter qu'un routeur hors cache n'obtienne aucune réponse pendant une panne (bascule vers B). Écartés : une liste statique des clients, un `lifetime` plus long. **À valider par Yacouba.**
 - **Vert** : `run.sh` depuis une pile neuve, 232 passed, étapes du ticket 04 et du ticket 08 réussies, trace T10, aucune ligne Login, aucun secret, `SUCCÈS`.
 - **Reste** : LABO-16 (piste B) clôt l'ADR 0009 ; rotation et lecture des compteurs en phase 5.
+
+### Ticket 08 : revue complète de la version fusionnée et corrections (12/11/2026)
+
+- **Contexte** : cette session a d'abord réalisé le ticket 08 une seconde fois, en parallèle. Elle n'avait pas pu lire `main` (accès GitHub refusé), alors que les PR n°14 et n°15 étaient déjà fusionnées. Cette version parallèle est **abandonnée** : `main` fait foi. Elle est gardée dans un `git stash` local, non poussé. Leçon : sans accès à `main`, ne pas commencer un ticket.
+- **Revue** : ma lecture, puis deux relecteurs indépendants (Spec + Standards, robustesse), chaque constat vérifié. La version fusionnée est retenue. Elle a deux points plus justes : l'option `connect_timeout` du pool, inexistante, est retirée, et le retour de la base est testé avec un routeur qui insiste.
+- **Constats corrigés** (rouge d'abord sur `main` quand c'était possible) :
+  - **important, fuite constatée en exécution** : le journal de PostgreSQL recopiait les requêtes de FreeRADIUS en erreur, **code du ticket compris** (`STATEMENT: … authorize('<code>', …)`, et `post_auth`), à chaque délai dépassé ou droit retiré. Migration `radius/0010` : `log_min_error_statement = panic` (et deux autres réglages) pour `wk_radius` et `wk_acct`. Garde ajoutée dans `run.sh`, et contrôle du réglage dans la fumée ;
+  - **important, `run.sh`** : sous `pipefail`, `docker compose logs | grep -q` est faux quand `grep` s'arrête tôt (SIGPIPE). La garde « aucune ligne Login » du ticket 07 avait cette forme et a pu passer à tort. Toutes les gardes lisent désormais le journal d'abord ;
+  - **important, fumée** (rouge sur `main` : 2 échecs) :
+    - `CONNECT` retiré non vu ; `LOGIN` et expiration du mot de passe non vus ;
+    - `authorize` sans ligne non vu, alors que ce cas refuse tout le parc ;
+  - **important, fumée** :
+    - seule la branche « routeur inconnu » était exécutée. Elle suit maintenant aussi le chemin d'un vrai client (Accept), avec des données créées puis annulées ;
+    - le `statement_timeout` du rôle n'était pas appliqué ; il l'est maintenant ;
+    - la valeur était comparée au texte exact ; elle est maintenant lue telle qu'appliquée ;
+  - **important, textes faux** : « arrêté avant d'arriver » (ADR 0009, ADR 0006 §13, `fumee.sh`, `migrer.sh`). La fumée **détecte** un défaut après la validation des migrations, elle ne l'empêche pas ;
+  - **important, preuve surestimée** : « toute entrée donne un refus, prouvé par Hypothesis » n'était prouvé que pour des états de ticket. Ajouts : une propriété sur `authorize` et `client_lookup` (texte arbitraire, en tant que `wk_radius`) et un `User-Name` en UTF-8 invalide (Reject, pas silence) ;
+  - **important, base figée** : l'accounting n'était mesuré que pendant 2 s, sur une attente de 4 s. Il est maintenant mesuré jusqu'au dernier silence, et le pire cas est borné sous 6 s. L'attente des 50 requêtes passe de 12 à 7 s, pour réduire le risque d'expiration du client `r11` (lifetime de 20 s en test) ;
+  - **mineurs** :
+    - `wait` sous `set -e` dans `run.sh` ;
+    - séquences des données de test alignées sur leurs identifiants explicites ;
+    - `radlib` accepte un `User-Name` en octets ;
+    - affirmations « mesurées » de l'ADR 0009 requalifiées en « lues dans le code » ou « estimées » quand elles n'étaient pas mesurées ;
+    - « même connexion » retiré d'une docstring qui ne le prouvait pas.
+- **Écartés ou reportés** :
+  - durée de chaque silence dans le compteur : utile pour suivre le pire cas en production, mais hors des critères du ticket, à voir avec la supervision (phase 4) ;
+  - test du disque plein (`fail = 1` du compteur) : non simulé, déclaré dans l'ADR ;
+  - nom de branche (P6) : imposé par la session.
+- **Mesures du dernier passage** :
+  - base arrêtée : silence compté après 3,0 s ;
+  - retour de la base : 2,4 s (après redémarrage de radiusd) et 1,5 s (après gel) ;
+  - base figée : 50 silences en 4,1 s, accounting à 1,1 ms au pire sur 16 mesures couvrant toute l'attente.
+- **Vert** : `run.sh` depuis une pile neuve, 240 passed, étapes des tickets 04 et 08 réussies, trace T10, aucune ligne Login, aucune requête de FreeRADIUS dans le journal de PostgreSQL, aucun secret, `SUCCÈS`.
+- **Non commité** : le commit a été refusé deux fois par le contrôle des permissions de la session ; en attente de l'accord de Yacouba.

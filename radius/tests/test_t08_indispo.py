@@ -16,7 +16,8 @@ qui arrête, relance et fige les conteneurs entre deux appels de pytest :
   j  base en marche     : client r11 créé (Accept)
      -> run.sh : docker compose pause postgres
   k  base FIGÉE         : 50 Access-Request en attente ; Accounting-Response < 100 ms pendant
-                          toute l'attente ; les 50 sont comptés ; pire cas mesuré
+                          toute l'attente (jusqu'au dernier silence) ; les 50 sont comptés ;
+                          pire cas mesuré et borné (< 6 s)
   l  reprise            : run.sh reprend la base 3 s après le début de l'étape ; même critère que i
 
 Sans WAKATNET_ETAPE, tous ces tests sont ignorés. L'état passe d'une étape à l'autre par un
@@ -181,22 +182,31 @@ def test_k_base_figee_cinquante_en_attente_accounting_immediat():
     etat = _lire()
     avant = _compte("auth", "r11")
     envoi = time.monotonic()
+    # delai=7 s (pire cas borné à 6 s) : l'étape reste courte, pour que le client r11 (lifetime de
+    # 20 s en test) ne risque pas d'expirer avant le retour mesuré à l'étape l.
     with concurrent.futures.ThreadPoolExecutor(max_workers=EN_ATTENTE) as pool:
-        futurs = [pool.submit(demander, "r11", code=etat["r11"], calling_station_id=MAC, essais=1, delai=12.0)
+        futurs = [pool.submit(demander, "r11", code=etat["r11"], calling_station_id=MAC, essais=1, delai=7.0)
                   for _ in range(EN_ATTENTE)]
         time.sleep(0.1)
-        # Accounting pendant toute l'attente : aucun épuisement (fils, pool) ne doit le retarder.
+        # Accounting pendant TOUTE l'attente, jusqu'au comptage du dernier silence : aucun
+        # épuisement (fils, pool) ne doit le retarder. Une mesure toutes les 250 ms environ.
         durees = []
-        for _ in range(8):
+        fin = time.monotonic() + 15.0
+        while _compte("auth", "r11") < avant + EN_ATTENTE and time.monotonic() < fin:
             durees.append(_accounting_immediat("r11", 0.1))
             time.sleep(0.25)
         # Pire cas : délai entre l'envoi et le comptage du DERNIER silence.
-        _attendre_compte("auth", "r11", avant + EN_ATTENTE, delai=15.0)
+        _attendre_compte("auth", "r11", avant + EN_ATTENTE, delai=1.0)
         pire = time.monotonic() - envoi
         reponses = [f.result() for f in futurs]
     assert all(r is None for r in reponses), "base figée : aucune réponse d'authentification"
     print(f"base figée : {EN_ATTENTE} silences comptés en {pire * 1000:.0f} ms ; "
-          f"Accounting-Response max {max(durees) * 1000:.1f} ms")
+          f"Accounting-Response max {max(durees) * 1000:.1f} ms sur {len(durees)} mesures")
+    # La mesure couvre l'attente : au moins une mesure par 250 ms de pire cas, moins la dernière.
+    assert len(durees) >= int(pire / 0.35), f"{len(durees)} mesures pour {pire:.1f} s d'attente"
+    # Majorant du pire cas : mesuré 4,0 s (ADR 0009 §2). Une régression (délai du pilote
+    # perdu, reconnexions multipliées) le dépasserait.
+    assert pire < 6.0, f"pire cas {pire:.1f} s"
     etat["pire_fige_ms"] = round(pire * 1000)
     _ecrire(etat)
 
