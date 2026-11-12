@@ -89,7 +89,7 @@ Plans relevés par `auto_explain` (instructions imbriquées d'`authorize`, `perf
 
 **Écart signalé : anti-devinette sous attaque.**
 - **Cause.** Pour compter les échecs d'**une** MAC, `trop_de_tentatives` passe par l'index **par routeur** `auth_log_echecs_routeur (router_id, at)`, puis filtre la MAC, au lieu de l'index par MAC `auth_log_echecs_mac (router_id, mac, at)`. Dans le plan relevé, 715 lignes sont lues pour 0 retenue, en 1,4 ms. Les deux index ont le même coût estimé quand les statistiques ne voient pas les échecs récents. Pendant une attaque, c'est le cas : l'`autoanalyze` n'agit qu'après environ 10 % de lignes nouvelles, soit 135 000 insertions sur 1,35 million.
-- **Mesure** : un client légitime sur un routeur qui reçoit des échecs avec des MAC toutes différentes (l'attaquant change de MAC).
+- **Mesure** : un client légitime sur un routeur qui reçoit des échecs avec des MAC toutes différentes (l'attaquant change de MAC). **Nature du chiffre** : moyenne de 20 appels directs à `radius._authorize_at`, en SQL (`attaque*.sql`), sans passer par FreeRADIUS. Ce n'est pas un p95 mesuré par paquets RADIUS ; cela compare le coût de la requête avant et après la correction.
 
   | Échecs récents sur le routeur | statistiques non rafraîchies (cas réel) | `ANALYZE` après chaque palier |
   |---|---|---|
@@ -110,6 +110,27 @@ Plans relevés par `auto_explain` (instructions imbriquées d'`authorize`, `perf
 | Objectif | Résultat |
 |---|---|
 | 200 auth/s (§5.6) | **Atteint** : 200/s sans perte sur 3 vCPU, plafond entre 400 et 800/s |
-| p95 d'`authorize` < 50 ms (§5.6) | **Atteint** en régime normal (1,73 ms), et sous attaque sur un routeur après la migration 0012 (0,46 ms à 100 000 échecs récents, contre 44 ms avant, §7) |
+| p95 d'`authorize` < 50 ms (§5.6) | **Atteint** en régime normal (p95 mesuré par paquets RADIUS, §4 ; valeurs après la migration 0012 au §9). Sous attaque sur un routeur, le coût moyen de la requête, en SQL direct, est de 0,46 ms à 100 000 échecs récents après la migration 0012, contre 44 ms avant (§7). C'est un coût moyen, pas un p95. |
 | Rattrapage du `detail` comparé à 5 min (§10.2) | Une heure de panne de 1 000 sessions rattrapée en 1,8 min, sans perte |
 | ×10 (500 routeurs) | 200/s sans perte ; reprise du nœud en environ 9 min (un client par seconde) |
+
+## 9. Nouvelle mesure après la migration 0012 (12/11/2026)
+
+Phases « débit » et « serveur » rejouées (`PHASES="debit serveur" perf/perf.sh`) avec la migration 0012 : index par routeur sur `(router_id + 0)` et comptes d'alerte bornés. Mêmes conditions qu'aux §1 à §4.
+
+| Débit visé | Accept : obtenu, perdus, p95 client | Reject : obtenu, perdus, p95 client |
+|---|---|---|
+| 100/s | 99,9/s, 0, 4,5 ms | 99,9/s, 0, 4,5 ms |
+| **200/s** | **199,9/s, 0, 4,1 ms** | **199,9/s, 0, 4,2 ms** |
+| 400/s | 399,9/s, 0, 4,2 ms | 399,9/s, 0, 4,2 ms |
+| 800/s | 796,3/s, 69 (0,4 %), 6,3 ms | 795,8/s, 79 (0,5 %), 6,1 ms |
+
+| Instruction (côté serveur, 200/s) | Mesures | p50 | **p95** | p99 |
+|---|---|---|---|---|
+| `radius.authorize` | 11 984 | 0,86 ms | **1,40 ms** | 1,77 ms |
+| `radius.post_auth` | 11 984 | 1,42 ms | 2,14 ms | 3,62 ms |
+
+- **Pas de régression** : le p95 d'`authorize` passe de 1,73 à 1,40 ms, et le débit sans perte reste d'au moins 400/s.
+- Les 14 pertes de la phase serveur en Accept ont la même cause qu'au §4 : la mesure ferme volontairement les connexions de `wk_radius`.
+- Les Reject en mode Accept (`trop_d_appareils`, 1 à 6 par palier) ont la même cause qu'au §3 : un artefact du jeu de données.
+- Les fichiers bruts `resultats/*.json` sont ceux de cette mesure ; ceux des §3 et §4 ont été remplacés. Les chiffres d'avant restent dans les tableaux ci-dessus et dans `docs/JOURNAL.md`.

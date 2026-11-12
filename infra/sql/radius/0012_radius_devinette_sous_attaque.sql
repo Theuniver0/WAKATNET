@@ -15,9 +15,6 @@
 
 SET ROLE wakatnet_owner;
 
-DROP INDEX radius.auth_log_echecs_routeur;
-CREATE INDEX auth_log_echecs_routeur ON radius.auth_log ((router_id + 0), at)
-  WHERE resultat = 'Reject' AND cause = 'ticket_inconnu';
 
 -- Même signature, même contrat et mêmes droits qu'en 0009 ; seuls les deux comptes changent.
 CREATE OR REPLACE FUNCTION radius.post_auth(p_user text, p_src text, p_calling text, p_result text, p_cause text)
@@ -77,5 +74,17 @@ BEGIN
   RETURN 'ok';
 END;
 $$;
+
+-- Ordre des verrous (revue de fin de phase 1) : migrer.sh applique ce fichier en UNE
+-- transaction. Un DROP INDEX d'abord prendrait un verrou ACCESS EXCLUSIVE sur auth_log
+-- jusqu'à la validation, donc pendant toute la construction du nouvel index : authorize, qui
+-- lit auth_log, attendrait puis se tairait (statement_timeout) pour tout le parc.
+-- Ici : construction d'abord (verrou SHARE : les LECTURES passent ; les écritures de
+-- post_auth attendent et échouent sans effet sur la réponse), puis suppression et renommage,
+-- instantanés, juste avant la validation.
+CREATE INDEX auth_log_echecs_routeur_0012 ON radius.auth_log ((router_id + 0), at)
+  WHERE resultat = 'Reject' AND cause = 'ticket_inconnu';
+DROP INDEX radius.auth_log_echecs_routeur;
+ALTER INDEX radius.auth_log_echecs_routeur_0012 RENAME TO auth_log_echecs_routeur;
 
 RESET ROLE;

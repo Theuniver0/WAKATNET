@@ -43,11 +43,11 @@ def test_wk_radius_et_wk_acct_ne_touchent_aucune_table_ni_sequence():
               CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa')) r(rolname)
              WHERE cl.relkind IN ('r', 'p', 'v', 'm', 'S')
                AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
-               AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE')
+               AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
                     OR (cl.relkind = 'S' AND has_sequence_privilege(r.rolname, cl.oid, 'USAGE, SELECT, UPDATE')))
         """).fetchall()
         schemas = c.execute("""
-            SELECT r, s FROM (VALUES ('wk_radius'), ('wk_acct'), ('wk_coa')) a(r), (VALUES ('app'), ('radius'), ('public')) b(s)
+            SELECT r, s FROM (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa')) a(r), (VALUES ('app'), ('radius'), ('public')) b(s)
              WHERE has_schema_privilege(r, s, 'CREATE')
         """).fetchall()
     assert lignes == [], f"droits inattendus : {lignes}"
