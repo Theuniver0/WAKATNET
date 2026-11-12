@@ -1,0 +1,7 @@
+ echecs_recents_sur_le_routeur | ms_par_authorize (AVANT la migration 0012, mesure du 12/11/2026)
+-------------------------------+------------------
+                             0 |             1.57
+                          1000 |             0.88
+                         10000 |             3.61
+                         50000 |            16.50
+                        100000 |            44.02

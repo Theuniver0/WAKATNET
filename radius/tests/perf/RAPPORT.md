@@ -99,7 +99,8 @@ Plans relevés par `auto_explain` (instructions imbriquées d'`authorize`, `perf
   | 100 000 | **44,0 ms** | — |
 
   100 000 échecs en 6 minutes représentent environ 280 tentatives par seconde sur un seul routeur. Le coût croît linéairement : au-delà, **l'objectif de 50 ms n'est plus tenu** pour les clients de ce routeur.
-- **Pistes de correction**, à trancher dans un ADR :
+- **Corrigé le 12/11/2026** (ADR 0011, migration `radius/0012`) : l'index par routeur porte sur `(router_id + 0)`, et la requête par MAC ne peut plus le prendre. **Mesuré après la correction** : 0,46 ms à 100 000 échecs récents, contre 44 ms avant (`resultats/attaque-avant-0012.txt` et `attaque-apres-0012.txt`).
+- Pistes qui avaient été envisagées :
   1. `ALTER TABLE radius.auth_log SET (autovacuum_analyze_scale_factor = 0, autovacuum_analyze_threshold = 5000)` : statistiques rafraîchies toutes les 5 000 insertions. Changement minimal ; il reste au pire environ une minute dégradée (cycle d'autovacuum).
   2. Retirer le recouvrement entre les deux index : compter les échecs par routeur (alerte du ticket 07) autrement, par exemple dans une table de compteurs par minute, pour que seul l'index par MAC puisse servir la requête par MAC.
   3. Limiter en amont : le pare-feu du nœud (phase 5) et le hotspot RouterOS (essai sur CHR) bornent le débit de tentatives d'un client.
@@ -109,6 +110,6 @@ Plans relevés par `auto_explain` (instructions imbriquées d'`authorize`, `perf
 | Objectif | Résultat |
 |---|---|
 | 200 auth/s (§5.6) | **Atteint** : 200/s sans perte sur 3 vCPU, plafond entre 400 et 800/s |
-| p95 d'`authorize` < 50 ms (§5.6) | **Atteint** en régime normal (1,73 ms) ; **menacé sous attaque** sur un routeur (44 ms à 100 000 échecs récents, §7) |
+| p95 d'`authorize` < 50 ms (§5.6) | **Atteint** en régime normal (1,73 ms), et sous attaque sur un routeur après la migration 0012 (0,46 ms à 100 000 échecs récents, contre 44 ms avant, §7) |
 | Rattrapage du `detail` comparé à 5 min (§10.2) | Une heure de panne de 1 000 sessions rattrapée en 1,8 min, sans perte |
 | ×10 (500 routeurs) | 200/s sans perte ; reprise du nœud en environ 9 min (un client par seconde) |
