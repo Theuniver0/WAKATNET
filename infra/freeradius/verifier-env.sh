@@ -15,6 +15,11 @@ case "${WAKATNET_CLIENT_LIFETIME:-}" in
 esac
 [ -n "${WAKATNET_RADIUS_LISTEN:-}" ] || dire "WAKATNET_RADIUS_LISTEN absente"
 [ -n "${WAKATNET_PG_HOST:-}" ] || dire "WAKATNET_PG_HOST absente"
+# Liste d'hôtes du rejeu (ADR 0015 §2) : adresses IPv4 ou noms, séparés par des virgules, sans
+# espace ni apostrophe (elle est recopiée dans une chaîne de connexion libpq).
+case "${WAKATNET_PG_ACCT_HOSTS:-}" in
+  ''|*[!0-9A-Za-z.,_-]*|,*|*,|*,,*) dire "WAKATNET_PG_ACCT_HOSTS absente ou mal formée (hôtes séparés par des virgules)" ;;
+esac
 [ -n "${WAKATNET_PG_RADIUS_PASSWORD:-}" ] || dire "WAKATNET_PG_RADIUS_PASSWORD absente"
 [ -n "${WAKATNET_PG_ACCT_PASSWORD:-}" ] || dire "WAKATNET_PG_ACCT_PASSWORD absente"
 

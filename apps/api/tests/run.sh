@@ -32,7 +32,7 @@ docker build -q --network host -f "$ICI/Dockerfile" -t wakatnet-test-api:local \
 etape "PostgreSQL et migrations de production"
 $C up -d --wait postgres >/dev/null
 $C exec -T -e PGUSER=wakatnet_admin -e PGDATABASE=wakatnet postgres bash /depot/infra/sql/migrer.sh 2>&1 \
-  | grep -v "^ATTENTION : WAKATNET_PG_\(RADIUS\|ACCT\|MAINT\|COA\)_PASSWORD absent"
+  | grep -v "^ATTENTION : WAKATNET_PG_\(RADIUS\|ACCT\|MAINT\|COA\|REPLICATION\|REWIND\)_PASSWORD absent"
 $C up -d api >/dev/null
 
 etape "Typage"

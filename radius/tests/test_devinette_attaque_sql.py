@@ -103,6 +103,9 @@ def test_l_index_par_routeur_porte_sur_l_expression_et_l_ancien_a_disparu():
 
 
 FICHIER_0012 = "0012_radius_devinette_sous_attaque.sans_transaction.sql"
+# Migrations postérieures qui redéfinissent une fonction de 0012 : rejouer 0012 les écraserait ;
+# elles sont donc rejouées avec elle, dans l'ordre de migrer.sh (phase 5 : garde de réplique, T13).
+SUIVANTES_0012 = ("0027_radius_post_auth_replique.sql",)
 
 
 def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivante():
@@ -115,7 +118,7 @@ def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivant
         c.execute(f"DROP INDEX radius.{INDEX_ROUTEUR}")
         c.execute(f"""CREATE INDEX {ANCIEN_INDEX} ON radius.auth_log (router_id, at)
                       WHERE resultat = 'Reject' AND cause = 'ticket_inconnu'""")
-        c.execute("DELETE FROM public.schema_migrations WHERE fichier = %s", (FICHIER_0012,))
+        c.execute("DELETE FROM public.schema_migrations WHERE fichier = ANY(%s)", ([FICHIER_0012, *SUIVANTES_0012],))
     lecteur = psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wakatnet_admin",
                               password=os.environ["POSTGRES_PASSWORD"])
     lecteur.execute("SELECT count(*) FROM radius.auth_log")       # transaction ouverte, verrou tenu
@@ -148,3 +151,6 @@ def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivant
     assert "verrou indisponible pour " + FICHIER_0012 in sortie, sortie   # elle a bien attendu, sans bloquer
     assert pire < 0.4, f"authorize + post_auth ont attendu {pire:.2f} s pendant la migration"
     test_l_index_par_routeur_porte_sur_l_expression_et_l_ancien_a_disparu()
+    with admin() as c:   # la version courante de post_auth est revenue, garde de réplique comprise
+        definition = c.execute("SELECT pg_get_functiondef('radius.post_auth(text,text,text,text,text)'::regprocedure)").fetchone()[0]
+    assert "pg_is_in_recovery()" in definition
