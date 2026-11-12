@@ -12,7 +12,8 @@ set -euo pipefail
 
 ICI="$(cd "$(dirname "$0")" && pwd)"
 cd "$ICI"
-C="docker compose -f compose.yml"
+# --profile ha : le nœud B (T13) n'est démarré qu'à son étape, mais « down » doit l'emporter aussi.
+C="docker compose -f compose.yml --profile ha"
 
 # Toute la sortie de ce script (pytest compris) est aussi écrite dans un fichier,
 # analysé par la recherche de secrets à la fin (ADR 0008 §6).
@@ -44,6 +45,9 @@ alea() { head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
   echo "WAKATNET_PG_MAINT_PASSWORD=$(alea)"
   echo "WAKATNET_PG_COA_PASSWORD=$(alea)"
   echo "WAKATNET_PG_TEST_PASSWORD=$(alea)"
+  echo "WAKATNET_PG_REPLICATION_PASSWORD=$(alea)"
+  echo "WAKATNET_PG_REWIND_PASSWORD=$(alea)"
+  echo "WAKATNET_PG_SANTE_PASSWORD=$(alea)"
   echo "WAKATNET_SECRET_R1=$(alea)"
   echo "WAKATNET_SECRET_R2=$(alea)"
   echo "WAKATNET_SECRET_R3=$(alea)"
@@ -71,7 +75,7 @@ etape "Garde-fou ADR 0007 : les migrations seules ne créent aucun objet de test
 OBJETS_TEST="$($C exec -T postgres psql -X -tA -U wakatnet_admin -d wakatnet -c "
   SELECT string_agg(x, ', ') FROM (
     SELECT 'rôle ' || rolname AS x FROM pg_roles
-     WHERE rolname NOT LIKE 'pg\_%' AND rolname NOT IN ('wakatnet_admin', 'wakatnet_owner', 'wk_radius', 'wk_acct', 'wk_maint', 'wk_coa', 'wk_api', 'wk_wg')
+     WHERE rolname NOT LIKE 'pg\_%' AND rolname NOT IN ('wakatnet_admin', 'wakatnet_owner', 'wk_radius', 'wk_acct', 'wk_maint', 'wk_coa', 'wk_api', 'wk_wg', 'wk_replication', 'wk_rewind', 'wk_sante')
     UNION ALL
     SELECT 'fonction ' || p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname IN ('app', 'radius') AND p.proname ILIKE '%test%'
@@ -220,11 +224,95 @@ if [ "$#" = 0 ]; then
   wait "$RELANCE" || { echo "reprise de la base en échec"; INDISPO=1; }
   pret_pg
   [ "$INDISPO" = "$INDISPO_AVANT" ] && echo "base indisponible : silence compté, accounting immédiat, démarrage sans base, retour < retry_delay + 1 s"
+
+  etape "T13 : PostgreSQL de A arrêté, le nœud B authentifie sur sa réplique (phase 5, ticket 02)"
+  # ADR 0015 §1 et §2. Slot et ligne de pg_hba.conf : posés ici comme le fera le déploiement.
+  INDISPO_AVANT="$INDISPO"
+  $C exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -U wakatnet_admin -d wakatnet \
+    -c "SELECT pg_create_physical_replication_slot('noeud_b')" >/dev/null
+  # Les deux sens : pg_hba.conf est copié dans B par pg_basebackup, et servira au retour de A (ticket 03).
+  # Sous-réseau entier en test : le conteneur ponctuel du retour de A n'a pas d'adresse garantie.
+  $C exec -T postgres bash -c 'printf "%s\n" "host replication wk_replication 172.29.215.0/24 scram-sha-256" >> "$PGDATA/pg_hba.conf"'
+  $C exec -T postgres psql -X -q -U wakatnet_admin -d wakatnet -c "SELECT pg_reload_conf()" >/dev/null
+  $C up -d postgres_b >/dev/null 2>&1
+  PRET=0
+  for _ in $(seq 1 90); do
+    $C exec -T postgres_b pg_isready -q -h 127.0.0.1 -U wakatnet_admin -d wakatnet 2>/dev/null && { PRET=1; break; }
+    sleep 1
+  done
+  if [ "$PRET" = 1 ]; then echo "réplique B prête"; else echo "la réplique B ne démarre pas"; $C logs --tail 30 postgres_b; INDISPO=1; fi
+  DEPUIS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  $C up -d freeradius_b >/dev/null 2>&1
+  PRET=0
+  for _ in $(seq 1 30); do
+    if grep -q "Ready to process requests" <<<"$($C logs --since "$DEPUIS" freeradius_b 2>&1)"; then PRET=1; break; fi
+    sleep 1
+  done
+  if [ "$PRET" = 1 ]; then echo "FreeRADIUS B prêt"; else echo "FreeRADIUS B ne démarre pas"; INDISPO=1; fi
+  T13=test_t13.py
+  pas t13a "$T13"
+  echo "--- PostgreSQL de A ARRÊTÉ"
+  $C stop postgres >/dev/null 2>&1
+  pas t13b "$T13"
+  sleep 10   # ATTENTE_S de test_t13.py : l'activation doit valoir la réception par B, pas le rejeu
+  $C start postgres >/dev/null 2>&1 && pret_pg
+  pas t13c "$T13"
+  [ "$INDISPO" = "$INDISPO_AVANT" ] && echo "T13 : B authentifie sur sa réplique ; son spool se vide dans A au retour, à l'instant de réception"
+
+  etape "Promotion manuelle de B et retour de A en réplique (phase 5, ticket 03)"
+  INDISPO_AVANT="$INDISPO"
+  PROMOUVOIR=(env WAKATNET_PG_PAIR=172.29.215.5 PGUSER=wakatnet_admin WAKATNET_JOURNAL_NOEUD=/tmp/noeud.log
+              WAKATNET_FUMEE=/depot/infra/sql/fumee.sh bash /depot/infra/noeud/promouvoir-b.sh --raison "essai de la matrice")
+  pas p1 test_promotion.py
+  # Garde 2 : A répond, la promotion est refusée (code 1), B reste une réplique.
+  if printf 'PROMOUVOIR\n' | $C exec -T postgres_b "${PROMOUVOIR[@]}" >/dev/null 2>&1; then
+    echo "ÉCHEC : promouvoir-b.sh accepte alors que A répond"; INDISPO=1
+  else
+    echo "promotion refusée tant que A répond (attendu)"
+  fi
+  # Garde 3 : confirmation absente ou fausse : abandon.
+  if printf 'oui\n' | $C exec -T postgres_b env WAKATNET_PG_PAIR=172.29.215.99 PGUSER=wakatnet_admin \
+       WAKATNET_JOURNAL_NOEUD=/tmp/noeud.log bash /depot/infra/noeud/promouvoir-b.sh --raison "essai" >/dev/null 2>&1; then
+    echo "ÉCHEC : promotion sans la confirmation PROMOUVOIR"; INDISPO=1
+  else
+    echo "promotion abandonnée sans la confirmation exacte (attendu)"
+  fi
+  echo "--- PostgreSQL de A ARRÊTÉ (perte de A simulée)"
+  T0="$(date +%s.%N)"
+  $C stop postgres >/dev/null 2>&1
+  pas p1b test_promotion.py
+  if printf 'PROMOUVOIR\n' | $C exec -T postgres_b "${PROMOUVOIR[@]}"; then
+    T1="$(date +%s.%N)"
+    echo "chronométré : arrêt de A → B primaire et fumée passée en $(awk -v a="$T0" -v b="$T1" 'BEGIN { printf "%.1f", b - a }') s"
+  else
+    echo "ÉCHEC : promotion de B"; INDISPO=1
+  fi
+  pas p2 test_promotion.py
+  echo "--- retour de A en réplique de B (pg_rewind, conteneur ponctuel, A arrêté)"
+  T2="$(date +%s.%N)"
+  # Mots de passe : fichier 0600 hors des données, écrit depuis l'environnement jetable du test.
+  if $C run --rm --no-deps -T --entrypoint bash postgres -c '
+        set -euo pipefail
+        install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/wakatnet
+        umask 077
+        printf "%s\n" "172.29.215.6:5432:*:wk_rewind:$WAKATNET_PG_REWIND_PASSWORD" \
+                      "172.29.215.6:5432:*:wk_replication:$WAKATNET_PG_REPLICATION_PASSWORD" > /var/lib/postgresql/wakatnet/pgpass
+        chown postgres:postgres /var/lib/postgresql/wakatnet/pgpass
+        exec gosu postgres env PGDATA=/var/lib/postgresql/data PGPASSFILE=/var/lib/postgresql/wakatnet/pgpass \
+             WAKATNET_PG_PAIR=172.29.215.6 WAKATNET_JOURNAL_NOEUD=/tmp/noeud.log bash /depot/infra/noeud/rejoindre-en-replique.sh'; then
+    T3="$(date +%s.%N)"
+    echo "chronométré : retour de A en réplique (pg_rewind) en $(awk -v a="$T2" -v b="$T3" 'BEGIN { printf "%.1f", b - a }') s"
+  else
+    echo "ÉCHEC : retour de A en réplique"; INDISPO=1
+  fi
+  $C start postgres >/dev/null 2>&1 && pret_pg
+  pas p3 test_promotion.py
+  [ "$INDISPO" = "$INDISPO_AVANT" ] && echo "promotion gardée, B écrit, A revenu en réplique de B, spools vidés dans le nouveau primaire"
 fi
 
 etape "Journal du serveur sans ligne d'authentification (ticket 07)"
 # auth = no dans radiusd.conf : aucune ligne « Login OK / incorrect », qui porterait le code.
-if grep -qE "Login (OK|incorrect)" <<<"$($C logs --no-color freeradius 2>&1)"; then
+if grep -qE "Login (OK|incorrect)" <<<"$($C logs --no-color freeradius freeradius_b 2>&1)"; then
   echo "ÉCHEC : lignes Login OK / incorrect dans le journal du serveur"
   INDISPO=1
 else
@@ -236,7 +324,7 @@ etape "Journal de PostgreSQL sans code de ticket (ADR 0006 §10, ticket 08)"
 # le journal de la base, même en erreur (délai, droit retiré). Les tests, eux, passent
 # leurs paramètres à part (psycopg) : une ligne « radius.f('… » vient donc de FreeRADIUS.
 # FUMEEFUM : code fictif (hors alphabet) de fumee.sh, dont les tests provoquent l'échec.
-JOURNAL_PG="$($C logs --no-color postgres 2>&1 | grep -vF "FUMEEFUM" || true)"
+JOURNAL_PG="$($C logs --no-color postgres postgres_b 2>&1 | grep -vF "FUMEEFUM" || true)"
 if grep -qE "radius\.(authorize|post_auth|acct_[a-z_]+)\('[^']" <<<"$JOURNAL_PG"; then
   echo "ÉCHEC : requête de FreeRADIUS (avec le code) recopiée dans le journal de PostgreSQL"
   INDISPO=1
@@ -249,7 +337,7 @@ TROUVE=0
 SORTIES="$(mktemp)"
 {
   cat "$SORTIE_RUN"
-  for s in postgres freeradius testeur; do
+  for s in postgres freeradius testeur postgres_b freeradius_b; do
     $C logs --no-color "$s" 2>&1 || true
     $C exec -T "$s" sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" " "' 2>/dev/null || true
   done

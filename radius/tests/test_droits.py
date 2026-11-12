@@ -87,6 +87,14 @@ ATTENDU = {
     "app.reversement_renvoi_permis(p_reference text, p_envois_vus integer)": {"wk_api"},
     "app.reversement_verdict(p_reference text, p_statut text, p_reference_fournisseur text)": {"wk_api"},
     "app.reversements_a_traiter(p_limite integer, p_age_min_s integer)": {"wk_api"},
+    # Phase 5, ticket 05 : mesures de santé du nœud (ADR 0015 §6).
+    "app.sante()": {"wk_sante"},
+    # Phase 5, ticket 08 : corrections de la revue de sécurité (E2, M2, M3).
+    "app.connexion_reserver(p_email text)": {"wk_api"},
+    "app.connexion_reussie(p_essai bigint)": {"wk_api"},
+    "app.totp_reserver(p_empreinte bytea)": {"wk_api"},
+    "app.totp_reussi(p_essai bigint)": {"wk_api"},
+    "app.utilisateur_desactiver(p_utilisateur bigint, p_auteur bigint)": {"wk_api"},
 }
 
 
@@ -95,7 +103,7 @@ def test_wk_radius_et_wk_acct_ne_touchent_aucune_table_ni_sequence():
         lignes = c.execute("""
             SELECT r.rolname, n.nspname || '.' || cl.relname
               FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace
-              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa')) r(rolname)
+              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_replication'), ('wk_rewind'), ('wk_sante')) r(rolname)
              WHERE cl.relkind IN ('r', 'p', 'v', 'm', 'S')
                AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
                AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
@@ -120,13 +128,13 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     with admin() as c:
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg')) r(rolname)
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg'), ('wk_replication'), ('wk_rewind'), ('wk_sante')) r(rolname)
                                WHERE ns.nspname IN ('app', 'radius', 'ledger') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
                       ("wk_api", "app.admin_regler"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
-                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_echouee"), ("wk_api", "app.connexion_lire"),
+                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_echouee"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"),
                       ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
                       ("wk_api", "app.inscription"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
@@ -139,11 +147,12 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.reversements_a_traiter"), ("wk_api", "app.session_fermer"),
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),
                       ("wk_api", "app.stats_ventes_papier"), ("wk_api", "app.synthese_argent"), ("wk_api", "app.tenant_courant"),
-                      ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"), ("wk_api", "app.voucher_importer"),
+                      ("wk_api", "app.totp_reserver"), ("wk_api", "app.totp_reussi"), ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"),
+                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.voucher_importer"),
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
-                      ("wk_wg", "app.wg_pairs")]
+                      ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs")]
 
 
 def test_toute_fonction_security_definer_fixe_son_search_path():
@@ -222,3 +231,24 @@ def test_migrations_de_production_sans_objet_de_test():
         texte = f.read_text(encoding="utf-8").lower()
         assert "wk_test" not in texte, f"{f} mentionne le rôle de test"
         assert "wakatnet.now" not in texte, f"{f} lit un réglage d'horloge"
+
+
+@pytest.mark.parametrize("role,replication", [("wk_replication", True), ("wk_rewind", False)])
+def test_roles_des_noeuds_sans_autre_attribut(role, replication):
+    """Phase 5 (ADR 0015 §1, §3) : wk_replication = REPLICATION et LOGIN ; wk_rewind = LOGIN et les quatre
+    fonctions de lecture de pg_rewind. Aucun droit sur un objet de app, radius ou ledger (tests ci-dessus)."""
+    with admin() as c:
+        ligne = c.execute("""SELECT rolcanlogin, rolreplication, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+                               FROM pg_roles WHERE rolname = %s""", (role,)).fetchone()
+        membre = c.execute("""SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member
+                               WHERE r.rolname = %s""", (role,)).fetchone()[0]
+        fonctions = c.execute("""SELECT p.oid::regprocedure::text FROM pg_proc p
+                                  WHERE p.pronamespace = 'pg_catalog'::regnamespace
+                                    AND has_function_privilege(%s, p.oid, 'EXECUTE')
+                                    AND NOT has_function_privilege('public', p.oid, 'EXECUTE') ORDER BY 1""", (role,)).fetchall()
+    assert ligne == (True, replication, False, False, False, False)
+    assert membre == 0, "membre d'aucun rôle"
+    attendu = [] if role == "wk_replication" else [
+        ("pg_ls_dir(text,boolean,boolean)",), ("pg_read_binary_file(text)",),
+        ("pg_read_binary_file(text,bigint,bigint,boolean)",), ("pg_stat_file(text,boolean)",)]
+    assert fonctions == attendu

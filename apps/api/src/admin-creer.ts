@@ -1,5 +1,6 @@
 // WAKATNET — création d'un super-admin, À LA MAIN sur le nœud (ADR 0014 §3).
-//   printf '%s\n%s\n' ADRESSE MOT_DE_PASSE | node src/admin-creer.ts
+//   read -r ADRESSE; read -rs MDP; printf '%s\n%s\n' "$ADRESSE" "$MDP" | node src/admin-creer.ts; unset MDP
+// (read -rs : le mot de passe n'est ni affiché ni écrit dans l'historique du shell ; revue de sécurité F8.)
 // Le mot de passe est lu sur l'entrée standard, jamais en argument (S1). Connexion par
 // WAKATNET_ADMIN_DATABASE_URL (rôle d'administration de la base : aucun rôle de connexion de
 // l'application ne peut créer de super-admin) ; clé de chiffrement : WAKATNET_CLE_MARCHANDS.

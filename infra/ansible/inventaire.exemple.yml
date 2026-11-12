@@ -1,0 +1,25 @@
+# WAKATNET — inventaire d'EXEMPLE (copier en inventaire.yml, non versionné). Aucun secret ici :
+# les fichiers de secrets sont créés à la main sur chaque nœud (SPEC §13, règle 5) ; les rôles
+# vérifient leur présence, jamais leur contenu.
+all:
+  children:
+    noeuds:
+      hosts:
+        noeud_a:
+          ansible_host: 192.0.2.10          # IP publique fixe de A (exemple, RFC 5737)
+          wakatnet_noeud: A
+          wakatnet_role: primaire
+          wk_noeuds_ip: 10.213.255.1
+          wk_noeuds_pair_ip: 10.213.255.2
+          wk_noeuds_pair_ip_publique: 198.51.100.20
+          wk_noeuds_pair_cle_publique: "CLÉ_PUBLIQUE_WIREGUARD_DE_B="
+          wg0_ip: 10.213.0.1
+        noeud_b:
+          ansible_host: 198.51.100.20
+          wakatnet_noeud: B
+          wakatnet_role: replique
+          wk_noeuds_ip: 10.213.255.2
+          wk_noeuds_pair_ip: 10.213.255.1
+          wk_noeuds_pair_ip_publique: 192.0.2.10
+          wk_noeuds_pair_cle_publique: "CLÉ_PUBLIQUE_WIREGUARD_DE_A="
+          wg0_ip: 10.213.0.2

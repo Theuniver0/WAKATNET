@@ -12,6 +12,7 @@ import { routesAdmin } from "./admin.ts";
 import { garde, routesAuth } from "./auth.ts";
 import { routesExploitation } from "./exploitation.ts";
 import { DOSSIER_TABLEAU_DEFAUT, routesTableau } from "./tableau.ts";
+import { routesEtat } from "./etat.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -23,9 +24,10 @@ declare module "fastify" {
 }
 
 
-/** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal. */
+/** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal, ni la
+ *  chaîne de requête (revue de sécurité M5 : page demandée par le client du hotspot, recherches). */
 export function cheminMasque(url: string): string {
-  return url.replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
+  return url.split("?")[0].replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
 }
 
 export function construire(config: Config, base: Base,
@@ -59,6 +61,9 @@ export function construire(config: Config, base: Base,
 
   // Tableau de bord (ADR 0014 §5) : fichiers statiques, même origine, CSP stricte.
   routesTableau(app, config.dossierTableau === undefined ? DOSSIER_TABLEAU_DEFAUT : config.dossierTableau);
+
+  // Page d'état publique (ADR 0015 §6) : composants génériques, aucune donnée de propriétaire.
+  routesEtat(app, config.etatsNoeuds ?? []);
 
   // Comptes : inscription, connexion, session, TOTP (ADR 0014 §1 à §3).
   routesAuth(app, base, config.cles?.marchands ?? null);

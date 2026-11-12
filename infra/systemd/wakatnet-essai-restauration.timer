@@ -1,0 +1,10 @@
+# WAKATNET — essai de restauration le 3 de chaque mois à 4 h (après la sauvegarde de la nuit).
+[Unit]
+Description=WAKATNET : essai mensuel de restauration
+
+[Timer]
+OnCalendar=*-*-03 04:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

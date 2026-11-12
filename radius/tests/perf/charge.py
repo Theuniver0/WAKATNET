@@ -28,8 +28,9 @@ import psycopg
 
 import radlib
 
-SERVEUR = ("10.213.0.1", 1812)
-SERVEUR_ACCT = ("10.213.0.1", 1813)
+# Nœud visé : A par défaut ; B (10.213.0.2) pour la phase « ha » (phase 5, ticket 07).
+SERVEUR = (os.environ.get("WAKATNET_PERF_SERVEUR", "10.213.0.1"), 1812)
+SERVEUR_ACCT = (SERVEUR[0], 1813)
 PG = dict(host="172.29.215.5", dbname="wakatnet", user="wakatnet_admin", password=os.environ["POSTGRES_PASSWORD"])
 SECRET = os.environ["WAKATNET_SECRET_R1"].encode()
 ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"

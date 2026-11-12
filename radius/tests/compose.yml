@@ -23,9 +23,15 @@ services:
       POSTGRES_USER: wakatnet_admin
       POSTGRES_DB: wakatnet
     # track_functions : compter les appels de radius.authorize (preuve « un seul appel SQL »).
-    command: ["postgres", "-c", "track_functions=all"]
+    # wal_log_hints : exigé par pg_rewind, pour le retour de A en réplique (ADR 0015 §3).
+    command: ["postgres", "-c", "track_functions=all", "-c", "wal_log_hints=on"]
     volumes:
-      - ../../infra/sql:/depot/infra/sql:ro
+      - ../../infra:/depot/infra:ro
+      # Données nommées : pg_rewind y travaille dans un conteneur ponctuel, A arrêté (ticket 03).
+      - pgdata_a:/var/lib/postgresql/data
+      # Fichier de mots de passe du retour en réplique, HORS du répertoire de données (pg_rewind
+      # efface ce que la source n'a pas). En production : ~postgres/.pgpass.
+      - pgpass_a:/var/lib/postgresql/wakatnet
     networks:
       arriere: { ipv4_address: 172.29.215.5 }
     healthcheck:
@@ -67,6 +73,51 @@ services:
       hors: { ipv4_address: 172.29.214.2 }
       arriere: { ipv4_address: 172.29.215.2 }
 
+  # --- Nœud B (T13, ADR 0015) : profil « ha », démarré par run.sh à l'étape T13 seulement. ---
+  postgres_b:
+    profiles: ["ha"]
+    image: postgres:16.15@sha256:f9a7b9ebf6f56201f949db745e47bc423c0f0f8294bafe991cc10bf74b029657
+    <<: *secrets
+    environment:
+      WAKATNET_PRIMAIRE: 172.29.215.5
+    entrypoint: ["/opt/ha/replique.sh"]
+    volumes:
+      - ./ha:/opt/ha:ro
+      - ../../infra:/depot/infra:ro
+      - pgdata_b:/var/lib/postgresql/data
+    networks:
+      arriere: { ipv4_address: 172.29.215.6 }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U wakatnet_admin -d wakatnet"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  freeradius_b:
+    profiles: ["ha"]
+    image: freeradius/freeradius-server:3.2.10@sha256:337856ea35b77472f15dad159064ce46219a54b499bef5f6a7cba38aefd39fe9
+    entrypoint: ["sh", "-c", "install -d -o freerad -g freerad -m 0700 /var/log/freeradius/radacct && install -d -o freerad -g freerad -m 0750 /var/log/freeradius/wakatnet && /opt/wakatnet/verifier-env.sh && exec freeradius -f -x -l stdout"]
+    env_file:
+      - path: ./jeu-radius.secrets
+        required: true
+      - path: ./surcharges/test.env
+        required: true
+    # Nœud B : sa base locale (la réplique) pour l'authentification ; pour le rejeu, la
+    # réplique puis A, le premier qui accepte l'écriture (ADR 0015 §2, surcharges/LISTE.md).
+    environment:
+      WAKATNET_PG_HOST: 172.29.215.6
+      WAKATNET_PG_ACCT_HOSTS: 172.29.215.6,172.29.215.5
+    volumes:
+      - ../../infra/freeradius/radiusd.conf:/etc/freeradius/radiusd.conf:ro
+      - ../../infra/freeradius/clients.conf:/etc/freeradius/clients.conf:ro
+      - ../../infra/freeradius/sites-enabled:/etc/freeradius/sites-enabled:ro
+      - ../../infra/freeradius/mods-enabled:/etc/freeradius/mods-enabled:ro
+      - ../../infra/freeradius/verifier-env.sh:/opt/wakatnet/verifier-env.sh:ro
+      - radacct_b:/var/log/freeradius/radacct
+    networks:
+      overlay: { ipv4_address: 10.213.0.2 }
+      arriere: { ipv4_address: 172.29.215.7 }
+
   testeur:
     # Construite par run.sh (docker build --network host : nécessaire derrière un proxy local).
     image: wakatnet-testeur:local
@@ -80,13 +131,19 @@ services:
       - radacct:/radacct:ro
       # Compteurs de silence (ADR 0009), en lecture seule.
       - supervision:/supervision:ro
+      # Spool du nœud B (T13), en lecture seule.
+      - radacct_b:/radacct_b:ro
     networks:
       overlay: { ipv4_address: 10.213.1.10 }
       hors: { ipv4_address: 172.29.214.10 }
       arriere: { ipv4_address: 172.29.215.10 }
 
 volumes:
+  pgdata_a:
+  pgdata_b:
+  pgpass_a:
   radacct:
+  radacct_b:
   supervision:
 
 networks:

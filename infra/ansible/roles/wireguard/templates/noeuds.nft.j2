@@ -1,0 +1,19 @@
+#!/usr/sbin/nft -f
+# WAKATNET — lien entre nœuds (ADR 0015 §1). Géré par Ansible. Ne règle que :
+#   - le port UDP de wk-noeuds : seule l'IP publique de l'autre nœud ;
+#   - l'interface wk-noeuds : seul l'autre nœud, et seulement PostgreSQL et ICMP.
+# L'accès SSH n'est jamais touché ici (anti-lockout).
+table inet wakatnet_noeuds
+delete table inet wakatnet_noeuds
+
+table inet wakatnet_noeuds {
+	chain entree {
+		type filter hook input priority filter; policy accept;
+		udp dport {{ wk_noeuds_port }} ip saddr != {{ wk_noeuds_pair_ip_publique }} counter drop
+		iifname != "wk-noeuds" return
+		ct state established,related accept
+		ip saddr {{ wk_noeuds_pair_ip }} tcp dport 5432 accept
+		ip saddr {{ wk_noeuds_pair_ip }} icmp type echo-request accept
+		counter drop
+	}
+}

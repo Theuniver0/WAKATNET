@@ -28,6 +28,8 @@ export type Config = {
   cles: { marchands: Buffer; hmac: Buffer } | null;
   /** Fichiers construits du tableau de bord (WAKATNET_TABLEAU_DIR) ; absent : apps/dashboard/dist. */
   dossierTableau?: string | null;
+  /** Fichiers d'état des nœuds écrits par le collecteur (WAKATNET_ETATS_NOEUDS, séparés par des virgules). */
+  etatsNoeuds?: string[];
 };
 
 import { lireCle } from "./chiffrement.ts";
@@ -55,7 +57,8 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
   const dossierTableau = env.WAKATNET_TABLEAU_DIR || undefined;
-  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, ...(dossierTableau ? { dossierTableau } : {}) };
+  const etatsNoeuds = (env.WAKATNET_ETATS_NOEUDS ?? "/var/lib/wakatnet/sante/etat.json").split(",").filter(Boolean);
+  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(dossierTableau ? { dossierTableau } : {}) };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

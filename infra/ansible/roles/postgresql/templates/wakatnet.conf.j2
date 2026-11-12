@@ -1,0 +1,11 @@
+# WAKATNET — réglages du nœud {{ wakatnet_noeud }} (ADR 0015 §1, §5). Géré par Ansible.
+listen_addresses = '127.0.0.1,{{ wk_noeuds_ip }}'
+wal_level = replica
+wal_log_hints = on                       # exigé par pg_rewind (retour en réplique)
+max_wal_senders = 10
+max_replication_slots = 10
+max_slot_wal_keep_size = 20GB            # un B coupé longtemps ne remplit pas le disque de A
+hot_standby = on
+archive_mode = on                        # n'archive que sur le primaire
+archive_command = 'pgbackrest --stanza=wakatnet archive-push %p'
+archive_timeout = 60                     # perte maximale bornée (SPEC §10.2 : 5 min)

@@ -1,0 +1,13 @@
+# WAKATNET — déploiement des nœuds (ADR 0015 §7). Un nœud à la fois, B d'abord (docs/RUNBOOK.md §5) :
+#   ansible-playbook site.yml --limit noeud_b   puis   --limit noeud_a
+- name: Nœuds WAKATNET
+  hosts: noeuds
+  become: true
+  serial: 1
+  roles:
+    - socle
+    - wireguard
+    - postgresql
+    - freeradius
+    - pgbackrest
+    - noeud_wakatnet

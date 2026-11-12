@@ -1,0 +1,11 @@
+- name: Redémarrer wk-noeuds
+  ansible.builtin.systemd_service:
+    name: wg-quick@wk-noeuds
+    state: restarted
+
+# Seulement les tables de WAKATNET (chaque fichier détruit et recrée sa table dans une transaction) :
+# recharger /etc/nftables.conf entier (« flush ruleset ») effacerait les règles de Docker.
+- name: Recharger nftables
+  ansible.builtin.command: "nft -f /etc/nftables.d/{{ item }}"
+  loop: [wakatnet.nft, wakatnet-noeuds.nft]
+  changed_when: true

@@ -2,16 +2,16 @@
 <html lang="fr">
 <!-- WAKATNET : page « login.html » du hotspot quand la vente en ligne est active (SPEC §7.1,
      ADR 0013 §10). Elle renvoie le client vers le portail, en transmettant l'adresse de connexion
-     du routeur, la page demandée, la cause d'un refus, la MAC et l'IP (la MAC ne sert JAMAIS à
-     retrouver un achat). Générée par site : __PORTAIL__ et __SITE__ sont remplacés par l'API.
+     du routeur, la page demandée et la cause d'un refus. Ni la MAC ni l'IP : le portail ne s'en sert
+     pas (collecte minimale, SPEC §10.1 ; revue de sécurité M5). Générée par site : __PORTAIL__ et __SITE__ sont remplacés par l'API.
      [LABO] : variables « -esc » (encodées pour une URL) à confirmer sur CHR. -->
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="0;url=__PORTAIL__/p/__SITE__?l=$(link-login-only-esc)&amp;o=$(link-orig-esc)&amp;error=$(error-esc)&amp;mac=$(mac-esc)&amp;ip=$(ip)">
+<meta http-equiv="refresh" content="0;url=__PORTAIL__/p/__SITE__?l=$(link-login-only-esc)&amp;o=$(link-orig-esc)&amp;error=$(error-esc)">
 <title>Connexion</title>
 </head>
 <body style="font-family:system-ui,sans-serif;text-align:center;padding-top:20vh">
-<p><a href="__PORTAIL__/p/__SITE__?l=$(link-login-only-esc)&amp;o=$(link-orig-esc)&amp;error=$(error-esc)&amp;mac=$(mac-esc)&amp;ip=$(ip)">Continuer vers la connexion</a></p>
+<p><a href="__PORTAIL__/p/__SITE__?l=$(link-login-only-esc)&amp;o=$(link-orig-esc)&amp;error=$(error-esc)">Continuer vers la connexion</a></p>
 </body>
 </html>

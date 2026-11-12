@@ -71,6 +71,11 @@ sql sql_auth {
 
 # Lecteur detail (ADR 0006 §12) : rôle wk_acct, pool à lui, distinct de l'authentification.
 # Une base lente ou arrêtée ne touche que le rejeu, jamais les réponses aux routeurs.
+# Deux nœuds (ADR 0015 §2) : le spool se vide dans le PRIMAIRE, où qu'il soit. libpq essaie
+# les hôtes de WAKATNET_PG_ACCT_HOSTS dans l'ordre et ne garde que celui qui accepte l'écriture
+# (target_session_attrs=read-write). radius_db contient « = » : le pilote la passe telle quelle
+# à PQconnectdb et n'y ajoute ni server ni host (rlm_sql_postgresql.c l. 133 à 192, 3.2.10).
+# Aucun primaire joignable (A arrêté, B non promu) : le spool attend, rien n'est perdu.
 sql sql_acct {
 	dialect = "postgresql"
 	driver = "rlm_sql_postgresql"
@@ -78,7 +83,7 @@ sql sql_acct {
 	port = 5432
 	login = "wk_acct"
 	password = "$ENV{WAKATNET_PG_ACCT_PASSWORD}"
-	radius_db = "wakatnet"
+	radius_db = "dbname=wakatnet host=$ENV{WAKATNET_PG_ACCT_HOSTS} target_session_attrs=read-write"
 	sql_user_name = "%{User-Name}"
 	read_clients = no
 	read_groups = no

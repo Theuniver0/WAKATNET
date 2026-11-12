@@ -1,0 +1,4 @@
+# Stockage S3 hors site, chez un TROISIÈME fournisseur : [À CONFIRMER] par Yacouba (ADR 0015 §5).
+pgbackrest_s3_endpoint: "A_CONFIRMER.example"
+pgbackrest_s3_bucket: wakatnet-sauvegardes
+pgbackrest_s3_region: "A_CONFIRMER"

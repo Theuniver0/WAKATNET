@@ -10,5 +10,12 @@ services:
     # Durée de vie de production des clients dynamiques (300 s), et non celle des tests (20 s).
     environment:
       WAKATNET_CLIENT_LIFETIME: "300"
+  # Nœud B (phase « ha », ticket 07 de la phase 5) : mêmes cœurs que A, comme sur un seul hôte de mesure.
+  postgres_b:
+    cpuset: "0-2"
+  freeradius_b:
+    cpuset: "0-2"
+    environment:
+      WAKATNET_CLIENT_LIFETIME: "300"
   testeur:
     cpuset: "3"

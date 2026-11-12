@@ -100,6 +100,8 @@ paths:
   /v1/utilisateurs:
     get: { summary: "Utilisateurs du propriétaire (P)", responses: { "200": { description: Liste } } }
     post: { summary: "Nouveau gérant ou vendeur (P)", responses: { "201": { description: Créé }, "409": { description: Adresse déjà utilisée }, "422": { description: Saisie invalide } } }
+  /v1/utilisateurs/{id}:
+    put: { summary: "Retrait de l'accès d'un gérant ou d'un vendeur (P) : { actif: false } seulement ; sessions fermées ; audité", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Accès retiré }, "404": { description: Inconnu, ou pas un gérant ni un vendeur de ce propriétaire }, "422": { description: Corps refusé } } }
   /v1/lots:
     get: { summary: "Lots de tickets papier et leurs états (P : tous ; G, V : son point de vente)", responses: { "200": { description: Lots } } }
     post: { summary: "Nouveau lot (P, G) ; refusé au plafond du découvert (ADR 0002)", responses: { "201": { description: Lot créé }, "409": { description: Plafond du découvert atteint }, "422": { description: Saisie invalide } } }

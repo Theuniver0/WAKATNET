@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1
+# WAKATNET — banc d'essai des sauvegardes (ticket 04 de la phase 5). TEST SEULEMENT.
+# Ubuntu 24.04 : PostgreSQL 16 et pgBackRest en paquets. Les dépôts Debian et PGDG ne sont pas
+# joignables depuis l'environnement de développement (proxy, constaté le 12/11/2026) ; le nœud,
+# lui, est sous Debian 13 (ADR 0004) : version de pgBackRest à revérifier sur la VM.
+# L'autorité du proxy de développement est montée en SECRET de construction : jamais dans l'image.
+FROM ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
+# Copie lisible par l'utilisateur _apt (le secret est monté en 0400 pour root), effacée dans la
+# même instruction : elle n'entre dans aucune couche de l'image.
+RUN --mount=type=secret,id=ca,target=/ca.crt,required=false \
+    sed -i 's#http://#https://#g' /etc/apt/sources.list.d/ubuntu.sources \
+ && if [ -s /ca.crt ]; then install -m 0644 /ca.crt /tmp/ca.crt \
+      && echo 'Acquire::https::CAInfo "/tmp/ca.crt";' > /etc/apt/apt.conf.d/99ca; fi \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends postgresql-16 pgbackrest python3 ca-certificates \
+ && rm -f /etc/apt/apt.conf.d/99ca /tmp/ca.crt \
+ && rm -rf /var/lib/apt/lists/*
+CMD ["sleep", "infinity"]

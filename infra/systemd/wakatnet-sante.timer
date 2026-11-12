@@ -1,0 +1,11 @@
+# WAKATNET — un tour du collecteur de santé chaque minute (ADR 0015 §6).
+[Unit]
+Description=WAKATNET : santé du nœud chaque minute
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

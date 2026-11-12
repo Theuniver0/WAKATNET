@@ -827,3 +827,44 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `radius/tests/run.sh` : 282 passés, SUCCÈS ;
   - shellcheck ne relève rien sur les scripts modifiés.
 - **Restent bloqués** : G-ARGENT, qui attend l'adaptateur réel (ticket 3.08) et `docs/CONFORMITE.md` ; les mentions fiscales et la numérotation de la facture ([À CONFIRMER]) ; les écritures du grand livre pour le mode B.
+
+### Phase 5 : haute disponibilité et durcissement (12/11/2026)
+
+- **Demande** de Yacouba : « continue avec la phase 5 ». PRD, tickets 01 à 08 et ADR 0015, validés par délégation.
+- **T13 et bascule** (tickets 02, 03) :
+  - réplication physique asynchrone A → B par une interface WireGuard dédiée (`wk-noeuds`) ;
+  - `post_auth` muet sur une réplique (migration 0027) ;
+  - spool d'accounting vidé dans le primaire, où qu'il soit (liste d'hôtes et `target_session_attrs`, lu dans `rlm_sql_postgresql.c`) ;
+  - promotion manuelle gardée, puis retour de A par `pg_rewind` (rôle `wk_rewind` aux droits minimaux) ;
+  - `docs/RUNBOOK.md`.
+- **Sauvegardes** (ticket 04) :
+  - pgBackRest chiffré, sur le primaire. ADR corrigé : la sauvegarde n'est pas prise sur B, ce qui aurait exigé un canal SSH ou TLS ;
+  - essai de restauration mensuel, qui compare le grand livre sauvegardé à la base vivante, ligne par ligne.
+- **Supervision** (ticket 05) : collecteur `sante.ts` (rôle `wk_sante`, comptes seulement), alertes Telegram au changement d'état, page publique `/etat`, rotation des compteurs de silence.
+- **Déploiement** (ticket 06) : rôles Ansible, sans aucun secret ; garde contre l'effacement d'un primaire ; nftables sans `flush ruleset`, qui effacerait Docker.
+- **Charge** (ticket 07) : `docs/CHARGE.md`.
+- **Revue de sécurité** par un agent qui n'a pas écrit le code (ticket 08) : `docs/REVUE_SECURITE.md`.
+  - Aucun constat critique.
+  - Corrigés et testés : E1 (double primaire après une bascule), E2 (TOTP deviné sans limite), M2 (verrou des connexions contourné en parallèle), M3 (retrait de l'accès d'un vendeur), M5 (MAC et page demandée dans les journaux), M6 (essai de restauration sans alerte), F6, F7, F8.
+  - Attendent une décision : M1 et M7 (limitation de débit), M4 (quotas, vérification d'adresse), M8 (verrouillage des sauvegardes chez le fournisseur S3).
+- **Trouvé en exécution** :
+  - un test qui rejoue la migration 0012 réinstallait l'ancien `post_auth`. Il rejoue désormais aussi 0027 ;
+  - deux matrices lancées en même temps se gênaient : une seule à la fois ;
+  - la garde contre le double primaire tournait en root (l'unité de Debian n'a pas de `User=`) et laissait passer : vu au banc Ansible, corrigé ;
+  - la reconstruction d'une réplique effaçait le répertoire de données avant l'arrêt complet de PostgreSQL : on attend désormais `postmaster.pid` ;
+  - dans le PDF des tickets, le nom du site manquait et le texte débordait (vu par l'e2e de la phase 4).
+- **Preuves**, depuis des piles neuves :
+  - `radius/tests/run.sh` : 286 passés, SUCCÈS. T13 ; promotion refusée tant que A répond ; arrêt de A → B primaire et fumée en 6,9 s ; retour de A par `pg_rewind` en 0,7 s ;
+  - `apps/api/tests/e2e.sh` : achat, puis parcours 1, 2, 4 et 5, SUCCÈS. La page de redirection sans MAC ni IP mène bien au portail ;
+  - `apps/api/tests/run.sh` : 146 tests, SUCCÈS ;
+  - `infra/noeud/essais/sauvegarde.sh` : SUCCÈS. Restauration chronométrée en 3,9 s pour 349 Mo ; altération du grand livre détectée et nommée ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS, sept étapes. ansible-lint, profil production, sans remarque ;
+  - charge : `perf.sh` (phase `ha`) et `apps/api/tests/charge.sh`.
+- **Non prouvé ici**, et à rejouer par Yacouba avant G-PILOTE :
+  - Debian 13 sur VM ;
+  - module WireGuard du noyau ;
+  - paquets de l'éditeur de FreeRADIUS ;
+  - transport S3 ;
+  - envoi réel vers Telegram ;
+  - LABO-16 et LABO-09 sur CHR ;
+  - B chez un second hébergeur (ADR 0004).

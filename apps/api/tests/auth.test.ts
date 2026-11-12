@@ -121,3 +121,57 @@ test("super-admin : TOTP obligatoire, un code ne sert qu'une fois", async () => 
     void base32Encoder;
   });
 });
+
+test("revue de sécurité M2 : 20 connexions PARALLÈLES sur une adresse → 5 vérifiées au plus, les autres 429", async () => {
+  await avecApp(async (app) => {
+    const email = adresse();
+    await inscrire(app, email);
+    const r = await Promise.all(Array.from({ length: 20 }, () => connecter(app, email, "faux-mot-de-passe")));
+    const codes = r.map((x) => x.statusCode).sort();
+    assert.equal(codes.filter((c) => c === 401).length, 5, `401 attendus : 5 ; reçus ${JSON.stringify(codes)}`);
+    assert.equal(codes.filter((c) => c === 429).length, 15);
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS n FROM app.connexion_echec WHERE email = $1 AND le > now() - interval '15 minutes'", [email]);
+    assert.equal(n, 5, "cinq essais inscrits, pas un de plus");
+    assert.equal((await connecter(app, email, "un-mot-de-passe-long")).statusCode, 429, "même le bon mot de passe attend");
+  });
+});
+
+test("revue de sécurité M2 : une connexion réussie ne compte pas comme un échec", async () => {
+  await avecApp(async (app) => {
+    const email = adresse();
+    await inscrire(app, email);
+    for (let i = 0; i < 8; i++) assert.equal((await connecter(app, email, "un-mot-de-passe-long")).statusCode, 200);
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.connexion_echec WHERE email = $1", [email]);
+    assert.equal(n, 0);
+  });
+});
+
+test("revue de sécurité E2 : TOTP, 5 essais en 15 min (même en parallèle), puis session fermée et événement audité", async () => {
+  await avecApp(async (app) => {
+    const email = adresse();
+    const secret = randomBytes(20);
+    await sql(URL_ADMIN, "SELECT app.super_admin_creer($1, $2, $3)", [email, await empreinteTest(), chiffrerTotp(CLES.marchands, email, secret)]);
+    const h = entetesJeton(jetonDe(await connecter(app, email, MDP_TEST)));
+    // Un code sûrement faux : ni le pas courant ni ses voisins.
+    const pas = BigInt(Math.floor(Date.now() / 30000));
+    const justes = new Set([pas - 1n, pas, pas + 1n].map((p) => hotp(secret, p)));
+    let faux = 0;
+    while (justes.has(String(faux).padStart(6, "0"))) faux++;
+    const code = String(faux).padStart(6, "0");
+    const r = await Promise.all(Array.from({ length: 12 }, () => app.inject({ method: "POST", url: "/v1/totp", headers: h, payload: { code } })));
+    const codes = r.map((x) => x.statusCode);
+    assert.equal(codes.filter((c) => c === 401).length, 5, `5 essais vérifiés au plus : ${JSON.stringify(codes)}`);
+    assert.ok(codes.every((c) => c === 401 || c === 429 || c === 403), JSON.stringify(codes));
+    // La session est fermée : même le bon code ne la valide plus.
+    const bon = await app.inject({ method: "POST", url: "/v1/totp", headers: h, payload: { code: hotp(secret, pas) } });
+    assert.ok(bon.statusCode === 401 || bon.statusCode === 403, String(bon.statusCode));
+    assert.equal((await app.inject({ url: "/v1/moi", headers: h })).statusCode, 401, "session fermée");
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS n FROM app.audit_log WHERE action = 'totp_trop_d_essais' AND objet IN (SELECT 'utilisateur:' || id FROM app.utilisateur WHERE email = $1)", [email]);
+    assert.ok(n >= 1, "événement audité");
+    // Nouvelle session : toujours bloquée pendant 15 min (le compte d'essais est par utilisateur).
+    const h2 = entetesJeton(jetonDe(await connecter(app, email, MDP_TEST)));
+    assert.equal((await app.inject({ method: "POST", url: "/v1/totp", headers: h2, payload: { code: hotp(secret, pas) } })).statusCode, 429);
+  });
+});

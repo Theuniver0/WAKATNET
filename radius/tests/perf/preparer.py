@@ -32,7 +32,7 @@ debut = time.monotonic()
 repondus = 0
 for ip in ips:
     time.sleep(1.05)   # un nouveau client par seconde au plus (rate_limit)
-    r = radlib.access_request(serveur="10.213.0.1", secret=secret, source=ip, utilisateur="ZZZZZZZZ",
+    r = radlib.access_request(serveur=os.environ.get("WAKATNET_PERF_SERVEUR", "10.213.0.1"), secret=secret, source=ip, utilisateur="ZZZZZZZZ",
                               mot_de_passe="ZZZZZZZZ", calling_station_id="02-EF-00-00-00-01", delai=2.0, essais=2)
     repondus += r is not None
 print(json.dumps({"routeurs": len(ips), "clients_crees": repondus,

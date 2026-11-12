@@ -1,0 +1,10 @@
+- name: Recharger systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+# radiusd -C d'abord : une configuration invalide n'arrête jamais le serveur qui tourne.
+- name: Redémarrer FreeRADIUS
+  ansible.builtin.shell: |
+    set -a; . /etc/wakatnet/freeradius.env; . /etc/wakatnet/freeradius.secrets; set +a
+    freeradius -C && systemctl restart freeradius
+  changed_when: true

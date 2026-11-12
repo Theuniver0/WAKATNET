@@ -1,0 +1,48 @@
+# Socle d'un nœud : paquets de base, heure UTC (heure du Burkina), mises à jour de sécurité,
+# réglages du noyau. L'accès SSH n'est PAS modifié ici (risque de se couper l'accès) : voir RUNBOOK.
+- name: Paquets de base
+  ansible.builtin.apt:
+    name: [nftables, unattended-upgrades, wireguard-tools, logrotate, python3, ca-certificates, curl, xz-utils]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+
+- name: Vérifier que le nœud est en UTC
+  ansible.builtin.command: date +%Z
+  register: socle_fuseau
+  changed_when: false
+  failed_when: socle_fuseau.stdout not in ["UTC", "GMT"]
+
+- name: Mises à jour de sécurité automatiques (sans redémarrage automatique)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52wakatnet-unattended
+    mode: "0644"
+    content: |
+      // WAKATNET : sécurité seulement ; jamais de redémarrage automatique (un nœud à la fois, RUNBOOK §5).
+      Unattended-Upgrade::Automatic-Reboot "false";
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+
+- name: Réglages du noyau (Debian 13 ne lit plus /etc/sysctl.conf)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/60-wakatnet.conf
+    mode: "0644"
+    content: |
+      # WAKATNET : le nœud ne route pas entre ses interfaces (ADR 0012 §8).
+      net.ipv4.ip_forward = 0
+      net.ipv4.conf.all.rp_filter = 1
+  notify: Recharger sysctl
+
+- name: Répertoire des fichiers nftables de WAKATNET
+  ansible.builtin.file:
+    path: /etc/nftables.d
+    state: directory
+    mode: "0755"
+
+- name: Inclure /etc/nftables.d dans la configuration nftables (sans toucher au reste)
+  ansible.builtin.lineinfile:
+    path: /etc/nftables.conf
+    line: 'include "/etc/nftables.d/*.nft"'
+    create: true
+    mode: "0755"

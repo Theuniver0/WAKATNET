@@ -1,0 +1,16 @@
+- name: Recharger systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+# Dans cet ordre : dépendances verrouillées (production seulement), puis client Prisma.
+- name: Installer les dépendances de l'API
+  ansible.builtin.command:
+    cmd: npm ci --omit=dev --no-audit --no-fund -w apps/api
+    chdir: "{{ wakatnet_racine }}"
+  changed_when: true
+
+- name: Générer le client Prisma
+  ansible.builtin.command:
+    cmd: npx prisma generate
+    chdir: "{{ wakatnet_racine }}/apps/api"
+  changed_when: true

@@ -12,6 +12,9 @@
 #   WAKATNET_PG_COA_PASSWORD      mot de passe du rôle wk_coa (déclencheur de coupure, ticket 09)
 #   WAKATNET_PG_API_PASSWORD      mot de passe du rôle wk_api (API, phase 2)
 #   WAKATNET_PG_WG_PASSWORD       mot de passe du rôle wk_wg (wg-agent, phase 2)
+#   WAKATNET_PG_REPLICATION_PASSWORD  mot de passe du rôle wk_replication (nœud B, phase 5)
+#   WAKATNET_PG_REWIND_PASSWORD   mot de passe du rôle wk_rewind (retour en réplique, phase 5)
+#   WAKATNET_PG_SANTE_PASSWORD    mot de passe du rôle wk_sante (collecteur de santé, phase 5)
 #
 # Garanties :
 #   - chaque fichier NNNN_*.sql de app/ et radius/ est appliqué une seule fois,
@@ -112,6 +115,9 @@ poser_mot_de_passe wk_maint WAKATNET_PG_MAINT_PASSWORD
 poser_mot_de_passe wk_coa WAKATNET_PG_COA_PASSWORD
 poser_mot_de_passe wk_api WAKATNET_PG_API_PASSWORD
 poser_mot_de_passe wk_wg WAKATNET_PG_WG_PASSWORD
+poser_mot_de_passe wk_replication WAKATNET_PG_REPLICATION_PASSWORD
+poser_mot_de_passe wk_rewind WAKATNET_PG_REWIND_PASSWORD
+poser_mot_de_passe wk_sante WAKATNET_PG_SANTE_PASSWORD
 echo "migrations à jour"
 
 # Test de fumée du chemin critique (ADR 0009 §3) : une migration qui casse un droit ou une

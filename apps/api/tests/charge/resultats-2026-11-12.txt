@@ -1,0 +1,8 @@
+# Sortie brute de apps/api/tests/charge.sh, 12/11/2026 (concurrence 20, 20 s par palier, 300 sites,
+# 100 créations de paiement par seconde). Machine : 4 vCPU Intel Xeon 2,10 GHz, 16 Go.
+{"palier":"portail-accueil","concurrence":20,"duree_s":20,"requetes":43406,"debit_par_s":2170,"erreurs":0,"statuts":{"200":43406},"latence_ms":{"p50":8.2,"p95":17,"p99":24.6,"max":210.9}}
+{"palier":"portail-forfaits","concurrence":20,"duree_s":20,"requetes":34314,"debit_par_s":1715,"erreurs":0,"statuts":{"200":34314},"latence_ms":{"p50":11,"p95":18.8,"p99":23.5,"max":58}}
+{"palier":"paiement-limite-par-site","concurrence":20,"duree_s":20,"requetes":19004,"debit_par_s":950,"erreurs":0,"statuts":{"303":31,"429":18973},"latence_ms":{"p50":20.1,"p95":32,"p99":40.1,"max":113.7}}
+{"palier":"paiement-parc-debit-fixe","sites":300,"debit_vise_par_s":100,"requetes":2001,"erreurs":0,"statuts":{"303":2001},"latence_ms":{"p50":9,"p95":12.5,"p99":17,"max":30.2}}
+{"paiements_crees_sur_le_parc":2001,"redirections_303":2001,"tous_confirmes_par_webhook":true,"statuts_finaux":[{"statut":"SUCCEEDED","n":2001}]}
+erreurs internes journalisées par l API : 0

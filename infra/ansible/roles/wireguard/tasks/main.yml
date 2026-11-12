@@ -1,0 +1,46 @@
+# Lien chiffré entre les deux nœuds (ADR 0015 §1), DISTINCT de wg0 (routeurs, tenu par wg-agent).
+# La clé privée est créée à la main sur le nœud ; elle n'est jamais lue ni copiée par Ansible.
+- name: La clé privée de wk-noeuds existe (créée à la main, 0600)
+  ansible.builtin.stat:
+    path: /etc/wireguard/wk-noeuds.key
+  register: wireguard_cle
+
+- name: Exiger la clé privée de wk-noeuds
+  ansible.builtin.assert:
+    that:
+      - wireguard_cle.stat.exists
+      - wireguard_cle.stat.mode == "0600"
+      - wireguard_cle.stat.pw_name == "root"
+    fail_msg: "/etc/wireguard/wk-noeuds.key absente ou mal protégée : la créer à la main (wg genkey, root, 0600)."
+
+- name: "Configuration de wk-noeuds (sans clé privée : posée par PostUp depuis le fichier)"
+  ansible.builtin.template:
+    src: wk-noeuds.conf.j2
+    dest: /etc/wireguard/wk-noeuds.conf
+    mode: "0600"
+  notify: Redémarrer wk-noeuds
+
+- name: Pare-feu de wg0 (routeurs) et du lien entre nœuds
+  ansible.builtin.copy:
+    src: "{{ wakatnet_depot }}/infra/nftables/wakatnet.nft"
+    dest: /etc/nftables.d/wakatnet.nft
+    mode: "0644"
+  notify: Recharger nftables
+
+- name: Pare-feu du lien entre nœuds
+  ansible.builtin.template:
+    src: noeuds.nft.j2
+    dest: /etc/nftables.d/wakatnet-noeuds.nft
+    mode: "0644"
+  notify: Recharger nftables
+
+- name: Interface wk-noeuds active au démarrage
+  ansible.builtin.systemd_service:
+    name: wg-quick@wk-noeuds
+    enabled: true
+    state: started
+
+- name: Service nftables actif au démarrage
+  ansible.builtin.systemd_service:
+    name: nftables
+    enabled: true

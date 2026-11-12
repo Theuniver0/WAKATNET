@@ -47,6 +47,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (!config.cles) { console.error("tâches : WAKATNET_CLE_MARCHANDS et WAKATNET_CLE_HMAC exigées"); process.exit(1); }
   const base = ouvrirBase(config.urlBase);
   try {
+    // Nœud B en réplique (T13, ADR 0015 §2) : les tâches n'écrivent que sur le primaire.
+    const [{ replique }] = await base.$queryRaw<{ replique: boolean }[]>`SELECT pg_is_in_recovery() AS replique`;
+    if (replique) { console.log("tâches : réplique (pg_is_in_recovery), rien à faire sur ce nœud"); process.exit(0); }
     const b = await tour(base, new ServicePaiement(base, config.cles), (m) => console.log(m));
     console.log(`tour : ${b.expires} expiré(s), ${b.verifies} vérifié(s), ${b.erreurs} erreur(s), ${b.frais} frais papier, ${b.purges} numéro(s) purgé(s)`);
     process.exitCode = b.erreurs > 0 ? 1 : 0;

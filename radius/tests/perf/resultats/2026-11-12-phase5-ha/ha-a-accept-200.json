@@ -1,0 +1,1 @@
+{"envoyes": 3999, "perdus": 0, "inattendus": 0, "invalides": 0, "sans_identifiant": 0, "Access-Accept": 3997, "Access-Reject": 2, "causes_reject": {"trop_d_appareils": 2}, "mode": "accept", "debit_vise": 200.0, "duree_s": 20.0, "routeurs": 50, "recus": 3999, "debit_obtenu": 199.9, "latence_ms": {"p50": 3.09, "p95": 4.46, "p99": 6.91, "max": 27.95}}
