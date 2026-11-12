@@ -4,6 +4,8 @@ import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import type { Config } from "./config.ts";
 import { enTantQue, type Base } from "./base.ts";
 import { routesEnrolement, routesRouteur } from "./enrolement.ts";
+import { routesImport } from "./import.ts";
+import { estIdentifiant } from "./identifiant.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -11,7 +13,6 @@ declare module "fastify" {
   }
 }
 
-const IDENTIFIANT = /^[1-9][0-9]{0,18}$/;
 
 /** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal. */
 export function cheminMasque(url: string): string {
@@ -37,7 +38,7 @@ export function construire(config: Config, base: Base,
     proprietaire.addHook("onRequest", async (req, rep) => {
       if (!config.authDev) return rep.code(401).send({ erreur: "authentification indisponible avant la phase 4" });
       const valeur = req.headers["x-wakatnet-tenant"];
-      if (typeof valeur !== "string" || !IDENTIFIANT.test(valeur)) {
+      if (!estIdentifiant(valeur)) {
         return rep.code(401).send({ erreur: "identité absente" });
       }
       const tenant = await base.tenant.findUnique({ where: { id: BigInt(valeur) }, select: { suspendu: true } });
@@ -65,6 +66,7 @@ export function construire(config: Config, base: Base,
     });
 
     routesEnrolement(proprietaire, config, base);
+    routesImport(proprietaire, base);
   });
 
   // Routes du routeur : le jeton d'enrôlement tient lieu d'identité (ADR 0012 §7).

@@ -136,7 +136,8 @@ test("corps invalide : 422 et jeton NON consommé", async () => {
     ];
     for (const corps of mauvais) {
       const r = await poster(app, jeton, corps);
-      assert.ok([400, 415, 422].includes(r.statusCode), `${JSON.stringify(corps)} → ${r.statusCode}`);
+      // Un corps texte (envoyé en text/plain) est refusé par Fastify (415) ; tout le reste : 422.
+      assert.equal(r.statusCode, corps === "pas du json" ? 415 : 422, `${JSON.stringify(corps)} → ${r.statusCode}`);
     }
     assert.equal((await app.inject({ url: `/enroll/${jeton}` })).statusCode, 200);
     assert.equal((await poster(app, jeton, inscription())).statusCode, 200);
@@ -160,8 +161,11 @@ test("jeton expiré : 404 au GET et au POST", async () => {
     await sql(URL_ADMIN, `UPDATE app.enrollment_token SET cree_le = now() - interval '31 minutes',
                           expire_le = now() - interval '1 minute' WHERE empreinte = $1`,
               [createHash("sha256").update(jeton).digest()]);
-    assert.equal((await app.inject({ url: `/enroll/${jeton}` })).statusCode, 404);
-    assert.equal((await poster(app, jeton, inscription())).statusCode, 404);
+    const inconnu = (await app.inject({ url: `/enroll/${"x".repeat(43)}` })).body;
+    for (const r of [await app.inject({ url: `/enroll/${jeton}` }), await poster(app, jeton, inscription())]) {
+      assert.equal(r.statusCode, 404);
+      assert.equal(r.body, inconnu, "expiré : même corps qu'un jeton inconnu");
+    }
   });
 });
 

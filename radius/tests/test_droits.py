@@ -39,6 +39,8 @@ ATTENDU = {
     "app.enroll_register(p_empreinte bytea, p_cle text, p_coa_port integer, p_inventaire jsonb)": {"wk_api"},
     # Ticket 05 : wg-agent ne lit que les pairs voulus.
     "app.wg_pairs()": {"wk_wg"},
+    # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
+    "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
 }
 
 
@@ -77,7 +79,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.enroll_register"),
-                      ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.tenant_courant"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
+                      ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.tenant_courant"), ("wk_api", "app.voucher_importer"), ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"),
                       ("wk_coa", "radius.sessions_to_cut"), ("wk_maint", "radius.close_ghost_sessions"),
                       ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),

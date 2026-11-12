@@ -10,11 +10,11 @@ import type { Base } from "./base.ts";
 import { enTantQue } from "./base.ts";
 import type { Config } from "./config.ts";
 import { commande, desinstallation, etape1, etape2, type Hotspot, type Inventaire } from "./routeros.ts";
+import { estIdentifiant } from "./identifiant.ts";
 
 export const DUREE_JETON_MIN = 30;
 const JETON = /^[A-Za-z0-9_-]{43}$/;
 const CLE = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/;
-const IDENTIFIANT = /^[1-9][0-9]{0,18}$/;
 // Même réponse pour inconnu, expiré ou consommé : aucun indice sur l'existence d'un jeton.
 const INTROUVABLE = { erreur: "commande d'enrôlement inconnue, expirée ou déjà utilisée" };
 
@@ -94,7 +94,7 @@ type Inscrit = { statut: string; router_id: bigint | null; overlay_ip: string | 
 export function routesEnrolement(app: FastifyInstance, config: Config, base: Base): void {
   // Propriétaire : nouvelle commande d'enrôlement pour un de SES sites.
   app.post<{ Params: { site: string } }>("/v1/sites/:site/enrollments", async (req, rep) => {
-    if (!IDENTIFIANT.test(req.params.site)) return rep.code(404).send({ erreur: "site inconnu" });
+    if (!estIdentifiant(req.params.site)) return rep.code(404).send({ erreur: "site inconnu" });
     const jeton = randomBytes(32).toString("base64url");
     const cree = await enTantQue(base, req.tenantId, async (tx) => {
       // RLS : un site d'un autre propriétaire est invisible ici, donc 404.
@@ -121,7 +121,7 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
   // (ADR 0006 §8). Définitive : un routeur révoqué revient par désinstallation puis nouvel
   // enrôlement (nouvelle clé, nouvelle adresse).
   app.post<{ Params: { id: string } }>("/v1/routers/:id/revoke", async (req, rep) => {
-    if (!IDENTIFIANT.test(req.params.id)) return rep.code(404).send({ erreur: "routeur inconnu" });
+    if (!estIdentifiant(req.params.id)) return rep.code(404).send({ erreur: "routeur inconnu" });
     const fait = await enTantQue(base, req.tenantId, async (tx) => {
       const r = await tx.router.findUnique({ where: { id: BigInt(req.params.id) }, select: { id: true, actif: true } });
       if (r === null) return null;
@@ -140,7 +140,7 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
   // Propriétaire : script de désinstallation propre à SON routeur, valeurs d'origine relevées à
   // l'enrôlement (R6, ADR 0012 §4). Ticket 04.
   app.get<{ Params: { id: string } }>("/v1/routers/:id/uninstall.rsc", async (req, rep) => {
-    if (!IDENTIFIANT.test(req.params.id)) return rep.code(404).send({ erreur: "routeur inconnu" });
+    if (!estIdentifiant(req.params.id)) return rep.code(404).send({ erreur: "routeur inconnu" });
     const r = await enTantQue(base, req.tenantId, (tx) =>
       tx.router.findUnique({ where: { id: BigInt(req.params.id) }, select: { inventaire: true, enrole_le: true } }));
     if (r === null) return rep.code(404).send({ erreur: "routeur inconnu" });

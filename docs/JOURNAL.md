@@ -659,3 +659,36 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - dans FreeRADIUS, le routeur est oublié au plus tard à l'expiration du client dynamique (`test_clients.py::test_l8_*`, phase 1).
 - Sessions ouvertes : fermées comme sessions fantômes, puisqu'un Disconnect ne passerait plus (ticket 06 précisé).
 - **Preuves** : `apps/api/tests/run.sh` (pile neuve) donne 46 tests, SUCCÈS. Ils couvrent la révocation, le 404 chez un autre propriétaire, et `wk_api` qui ne change que `actif` et seulement chez lui.
+
+### Phase 2, ticket 07 : import Mikhmon ; revue de fin de phase (12/11/2026)
+
+- **Import** : `POST /v1/imports/mikhmon`, avec un CSV (`name`, `password`, `profile`) et une correspondance « profil → forfait ».
+  - Migration 0017 : colonne `origine`, forme du code selon l'origine (les tickets importés admettent 0, O, 1, I et L), et `app.voucher_importer` en **un seul appel par lot**.
+  - Le rapport donne une ligne par entrée du CSV, et compte les codes courts.
+  - Le rejeu ne crée aucun doublon.
+- **Revue en deux axes** (deux agents qui n'ont pas écrit le code) :
+  - **Bloquant**, confirmé par la matrice : `test_droits.py` ne connaissait pas `voucher_importer`. **Corrigé**.
+  - **Important** :
+    - l'import passait par une ligne SQL par entrée, dans une transaction interactive limitée à 5 s : un gros export Mikhmon aurait échoué. **Corrigé** : un appel par lot. **Mesuré** : 20 000 tickets en 1,24 s, et 20 001 lignes donnent 422 ;
+    - le test d'isolement pouvait passer à vide (`plan`, `voucher` et `enrollment_token` vides). **Corrigé** : il remplit les six tables pour A et B, et vérifie qu'elles sont remplies ;
+    - deux règles du pare-feu routeur n'étaient pas justifiées. **Justifiées** dans l'ADR 0012 §9, sans changement de code.
+  - **Mineurs corrigés** :
+    - `wk_api` ne lit plus `plan` ni `voucher` (moindre privilège) ;
+    - un identifiant au-delà de 2^63 − 1 donne 401 ou 422 au lieu de 500 ;
+    - 422 strict sur les corps invalides, et le corps d'un 404 est identique pour un jeton expiré, consommé ou inconnu ;
+    - ADR §4 et §10, et `openapi.yaml` (401 et 403), alignés sur le code ;
+    - walled garden reporté à la phase 3, et note sur l'ASCII des scripts, consignés dans l'ADR.
+  - **Mineurs non corrigés, notés** :
+    - la branche n'est pas `ticket/NN-titre` (livraison par une seule branche, décidée par Yacouba) ;
+    - pas de PAP **à travers FreeRADIUS** pour un ticket importé : seul l'appel SQL à `radius.authorize` est testé, et c'est la même fonction ;
+    - pas de test de bout en bout « révocation par l'API → NOTIFY → pair retiré » : chaque maillon est prouvé séparément.
+  - **Point ambigu, à trancher par Yacouba** : l'enrôlement exige un hotspot déjà configuré. Le « CHR vierge » de la porte du §12 s'entend donc comme un CHR avec hotspot, mais sans utilisateur.
+- **Preuves**, toutes depuis des piles neuves : `apps/api/tests/run.sh` (55 tests), `apps/wg-agent/tests/run.sh` (Go `-race` et pare-feu) et `radius/tests/run.sh` (281 passés) donnent SUCCÈS. shellcheck 0.10.0 ne relève rien sur les cinq scripts de test et de migration.
+
+### État de la phase 2
+
+1. Tests verts en une commande, sur trois bancs : **oui**.
+2. Scripts audités par `mikrotik-routeros-config` : **oui** (`docs/AUDIT_SCRIPTS_ROUTEROS.md`).
+3. Exécution sur CHR, vierge et déjà configuré : **non**. L'écart a été décidé par Yacouba, qui fera les essais à la fin. En dépendent : LABO-05, LABO-08 (vérification TLS de `/tool fetch` en 7.15, **critique**), LABO-14 et les points [LABO] de l'ADR 0012 §9.
+4. Revue en deux axes : **faite**, constats traités.
+5. Étiquette `phase-2` : **non posée**, elle attend le point 3.

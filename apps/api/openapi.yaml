@@ -63,6 +63,7 @@ paths:
       responses:
         "200": { description: Routeurs, content: { application/json: { schema: { type: array } } } }
         "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
   /v1/sites/{site}/enrollments:
     post:
       summary: Nouvelle commande d'enrôlement pour un site du propriétaire
@@ -78,6 +79,26 @@ paths:
                 required: [commande, expire_le]
                 properties: { commande: { type: string }, expire_le: { type: string, format: date-time } }
         "404": { description: Site inconnu ou d'un autre propriétaire }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
+  /v1/imports/mikhmon:
+    post:
+      summary: Importe des tickets Mikhmon (CSV name, password, profile) ; rejouable sans doublon
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [csv, correspondance]
+              properties:
+                csv: { type: string, description: "CSV avec en-tête ; 20 000 lignes au plus" }
+                correspondance: { type: object, additionalProperties: { type: string }, description: "profil Mikhmon → identifiant de forfait" }
+      responses:
+        "200": { description: "Rapport : importes, doublons, refuses, courts, et une entrée par ligne", content: { application/json: { schema: { type: object } } } }
+        "422": { description: CSV ou correspondance invalide ; rien n'est importé }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
   /v1/routers/{id}/revoke:
     post:
       summary: Révoque un routeur du propriétaire (tunnel retiré, plus reconnu par RADIUS) ; idempotent, définitif
@@ -86,6 +107,8 @@ paths:
       responses:
         "200": { description: Routeur révoqué, content: { application/json: { schema: { type: object } } } }
         "404": { description: Routeur inconnu ou d'un autre propriétaire }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
   /v1/routers/{id}/uninstall.rsc:
     get:
       summary: Script de désinstallation propre au routeur (valeurs d'origine relevées)
@@ -95,6 +118,8 @@ paths:
         "200": { description: Script RouterOS, content: { text/plain: {} } }
         "404": { description: Routeur inconnu ou d'un autre propriétaire }
         "409": { description: Routeur déclaré à la main, sans inventaire }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Propriétaire suspendu }
   /enroll/{jeton}:
     parameters:
       - $ref: "#/components/parameters/jeton"

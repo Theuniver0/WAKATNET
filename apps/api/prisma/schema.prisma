@@ -111,6 +111,7 @@ model voucher {
   activated_at       DateTime? @db.Timestamptz(6)
   cree_le            DateTime  @default(now()) @db.Timestamptz(6)
   mac_liee           String?
+  origine            String    @default("wakatnet")
   site               site?     @relation(fields: [tenant_id, f_site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   plan               plan      @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 

@@ -17,6 +17,15 @@ before(async () => {
   rB = await routeur(B.tenant, B.site);
   await sql(URL_ADMIN, "INSERT INTO app.audit_log (tenant_id, acteur, action, objet) VALUES ($1, 'test', 'x', 'y'), ($2, 'test', 'x', 'y')",
             [A.tenant, B.tenant]);
+  // Une ligne par propriétaire dans CHAQUE table cloisonnée : un test d'isolement ne doit
+  // jamais passer à vide (revue Spec).
+  for (const p of [A, B]) {
+    const [plan] = await sql<{ id: string }>(URL_ADMIN,
+      "INSERT INTO app.plan (tenant_id, nom, prix_xof, uptime_limit_s) VALUES ($1, 'p', 100, 600) RETURNING id::text", [p.tenant]);
+    await sql(URL_ADMIN, "SELECT app.voucher_creer($1, $2)", [p.tenant, plan.id]);
+    await sql(URL_ADMIN, `INSERT INTO app.enrollment_token (tenant_id, site_id, empreinte, expire_le)
+                          VALUES ($1, $2, gen_random_bytes(32), now() + interval '30 minutes')`, [p.tenant, p.site]);
+  }
 });
 
 test("par l'API, chaque propriétaire ne voit que ses sites et ses routeurs", async () => {
@@ -34,7 +43,7 @@ test("par l'API, chaque propriétaire ne voit que ses sites et ses routeurs", as
 test("sans identité, ou avec une identité invalide ou inconnue : 401", async () => {
   await avecApp(async (app) => {
     for (const headers of [{}, { "x-wakatnet-tenant": "0" }, { "x-wakatnet-tenant": "1 OR 1=1" },
-                           { "x-wakatnet-tenant": "999999999" }]) {
+                           { "x-wakatnet-tenant": "999999999" }, { "x-wakatnet-tenant": "9999999999999999999" }]) {
       assert.equal((await app.inject({ url: "/v1/sites", headers })).statusCode, 401);
     }
   });
@@ -55,7 +64,15 @@ test("propriétaire suspendu : 403", async () => {
   });
 });
 
-const TABLES = ["site", "router", "plan", "voucher", "audit_log", "enrollment_token"];
+const TABLES = ["site", "router", "audit_log", "enrollment_token"];
+
+test("les six tables cloisonnées ont des lignes de A et de B (le test ne passe pas à vide)", async () => {
+  for (const t of [...TABLES, "plan", "voucher"]) {
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN, `SELECT count(DISTINCT tenant_id)::int AS n FROM app.${t} WHERE tenant_id IN ($1, $2)`,
+                                             [A.tenant, B.tenant]);
+    assert.equal(n, 2, `app.${t}`);
+  }
+});
 
 test("wk_api sans contexte : zéro ligne sur chaque table cloisonnée, sans erreur", async () => {
   for (const t of TABLES) {
@@ -64,15 +81,21 @@ test("wk_api sans contexte : zéro ligne sur chaque table cloisonnée, sans erre
   }
 });
 
+test("wk_api ne lit ni forfaits ni tickets (moindre privilège : les codes valent accès)", async () => {
+  for (const t of ["plan", "voucher"]) await assert.rejects(sql(URL_API, `SELECT 1 FROM app.${t}`), /permission denied/);
+});
+
 test("wk_api dans le contexte de A : rien de B, même en le demandant explicitement", async () => {
   const c = new pg.Client({ connectionString: URL_API });
   await c.connect();
   try {
     await c.query("BEGIN");
     await c.query("SELECT set_config('wakatnet.tenant_id', $1, true)", [A.tenant]);
-    for (const t of ["site", "router", "audit_log"]) {
-      const r = await c.query(`SELECT count(*)::int AS n FROM app.${t} WHERE tenant_id = $1`, [B.tenant]);
-      assert.equal(r.rows[0].n, 0, `app.${t}`);
+    for (const t of TABLES) {
+      const deB = await c.query(`SELECT count(*)::int AS n FROM app.${t} WHERE tenant_id = $1`, [B.tenant]);
+      assert.equal(deB.rows[0].n, 0, `app.${t}`);
+      const deA = await c.query(`SELECT count(*)::int AS n FROM app.${t} WHERE tenant_id = $1`, [A.tenant]);
+      assert.ok(deA.rows[0].n >= 1, `app.${t} : A voit ses lignes`);
     }
     await c.query("COMMIT");
   } finally {
