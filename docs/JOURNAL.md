@@ -1116,3 +1116,7 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - `essai.sh` (Ansible) : SUCCÈS ;
   - `charge.sh` : code 0, SUCCÈS.
 - **Non prouvé** : le banc Ansible sur un runner GitHub (conteneurs systemd privilégiés), qui n'a pas encore dépassé la construction de l'image.
+- **Confirmé sur GitHub** (`0875067`) :
+  - `nuit` (run 43327951145) : `ansible`, `sauvegarde` et `charge` verts. Le runner accepte les conteneurs systemd privilégiés du banc Ansible ;
+  - `ci` : `api`, `e2e`, `radius` et `wg-agent` verts.
+  - Le point 3 de l'ADR 0021 est clos.
