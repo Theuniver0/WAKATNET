@@ -6,12 +6,6 @@ import { ConfigInvalide, lireConfig } from "../src/config.ts";
 
 const URL = { WAKATNET_API_DATABASE_URL: "postgresql://x@h/d" };
 
-test("WAKATNET_AUTH_DEV=1 avec NODE_ENV=production : refus de démarrer", () => {
-  assert.throws(() => lireConfig({ ...URL, WAKATNET_AUTH_DEV: "1", NODE_ENV: "production" }), ConfigInvalide);
-  assert.equal(lireConfig({ ...URL, NODE_ENV: "production" }).authDev, false);
-  assert.equal(lireConfig({ ...URL, WAKATNET_AUTH_DEV: "1" }).authDev, true);
-});
-
 test("URL de base absente, URL publique invalide : refus de démarrer", () => {
   assert.throws(() => lireConfig({}), ConfigInvalide);
   assert.throws(() => lireConfig({ ...URL, WAKATNET_API_URL_PUBLIQUE: "http://api.x" }), ConfigInvalide);

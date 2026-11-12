@@ -36,7 +36,7 @@ Trois formes comparées (§14.4) :
 ## 3. Double authentification (super-admin)
 
 - **TOTP** (RFC 6238 : HMAC-SHA-1, 6 chiffres, pas de 30 s, ±1 pas toléré), écrit à la main sur `node:crypto` et vérifié contre les vecteurs de la RFC.
-- Le secret est chiffré au repos (AES-256-GCM, même clé que les comptes marchands, donnée associée `totp:utilisateur:ID`).
+- Le secret est chiffré au repos (AES-256-GCM, même clé que les comptes marchands, donnée associée `totp:ADRESSE`).
 - **Une session de super-admin n'ouvre les routes `/admin` qu'une fois le TOTP validé dans cette même session.** Un code déjà utilisé est refusé (pas de rejeu).
 - Création du premier super-admin : script `apps/api/src/admin-creer.ts`, lancé à la main sur le nœud. Le mot de passe est lu sur l'entrée standard, jamais passé en argument (S1). Le script affiche une seule fois l'URI `otpauth://`.
 

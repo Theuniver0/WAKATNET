@@ -775,3 +775,27 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - mode B verrouillé par un drapeau de plateforme ;
   - P10 sans écriture comptable du mode B.
 - L'en-tête de développement de l'ADR 0012 §7 sera retiré.
+
+### Phase 4, tickets 02 à 06 : comptes, rôles, forfaits, lots, argent, super-admin (12/11/2026)
+
+- **Comptes** (migration 0023, `apps/api/src/auth.ts`) :
+  - sessions côté serveur : cookie `HttpOnly; Secure; SameSite=Strict`, empreinte seule en base, 12 h glissantes et 7 jours au plus ;
+  - en-tête anti-CSRF exigé ;
+  - scrypt (N = 2^15) ; 5 échecs par adresse en 15 min ; même réponse que le compte existe ou non ;
+  - quatre rôles, déclarés route par route ;
+  - TOTP du super-admin écrit à la main et vérifié contre les vecteurs de la RFC 6238, sans rejeu possible ;
+  - **en-tête de développement retiré** : les tests ouvrent de vraies sessions ;
+  - script `admin-creer.ts`, essayé sur une base jetable : mot de passe lu sur l'entrée standard, URI TOTP affichée une fois.
+- **Exploitation** (migration 0024, `exploitation.ts`, `admin.ts`, `pdf.ts`, `csv.ts`) :
+  - forfaits, retirés de la vente au lieu d'être supprimés ;
+  - sites et points de vente ; gérants et vendeurs ;
+  - lots de tickets papier (refusés au plafond du découvert, ADR 0002), planche PDF A4 de 10 tickets, états généré, remis, activé, expiré ;
+  - statistiques par point de vente et par auteur ;
+  - synthèse d'argent ; relevé en CSV et en PDF, numéro masqué seulement ; facture mensuelle **provisoire** (mentions [À CONFIRMER]) ;
+  - recherche par numéro par HMAC, journalisée ;
+  - super-admin : propriétaires, rechargement idempotent, suspension et réglages audités, TOTP exigé.
+- **Trouvé en exécution** : Prisma écrit toutes les colonnes d'une ligne. Les droits par colonne bloquaient donc la création d'un forfait. L'insertion sur `app.plan` est accordée en entier, bornée par la RLS. La création d'un utilisateur passe par une insertion SQL explicite, pour que `wk_api` ne puisse jamais écrire `totp_secret`.
+- **Preuves**, depuis des piles neuves :
+  - `apps/api/tests/run.sh` : 117 tests, SUCCÈS. Ils couvrent l'authentification, les rôles, le cloisonnement par point de vente, la validité des PDF (table xref vérifiée objet par objet), le CSV (BOM, injection de formules), la synthèse égale au grand livre au franc près, et le super-admin ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS ;
+  - `radius/tests/run.sh` : 282 passés, SUCCÈS.

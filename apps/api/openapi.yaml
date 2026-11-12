@@ -4,14 +4,15 @@ info:
   title: WAKATNET API
   version: 0.2.0
   description: >
-    Phase 2 : cloisonnement et enrôlement des routeurs. Avant la phase 4, l'identité du
-    propriétaire passe par l'en-tête de développement X-Wakatnet-Tenant (interdit en production).
+    Cloisonnement, enrôlement, paiement, portail. Identité par session (cookie wk_session,
+    HttpOnly, Secure, SameSite=Strict ; ADR 0014 §1) ; toute requête qui modifie porte
+    l'en-tête X-Wakatnet-Requete: 1 (anti-CSRF).
 components:
   securitySchemes:
-    identiteDev:
+    session:
       type: apiKey
-      in: header
-      name: X-Wakatnet-Tenant
+      in: cookie
+      name: wk_session
   parameters:
     jeton:
       name: jeton
@@ -48,15 +49,84 @@ components:
         coa_accept: { oneOf: [{ type: boolean }, { enum: ["true", "false", "yes", "no"] }] }
         hotspots: { type: array, minItems: 1, maxItems: 32, items: { $ref: "#/components/schemas/Hotspot" } }
 security:
-  - identiteDev: []
+  - session: []
 paths:
-  /v1/sites:
-    get:
-      summary: Sites du propriétaire
+  /v1/inscription:
+    post:
+      summary: Inscription d'un propriétaire (accès ouvert) ; ouvre une session
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nom, email, mot_de_passe], properties: { nom: { type: string }, email: { type: string }, mot_de_passe: { type: string, minLength: 10 } } } } } }
       responses:
-        "200": { description: Sites, content: { application/json: { schema: { type: array } } } }
-        "401": { description: Identité absente ou invalide }
-        "403": { description: Propriétaire suspendu }
+        "201": { description: Compte créé, session ouverte }
+        "403": { description: En-tête anti-CSRF manquant }
+        "409": { description: Adresse déjà utilisée }
+        "422": { description: Saisie invalide }
+  /v1/connexion:
+    post:
+      summary: Connexion ; même réponse que le compte existe ou non
+      security: []
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, mot_de_passe] } } } }
+      responses:
+        "200": { description: Session ouverte (cookie) }
+        "401": { description: Adresse ou mot de passe incorrect }
+        "429": { description: Trop d'échecs (5 en 15 min) }
+  /v1/deconnexion:
+    post:
+      summary: Ferme la session
+      security: []
+      responses: { "200": { description: Session fermée } }
+  /v1/moi:
+    get:
+      summary: Utilisateur de la session
+      security: []
+      responses: { "200": { description: Rôle, propriétaire, point de vente, TOTP validé }, "401": { description: Connexion requise } }
+  /v1/totp:
+    post:
+      summary: Double authentification du super-admin (RFC 6238) ; un code ne sert qu'une fois
+      security: []
+      responses: { "200": { description: Session validée pour /admin }, "401": { description: Code invalide ou déjà utilisé } }
+  # Phase 4 (ADR 0014) : exploitation commerciale. Rôles par route : P = propriétaire, G = gérant, V = vendeur.
+  /v1/sites:
+    get: { summary: Sites du propriétaire, responses: { "200": { description: Sites }, "401": { description: Connexion requise }, "403": { description: Rôle refusé } } }
+    post: { summary: "Nouveau site (P)", responses: { "201": { description: Site créé }, "422": { description: Nom invalide } } }
+  /v1/forfaits:
+    get: { summary: "Forfaits (P, G, V)", responses: { "200": { description: Forfaits } } }
+    post: { summary: "Nouveau forfait (P)", responses: { "201": { description: Forfait créé }, "422": { description: Saisie invalide } } }
+  /v1/forfaits/{id}:
+    put: { summary: "Modifie ou retire un forfait (P) ; les tickets existants gardent leur copie figée", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Forfait }, "404": { description: Inconnu }, "422": { description: Saisie invalide } } }
+  /v1/points-de-vente:
+    get: { summary: "Points de vente (P : tous ; G, V : le sien)", responses: { "200": { description: Liste } } }
+    post: { summary: "Nouveau point de vente (P)", responses: { "201": { description: Créé }, "409": { description: Nom déjà pris } } }
+  /v1/utilisateurs:
+    get: { summary: "Utilisateurs du propriétaire (P)", responses: { "200": { description: Liste } } }
+    post: { summary: "Nouveau gérant ou vendeur (P)", responses: { "201": { description: Créé }, "409": { description: Adresse déjà utilisée }, "422": { description: Saisie invalide } } }
+  /v1/lots:
+    get: { summary: "Lots de tickets papier et leurs états (P : tous ; G, V : son point de vente)", responses: { "200": { description: Lots } } }
+    post: { summary: "Nouveau lot (P, G) ; refusé au plafond du découvert (ADR 0002)", responses: { "201": { description: Lot créé }, "409": { description: Plafond du découvert atteint }, "422": { description: Saisie invalide } } }
+  /v1/lots/{id}/tickets:
+    get: { summary: "Codes et états d'un lot (P, G, V de son point de vente)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Tickets }, "404": { description: Inconnu } } }
+  /v1/lots/{id}/tickets.pdf:
+    get: { summary: "Planche A4 imprimable, 10 tickets par page (P, G)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: PDF, content: { application/pdf: {} } }, "404": { description: Inconnu } } }
+  /v1/lots/{id}/remis:
+    post: { summary: "Lot remis au point de vente (P, G, V), une fois", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Remis }, "404": { description: Inconnu ou déjà remis } } }
+  /v1/stats/ventes-papier:
+    get: { summary: "Statistiques par point de vente et par auteur (P ; G : son point de vente ; V : ses lots)", responses: { "200": { description: Statistiques } } }
+  /v1/argent/synthese:
+    get: { summary: "Ventes, commissions, frais, rechargements, solde de crédits (P) ; ?debut&fin=AAAA-MM-JJ", responses: { "200": { description: Synthèse }, "422": { description: Période invalide } } }
+  /v1/argent/releve.csv:
+    get: { summary: "Relevé CSV (UTF-8 BOM, « ; ») ; numéro masqué seulement (P)", responses: { "200": { description: CSV, content: { text/csv: {} } }, "422": { description: Période invalide } } }
+  /v1/argent/releve.pdf:
+    get: { summary: "Relevé PDF (P)", responses: { "200": { description: PDF, content: { application/pdf: {} } }, "422": { description: Période invalide } } }
+  /v1/argent/facture.pdf:
+    get: { summary: "Facture mensuelle de commission, PROVISOIRE tant que les mentions fiscales manquent (P) ; ?mois=AAAA-MM", responses: { "200": { description: PDF, content: { application/pdf: {} } }, "422": { description: Mois invalide } } }
+  /v1/paiements/recherche:
+    post: { summary: "Paiements d'un numéro, par HMAC, forme masquée (P) ; journalisée", responses: { "200": { description: Paiements }, "422": { description: Numéro invalide } } }
+  /admin/v1/proprietaires:
+    get: { summary: "Propriétaires, solde, ventes et commission (super-admin, TOTP validé)", responses: { "200": { description: Liste }, "401": { description: Connexion requise }, "403": { description: Super-admin avec TOTP exigé } } }
+  /admin/v1/proprietaires/{id}:
+    put: { summary: "Suspension, commission, plafond (super-admin) ; audité", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Réglé }, "404": { description: Inconnu }, "422": { description: Saisie invalide } } }
+  /admin/v1/proprietaires/{id}/recharges:
+    post: { summary: "Rechargement des crédits, idempotent sur la référence (super-admin) ; audité", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "201": { description: Rechargé }, "404": { description: Inconnu }, "409": { description: Référence déjà utilisée pour un autre montant }, "422": { description: Saisie invalide } } }
   /v1/routers:
     get:
       summary: Routeurs du propriétaire

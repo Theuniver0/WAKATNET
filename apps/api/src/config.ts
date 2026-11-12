@@ -1,6 +1,6 @@
 // WAKATNET — configuration de l'API, lue dans l'environnement (EnvironmentFile en production).
 // Ticket : .scratch/phase-2-multi-proprietaires/issues/02-socle-applicatif.md
-// ADR 0012 §7 : l'identité de développement (en-tête X-Wakatnet-Tenant) est interdite en production.
+// ADR 0014 §1 : l'identité de développement de l'ADR 0012 §7 est retirée (sessions).
 
 export type Noeud = {
   /** Lettre du nœud (A, B). */
@@ -17,8 +17,6 @@ export type Noeud = {
 export type Config = {
   /** URL de connexion du rôle wk_api (mot de passe compris : jamais journalisée). */
   urlBase: string;
-  /** Identité de développement par en-tête, avant l'authentification de la phase 4. */
-  authDev: boolean;
   /** Origine publique de l'API, telle que le routeur la joint (https://api.DOMAINE). */
   urlPublique: string;
   /** Origine publique du portail (IP dédiée, ADR 0013 §10). */
@@ -37,10 +35,6 @@ export class ConfigInvalide extends Error {}
 export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const urlBase = env.WAKATNET_API_DATABASE_URL;
   if (!urlBase) throw new ConfigInvalide("WAKATNET_API_DATABASE_URL manquant");
-  const authDev = env.WAKATNET_AUTH_DEV === "1";
-  if (authDev && env.NODE_ENV === "production") {
-    throw new ConfigInvalide("WAKATNET_AUTH_DEV=1 est interdit avec NODE_ENV=production (ADR 0012 §7)");
-  }
   const urlPublique = env.WAKATNET_API_URL_PUBLIQUE ?? "https://api.wakatnet.invalid";
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPublique)) {
     throw new ConfigInvalide("WAKATNET_API_URL_PUBLIQUE : https://hôte[:port], sans chemin");
@@ -58,7 +52,7 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPortail)) {
     throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
-  return { urlBase, authDev, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles };
+  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

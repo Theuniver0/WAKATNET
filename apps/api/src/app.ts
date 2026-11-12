@@ -8,7 +8,9 @@ import { routesImport } from "./import.ts";
 import { ServicePaiement } from "./paiement.ts";
 import { routesPortail } from "./portail.ts";
 import { routesCompteMarchand, routesWebhook } from "./routes-paiement.ts";
-import { estIdentifiant } from "./identifiant.ts";
+import { routesAdmin } from "./admin.ts";
+import { garde, routesAuth } from "./auth.ts";
+import { routesExploitation } from "./exploitation.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -39,6 +41,7 @@ export function construire(config: Config, base: Base,
     bodyLimit: 64 * 1024,
   });
   app.decorateRequest("tenantId", 0n);
+  app.decorateRequest("utilisateur", null);
 
   // Erreurs : journalisées en entier, rendues sans détail (texte de la base, adresse, fournisseur).
   // Sur le portail, une page HTML ; ailleurs, un JSON générique (revue de fin de phase 3).
@@ -53,19 +56,12 @@ export function construire(config: Config, base: Base,
     return rep.code(code).send({ erreur: code === 500 ? "erreur interne" : "requête invalide" });
   });
 
-  // Routes du propriétaire : identité de développement seulement (ADR 0012 §7).
+  // Comptes : inscription, connexion, session, TOTP (ADR 0014 §1 à §3).
+  routesAuth(app, base, config.cles?.marchands ?? null);
+
+  // Routes du propriétaire (et, route par route, du gérant ou du vendeur) : session obligatoire.
   app.register(async (proprietaire) => {
-    proprietaire.addHook("onRequest", async (req, rep) => {
-      if (!config.authDev) return rep.code(401).send({ erreur: "authentification indisponible avant la phase 4" });
-      const valeur = req.headers["x-wakatnet-tenant"];
-      if (!estIdentifiant(valeur)) {
-        return rep.code(401).send({ erreur: "identité absente" });
-      }
-      const tenant = await base.tenant.findUnique({ where: { id: BigInt(valeur) }, select: { suspendu: true } });
-      if (tenant === null) return rep.code(401).send({ erreur: "identité absente" });
-      if (tenant.suspendu) return rep.code(403).send({ erreur: "propriétaire suspendu" });
-      req.tenantId = BigInt(valeur);
-    });
+    proprietaire.addHook("onRequest", garde(base, "proprietaire"));
 
     proprietaire.get("/v1/sites", async (req) => {
       const sites = await enTantQue(base, req.tenantId, (tx) =>
@@ -88,7 +84,11 @@ export function construire(config: Config, base: Base,
     routesEnrolement(proprietaire, config, base);
     routesImport(proprietaire, base);
     routesCompteMarchand(proprietaire, config, base, service);
+    routesExploitation(proprietaire, base, config.cles?.hmac ?? null);
   });
+
+  // Super-admin : rôle ET double authentification validée dans la session (ADR 0014 §3, §4).
+  routesAdmin(app, base);
 
   // Routes du routeur : le jeton d'enrôlement tient lieu d'identité (ADR 0012 §7).
   app.register(async (routeur) => routesRouteur(routeur, config, base));

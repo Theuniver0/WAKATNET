@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import fc from "fast-check";
 import { MockProvider } from "../../../packages/payments/src/index.ts";
-import { avecApp, routeur, sql, URL_ADMIN } from "./aide.ts";
+import { avecApp, routeur, sql, URL_ADMIN, entetes } from "./aide.ts";
 import { attendreStatut, credits, jeton, numero, soumission, statut, transactionsDe, vendeur, type App } from "./aide-paiement.ts";
 
 const creer = (app: App, v: { publicId: string; plan: string }, scenario: string, s = soumission()) =>
@@ -179,12 +179,12 @@ test("compte marchand : clés jamais rendues ni stockées en clair ; même ident
     const v = await vendeur(app, "clés");
     const [m] = await sql<{ cles: Buffer; webhook_id: string }>(URL_ADMIN, "SELECT cles, webhook_id FROM app.compte_marchand WHERE tenant_id = $1", [v.tenant]);
     assert.ok(!m.cles.includes(Buffer.from(v.secret)), "secret en clair dans la base");
-    const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: { "x-wakatnet-tenant": v.tenant },
+    const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(v.tenant),
                                  payload: { fournisseur: "mock", cles: { secret_webhook: "y".repeat(20) } } });
     assert.ok(!r.body.includes("y".repeat(20)));
     assert.ok(r.json().url_webhook.endsWith(m.webhook_id));
     for (const corps of [{ fournisseur: "inconnu", cles: {} }, { fournisseur: "mock", cles: { secret_webhook: "court" } }]) {
-      assert.equal((await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: { "x-wakatnet-tenant": v.tenant }, payload: corps })).statusCode, 422);
+      assert.equal((await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(v.tenant), payload: corps })).statusCode, 422);
     }
   });
 });
@@ -326,7 +326,7 @@ test("erreurs internes : jamais de détail dans la réponse (portail en HTML, ai
   app.get("/v1/essai-erreur", async () => { throw new Error("Raw query failed secret-interne"); });
   try {
     for (const url of ["/p/essai-erreur/x", "/v1/essai-erreur"]) {
-      const r = await app.inject({ url, headers: { "x-wakatnet-tenant": "1" } });
+      const r = await app.inject({ url });
       assert.ok(r.statusCode >= 400);
       assert.ok(!r.body.includes("secret-interne") && !r.body.includes("10.0.0.9"), r.body);
     }
