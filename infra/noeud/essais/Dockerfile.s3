@@ -2,7 +2,8 @@
 # Ubuntu 26.04 : pgBackRest 2.58 (--repo-target-time, depuis 2.54) et PostgreSQL de la distribution.
 # moto : serveur S3 de test (versionnement et Object Lock), épinglé, installé dans un venv ; nginx devant lui pour TLS
 # (le serveur TLS intégré de moto ferme sans close_notify, ce qu'OpenSSL 3, côté pgBackRest, refuse).
-FROM ubuntu:26.04
+# Épinglée par empreinte (index multi-architecture), relevée le 13/11/2026 par docker pull + docker inspect.
+FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
 RUN --mount=type=secret,id=ca,required=false \
     if [ -s /run/secrets/ca ]; then cp /run/secrets/ca /tmp/ca.crt && chmod 0644 /tmp/ca.crt \
       && sed -i 's#http://#https://#g' /etc/apt/sources.list.d/ubuntu.sources \

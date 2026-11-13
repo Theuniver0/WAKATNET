@@ -1,3 +1,5 @@
 # Port SSH réellement utilisé sur le nœud : une erreur ici coupe l'accès (retour arrière en 5 min).
 parefeu_port_ssh: 22
 parefeu_port_wg0: 51820
+# Délai du retour arrière automatique, en secondes (ADR 0016 §3). Le banc le raccourcit pour le déclencher.
+parefeu_retour_delai: 300

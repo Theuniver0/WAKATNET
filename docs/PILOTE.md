@@ -49,26 +49,41 @@
 
 Il se fait chaque matin, pour la veille (J), sur le nœud primaire.
 
-1. Exporter le relevé du compte marchand sur **trois jours glissants** : de J − 1 à aujourd'hui. L'outil exige qu'il couvre de J − 1 00:00 à J + 1 00:10.
-2. Lancer l'outil. La base est ouverte en lecture seule, et son adresse n'apparaît jamais en argument :
+**Une fois pour toutes, sur le nœud primaire** (Yacouba, à la main) : l'outil ne tourne **jamais** en superutilisateur. Il lit la base sous le rôle `wk_rapprochement` (migration 0038) : connexion, deux fonctions de lecture, transactions en lecture seule par défaut ; aucun droit sur une table, ni sur le grand livre.
+- Mot de passe du rôle : `WAKATNET_PG_RAPPROCHEMENT_PASSWORD`, dans `/etc/wakatnet/pg-roles.env`, posé par `migrer.sh` comme les autres rôles.
+- Utilisateur système sans privilège, sans shell ni répertoire personnel : `sudo useradd --system --no-create-home --shell /usr/sbin/nologin wk-rappro`.
+- Fichier `/etc/wakatnet/rapprochement.env` (root:wk-rappro, 0640), rempli à la main, une seule ligne : `WAKATNET_RAPPROCHEMENT_DATABASE_URL=postgresql://wk_rapprochement:CHANGE_ME@127.0.0.1:5432/wakatnet`, où `CHANGE_ME` est le mot de passe ci-dessus.
+- Répertoire des relevés `/var/lib/wakatnet-rapprochement` (root:wk-rappro, 0750) : les relevés portent des numéros de téléphone, ils n'y sont lisibles que par l'outil.
+
+Chaque matin :
+
+1. Exporter le relevé du compte marchand sur **trois jours glissants** : de J − 1 à aujourd'hui. L'outil exige qu'il couvre de J − 1 00:00 à J + 1 00:10. Le copier dans `/var/lib/wakatnet-rapprochement/`.
+2. Lancer l'outil sous `wk-rappro`. L'adresse de la base, mot de passe compris, est lue dans le fichier par l'environnement : elle n'apparaît **jamais** en argument, ni dans `ps`, ni dans l'historique du shell.
 
 ```bash
-sudo -u postgres env WAKATNET_ADMIN_DATABASE_URL=postgresql:///wakatnet node /opt/wakatnet/apps/api/src/rapprochement.ts --proprietaire 1 --jour 2026-11-20 --releve releve.csv --releve-du 2026-11-19T00:00:00Z --releve-au 2026-11-21T08:00:00Z --reussi SUCCESS --echec FAILED,CANCELLED
+sudo -u wk-rappro bash -c 'set -a; . /etc/wakatnet/rapprochement.env; set +a; cd /; exec node /opt/wakatnet/apps/api/src/rapprochement.ts "$@"' rapprochement --proprietaire 1 --jour 2026-11-20 --releve /var/lib/wakatnet-rapprochement/releve.csv --releve-du 2026-11-19T00:00:00Z --releve-au 2026-11-21T08:00:00Z --reussi SUCCESS --echec FAILED,CANCELLED
 ```
+
+   - **Un fichier par `--releve`** : `--releve a.csv --releve b.csv`. Jamais `--releve releve-*.csv` : le shell en ferait `--releve a.csv b.csv`, et tout argument en trop, comme toute option inconnue, arrête l'outil (code 2).
+   - **Jour réellement sans mouvement** au compte marchand : l'export est réduit à son en-tête. L'outil le refuse (code 2), sauf avec `--releve-vide`, qui le dit en tête du rapport (« relevé déclaré vide par l'exploitant »). Avec cette option, une seule ligne du jour J au relevé arrête l'outil. Un fichier vide, sans en-tête, est toujours refusé.
 
 3. Lire le code de sortie et le rapport :
    - **0, « ÉCART NUL »** : noter la ligne au journal ;
    - **1, « ÉCARTS À INSTRUIRE »** : chaque écart est listé avec sa référence. Le traiter dans la journée, et le noter au journal avec sa cause et sa suite ;
-   - **2, entrée invalide** (relevé insuffisant, statut inconnu, ligne illisible) : corriger l'export, jamais l'ignorer.
+   - **2, entrée invalide** (relevé insuffisant, vide ou réduit à l'en-tête, statut inconnu, ligne illisible, argument inattendu) : corriger l'export ou la commande, jamais l'ignorer.
 4. Ce que l'outil contrôle :
    - chaque ticket délivré a sa ligne au relevé ;
    - chaque encaissement a son ticket ;
    - les montants sont égaux ;
-   - chaque paiement a **une** commission au grand livre, égale à la valeur figée à la confirmation, au taux du propriétaire.
+   - chaque paiement a **une** commission au grand livre, égale à la valeur figée à la confirmation, au taux du propriétaire ;
+   - un paiement **remboursé** (`REFUNDED`) confirmé le jour J est toujours à instruire (`rembourse`), avec ou sans ligne au relevé. Aucun remboursement n'est encore codé : c'est une garde.
 5. Ce qui est expliqué sans être un écart, mais reste listé :
    - un paiement de part et d'autre de minuit ;
    - une confirmation tardive (webhook perdu, repris par la vérification périodique, dans les 24 h).
-6. Ce qu'il **ne** contrôle **pas** : le montant des frais de l'agrégateur par rapport à son contrat (avec pawaPay, ils sont seulement totalisés ; voir plus bas), et les ventes en espèces (tickets papier). Ces dernières se rapprochent à la main : tickets activés au tableau de bord, contre la caisse du point de vente.
+6. Ce qu'il **ne** contrôle **pas** :
+   - le montant des frais de l'agrégateur par rapport à son contrat (avec pawaPay, ils sont seulement totalisés, et bornés à 10 % de leur dépôt ; voir plus bas) ;
+   - les ventes en espèces (tickets papier). Elles se rapprochent à la main : tickets activés au tableau de bord, contre la caisse du point de vente ;
+   - **un relevé tronqué dont la couverture est déclarée complète**. `--releve-du` et `--releve-au` sont une déclaration de l'exploitant : l'outil vérifie qu'elle couvre la période, pas que l'export la couvre réellement. Un export arrêté à 15 h et déclaré jusqu'à J + 1 ferait paraître des encaissements absents (des écarts, jamais un faux « écart nul » pour un ticket délivré), mais un encaissement sans ticket de la fin de journée passerait inaperçu. Le contrôle de continuité de la colonne `Balance` (chaque solde = solde précédent + montant) viendra avec un export réel ; d'ici là, vérifier à l'œil que la dernière ligne de l'export est postérieure à J + 1 00:10.
 
 Les colonnes et les statuts se règlent par options (`--col-reference`, `--col-montant`, `--col-date`, `--col-statut`, `--reussi`, `--echec`, `--hors-paiement`, `--sep`), une fois le format réel du relevé connu.
 
@@ -84,13 +99,15 @@ Le relevé de pawaPay (Dashboard > Finances > Statements > Export, ou `POST /v2/
 Profil, d'après les colonnes documentées (docs.pawapay.io, lu le 12/11/2026) :
 
 ```bash
-sudo -u postgres env WAKATNET_ADMIN_DATABASE_URL=postgresql:///wakatnet node /opt/wakatnet/apps/api/src/rapprochement.ts --proprietaire 1 --jour 2026-11-20 --releve releve.csv --releve-du 2026-11-19T00:00:00Z --releve-au 2026-11-21T08:00:00Z --sep , --col-reference "Transaction ID" --col-montant Amount --col-date "Creation date" --col-statut Type --reussi Deposit --hors-paiement "Deposit pass through fees,Deposit PawaPay fees,Withdrawal"
+sudo -u wk-rappro bash -c 'set -a; . /etc/wakatnet/rapprochement.env; set +a; cd /; exec node /opt/wakatnet/apps/api/src/rapprochement.ts "$@"' rapprochement --proprietaire 1 --jour 2026-11-20 --releve /var/lib/wakatnet-rapprochement/releve.csv --releve-du 2026-11-19T00:00:00Z --releve-au 2026-11-21T08:00:00Z --sep , --col-reference "Transaction ID" --col-montant Amount --col-date "Creation date" --col-statut Type --reussi Deposit --hors-paiement "Deposit pass through fees,Deposit PawaPay fees,Withdrawal"
 ```
 
 - **Pas de `--echec`** : le journal ne contient que des mouvements réalisés. Un paiement réussi chez nous et absent du journal reste un écart (`absent_du_releve`).
-- **Lignes hors paiement** : frais et retraits sont totalisés par type au rapport, sans être rapprochés ligne à ligne. Trois garde-fous restent actifs (relecture de la règle 4) :
+- **Lignes hors paiement** : frais et retraits sont totalisés par type au rapport, sans être rapprochés ligne à ligne. Quatre garde-fous restent actifs (relecture de la règle 4, audit de l'outil) :
   - une ligne hors paiement **créditrice** arrête l'outil (code 2) ;
   - une ligne hors paiement qui porte la référence d'un dépôt absent du relevé est **à instruire** (`hors_paiement_orphelin`) : c'est le cas d'un remboursement déclaré par erreur ;
+  - une ligne hors paiement **sans référence** n'est admise que pour les types de `--hors-sans-reference` (par défaut `Withdrawal`, le règlement vers la banque). Tout autre type sans `Transaction ID` (remboursement, ajustement, compensation) est **à instruire** (`hors_paiement_sans_reference`) : c'est de l'argent qui sortirait du contrôle sans être rattaché à un paiement (relecture de la règle 4, 13/11/2026) ;
+  - sous la référence d'un dépôt **présent** au relevé, des débits hors paiement de plus de **10 %** de son montant sont **à instruire** (`hors_paiement_excessif`) : un remboursement, ou tout débit du montant entier, ajouté à tort à `--hors-paiement`. Les frais d'un dépôt pawaPay sont de quelques pour cent : ils restent sous ce seuil. Un frais fixe sur un très petit dépôt pourrait le franchir : il sera alors listé, jamais ignoré ; le seuil se relira sur la grille du contrat ;
   - la même ligne présente deux fois est **à instruire** (`doublon_releve`), et n'est comptée qu'une fois.
 - **Tout autre type arrête l'outil (code 2)** : ajustement manuel de pawaPay (« Adjustment - … », « Compensation - … »), remboursement, recharge. Lire la colonne `Reason`, noter la ligne au journal du pilote avec sa cause, puis relancer, en ajoutant ce type à `--hors-paiement` seulement s'il ne touche aucun encaissement. Un remboursement (`Refund`) ne s'y ajoute jamais : le ticket a été délivré et l'argent rendu. En particulier, « Adjustment - Collections received » **est** un encaissement : un dépôt crédité à la main. Il s'instruit comme un `absent_du_releve`.
 - **Non vérifié, à confirmer sur le premier export du bac à sable** :

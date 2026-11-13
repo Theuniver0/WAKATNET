@@ -48,6 +48,7 @@ alea() { head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
   echo "WAKATNET_PG_REPLICATION_PASSWORD=$(alea)"
   echo "WAKATNET_PG_REWIND_PASSWORD=$(alea)"
   echo "WAKATNET_PG_SANTE_PASSWORD=$(alea)"
+  echo "WAKATNET_PG_RAPPROCHEMENT_PASSWORD=$(alea)"
   echo "WAKATNET_SECRET_R1=$(alea)"
   echo "WAKATNET_SECRET_R2=$(alea)"
   echo "WAKATNET_SECRET_R3=$(alea)"
@@ -75,7 +76,7 @@ etape "Garde-fou ADR 0007 : les migrations seules ne créent aucun objet de test
 OBJETS_TEST="$($C exec -T postgres psql -X -tA -U wakatnet_admin -d wakatnet -c "
   SELECT string_agg(x, ', ') FROM (
     SELECT 'rôle ' || rolname AS x FROM pg_roles
-     WHERE rolname NOT LIKE 'pg\_%' AND rolname NOT IN ('wakatnet_admin', 'wakatnet_owner', 'wk_radius', 'wk_acct', 'wk_maint', 'wk_coa', 'wk_api', 'wk_wg', 'wk_replication', 'wk_rewind', 'wk_sante')
+     WHERE rolname NOT LIKE 'pg\_%' AND rolname NOT IN ('wakatnet_admin', 'wakatnet_owner', 'wk_radius', 'wk_acct', 'wk_maint', 'wk_coa', 'wk_api', 'wk_wg', 'wk_replication', 'wk_rewind', 'wk_sante', 'wk_rapprochement')
     UNION ALL
     SELECT 'fonction ' || p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE n.nspname IN ('app', 'radius') AND p.proname ILIKE '%test%'

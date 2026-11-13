@@ -2,7 +2,7 @@
 
 - **Références** : ADR 0004, 0015, 0016 ; `infra/ansible/README.md` ; `docs/RUNBOOK.md`.
 - **Qui** : Yacouba, à la main, étape par étape. Chaque étape se vérifie avant la suivante. L'agent ne se connecte à aucune machine de production.
-- **État** : procédure **prouvée sur des conteneurs Ubuntu 24.04** (`infra/ansible/essais/essai.sh`, neuf étapes). Elle n'a **pas** été jouée sur Debian 13 ni sur un vrai VPS.
+- **État** : procédure **prouvée sur des conteneurs Ubuntu 24.04** (`infra/ansible/essais/essai.sh`, dix étapes). Elle n'a **pas** été jouée sur Debian 13 ni sur un vrai VPS.
 
 ## 0. Avant de commencer
 
@@ -11,7 +11,7 @@
 | Deux VPS Debian 13, IP fixes, B chez un **autre** hébergeur avant G-PILOTE | ADR 0004 |
 | Nom de domaine : `api.` et `portail.` (le portail sur une IP dédiée, si l'hébergeur le permet) | ADR 0013 §10, ADR 0016 §2 |
 | Accès console de chaque VPS (en cas de coupure SSH) | RUNBOOK §6 |
-| Compte **Backblaze B2** (double authentification, distinct du compte Hetzner) ; bucket privé, région EU Central, **Object Lock activé à la création**, rétention par défaut **conformité 30 jours**, cycle de vie « versions masquées effacées après 31 jours » ; clé d'application limitée à ce bucket, sans droit sur ses réglages | ADR 0018, REVUE_SECURITE M8 |
+| Compte **Backblaze B2** (double authentification, distinct du compte Hetzner) ; bucket privé, région EU Central, **Object Lock activé à la création**, rétention par défaut **conformité 30 jours**, cycle de vie « versions masquées effacées après 31 jours » ; clés d'application créées comme au §1 (« Clés B2 »), jamais la clé maîtresse sur un nœud | ADR 0018, REVUE_SECURITE M8 |
 | Clé PGDG et clé de l'éditeur de FreeRADIUS téléchargées **et vérifiées** (empreinte) dans `infra/ansible/cles/` | ADR 0004 point 5 |
 | Bot Telegram et salon d'alertes | ADR 0015 §6 |
 | Compte **Brevo** (double authentification) ; sous-domaine expéditeur `notif.DOMAINE` authentifié (SPF, DKIM selon la console Brevo, DMARC `p=quarantine`) ; clé API dans `/etc/wakatnet/api.env` : `WAKATNET_COURRIEL=brevo`, `WAKATNET_BREVO_CLE`, `WAKATNET_COURRIEL_DE=ne-pas-repondre@notif.DOMAINE` ; si Brevo le permet, clé limitée aux IP de A et B ; **suivi des ouvertures et des clics désactivé** | ADR 0019 |
@@ -25,13 +25,61 @@ head -c 24 /dev/urandom | base64
 ```
 
 Garder hors des nœuds, dans un coffre :
-- la phrase de passe de pgBackRest ;
+- la phrase de passe de pgBackRest, **et elle seule** pour les sauvegardes : les clés B2 ne vont pas dans la copie hors site, elles se recréent dans la console (RUNBOOK §7). À chaque rotation, mettre à jour cette copie (RUNBOOK §7, « Rotation ») ;
 - les clés `WAKATNET_CLE_MARCHANDS` et `WAKATNET_CLE_HMAC`. Sans elles, les comptes marchands sont illisibles après une restauration.
+
+Les deux clés vont dans `/etc/wakatnet/api.env` (lu par `wakatnet-api` et `wakatnet-taches`), sur les deux nœuds, avec les **mêmes** valeurs (32 octets en base64, générés par `head -c 32 /dev/urandom | base64`, jamais recopiés dans un ticket ni dans une conversation). En production (`NODE_ENV=production`), l'API **refuse de démarrer** sans `WAKATNET_CLE_HMAC` : sans elle, les IP sources des échecs de connexion et des demandes de paiement seraient gardées en clair (T10 de `docs/CONFORMITE.md`, ADR 0016 §2).
+
+### Clés B2
+
+Depuis le poste de Yacouba seulement, avec l'outil `b2` (v4) autorisé par la clé maîtresse (`b2 account authorize`, qui la lit au clavier). La clé maîtresse ne va **jamais** sur un nœud ni sur la machine de contrôle. `NOM_DU_BUCKET` est le nom réel du bucket (`pgbackrest_s3_bucket`).
+
+1. Clé des nœuds, limitée au bucket, capacités minimales :
+
+   ```bash
+   b2 key create --bucket NOM_DU_BUCKET wakatnet-noeuds listBuckets,listFiles,readFiles,writeFiles
+   ```
+
+   - `deleteFiles` ne s'ajoute **que si** l'exercice B2 (§2, étape 7) montre que pgBackRest en a besoin pour masquer un objet (`expire`). **À vérifier** pendant l'exercice ; noter le résultat ici et dans l'ADR 0018.
+   - Jamais `writeBuckets`, `writeBucketRetentions`, `writeFileRetentions`, `writeFileLegalHolds`, `bypassGovernance`, `deleteBuckets`, `writeKeys`, `deleteKeys`.
+2. Clé du contrôle externe (ADR 0018, audit du 13/11/2026), liste seule :
+
+   ```bash
+   b2 key create --bucket NOM_DU_BUCKET wakatnet-controle listBuckets,listFiles
+   ```
+
+3. L'outil affiche une seule fois `keyID` et `applicationKey` : les recopier aussitôt dans le fichier de destination (par `sudoedit` pour `secret.conf`), sans les garder ailleurs.
+4. Contrôle, après chaque création ou rotation :
+
+   ```bash
+   b2 key list --long
+   ```
+
+   Attendu : `wakatnet-noeuds` et `wakatnet-controle` limitées à `NOM_DU_BUCKET`, avec exactement les capacités ci-dessus ; aucune autre clé que celles qu'on connaît.
+
+### `secret.conf` de pgBackRest, sur chaque nœud
+
+`root:postgres`, `0640` : pgBackRest, lancé en postgres, le lit sans pouvoir le modifier. Ansible refuse tout autre propriétaire ou mode, et tout autre fichier dans `conf.d`.
+
+```bash
+sudo install -d -o root -g postgres -m 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
+sudo install -o root -g postgres -m 0640 /dev/null /etc/pgbackrest/conf.d/secret.conf
+sudoedit /etc/pgbackrest/conf.d/secret.conf
+```
+
+Contenu : `[global]`, `repo1-cipher-pass=` (phrase de passe), `repo1-s3-key=` (keyID de `wakatnet-noeuds`), `repo1-s3-key-secret=` (son applicationKey). Vérifier : `sudo stat -c '%U:%G %a' /etc/pgbackrest/conf.d/secret.conf` donne `root:postgres 640`.
 
 ## 2. Premier déploiement
 
 1. Inventaire : copier `infra/ansible/inventaire.exemple.yml` en `inventaire.yml`, puis renseigner les IP, les clés publiques WireGuard et les variables `frontal_*` (noms, `frontal_courriel_acme`).
-2. Les DNS de `api.` et `portail.` pointent vers A **avant** le premier passage : c'est la condition du défi Let's Encrypt.
+   - `frontal_tls` se règle **par nœud** : `letsencrypt` sur A seul, le nœud vers lequel pointe le DNS ; `autosigne` sur B.
+   - Le mode `autosigne` est aussi la valeur par défaut. B sert alors un certificat auto-signé local, sans certbot, jusqu'à une bascule (RUNBOOK §3).
+   - Un nœud en `letsencrypt` que le DNS ne vise pas échoue au défi ACME, et son passage s'arrête dans le rôle `frontal`. Le pare-feu public est déjà posé à ce moment : il passe juste après `socle`.
+2. Les DNS de `api.` et `portail.` pointent vers A **avant** le premier passage : c'est la condition du défi Let's Encrypt. Le certificat est renouvelé par la minuterie du paquet certbot. Le crochet `/etc/letsencrypt/renewal-hooks/deploy/wakatnet-nginx.sh` recharge nginx après chaque renouvellement. Vérifier une fois :
+
+   ```bash
+   sudo certbot renew --dry-run
+   ```
 3. A, en primaire :
 
    ```bash
@@ -76,7 +124,22 @@ Garder hors des nœuds, dans un coffre :
 
    L'alerte « essai de restauration » reste levée tant qu'aucun essai n'a réussi : on le lance donc dès le déploiement.
 
-   **Exercice d'effacement, une fois, avant G-PILOTE** (ADR 0018) : sur un bucket B2 **d'essai**, réglé comme celui de production, refaire les étapes de `infra/noeud/essais/sauvegarde-s3.sh` à la main. Ce sont la sauvegarde, `stanza-delete --force`, une tentative d'effacement définitif d'une version (elle doit être refusée), puis la restauration avec `--repo-target-time` (RUNBOOK §7). Noter le résultat au journal du pilote. Le bucket d'essai reste facturé pendant ses 30 jours de verrou : quelques centimes.
+   **Exercice d'effacement, une fois, avant G-PILOTE** (ADR 0018).
+   - **Interdit sur A et sur B** : `stanza-delete` lancé sur un nœud, avec sa configuration, efface la stanza de production. L'exercice se joue sur une **machine ou un conteneur jetable** (PostgreSQL 16 et pgBackRest ≥ 2.59.2), qui n'a ni la configuration ni les clés des nœuds.
+   - Bucket B2 **d'essai**, réglé comme celui de production (verrou de conformité 30 jours, cycle de vie 31 jours) ; clé créée comme au §1 mais **limitée au bucket d'essai** ; **phrase de passe d'essai**, jamais celle de production.
+   - Configuration dédiée, passée à chaque commande, pour qu'aucun fichier de `/etc/pgbackrest` n'entre en jeu : `pgbackrest --config=/srv/essai-b2/pgbackrest.conf --config-include-path=/srv/essai-b2/conf.d …`, avec `repo1-s3-bucket` = le bucket d'essai.
+   - Déroulé, comme `infra/noeud/essais/sauvegarde-s3.sh` : `stanza-create`, sauvegarde complète, ligne témoin, `expire` (si `expire` échoue faute de `deleteFiles`, ajouter cette capacité, le noter, et refaire), puis `stanza-delete --force` ; une tentative d'effacement définitif d'une version (`aws s3api delete-object --version-id`), qui doit être refusée ; restauration avec `--repo-target-time` (RUNBOOK §7) et ligne témoin retrouvée.
+   - **Ce que la clé du nœud ne doit pas pouvoir faire**, avec elle seule, sur le bucket d'essai : raccourcir ou retirer la rétention d'une version (`aws s3api put-object-retention`, avec et sans `--bypass-governance-retention`), changer la rétention par défaut ou le verrou du bucket (`aws s3api put-object-lock-configuration`), changer le versionnement ou le cycle de vie (`put-bucket-versioning`, `put-bucket-lifecycle-configuration`), ou tout réglage par `b2 bucket update`. Chaque tentative doit être refusée.
+   - **Contrôle externe** contre le bucket d'essai (`CONTROLE_B2_BUCKET` = bucket d'essai, clé de liste seule de l'essai) : « en ordre » après la sauvegarde et `expire` (aucune marque sur `backup.info` en fonctionnement normal) ; **code 1 et alerte `backup.info` masqué** après `stanza-delete`. La clé de liste seule doit se voir refuser `aws s3api get-object`.
+   - Noter chaque résultat au journal du pilote, puis détruire la machine jetable. Le bucket d'essai reste facturé pendant ses 30 jours de verrou : quelques centimes.
+
+   **Contrôle externe, à planifier avant G-PILOTE** (ADR 0018, audit du 13/11/2026). Sur une machine qui n'est **ni A ni B** et n'y a aucun accès (petit VPS chez un troisième fournisseur, ou poste de contrôle allumé en permanence), avec AWS CLI v2, `curl` et GNU `date` :
+   - utilisateur dédié sans sudo, `controle-b2` ; script copié en `/usr/local/bin/controle-b2.sh` (root, `0755`) depuis `infra/surveillance/controle-b2.sh` ;
+   - `/etc/controle-b2/identifiants` (`controle-b2`, `0600`) : `AWS_ACCESS_KEY_ID=` et `AWS_SECRET_ACCESS_KEY=` de la clé `wakatnet-controle` (§1). Les deux fichiers de secrets se créent vides puis se remplissent sans rien sur la ligne de commande : `sudo install -d -o controle-b2 -g controle-b2 -m 0700 /etc/controle-b2`, `sudo install -o controle-b2 -g controle-b2 -m 0600 /dev/null /etc/controle-b2/identifiants`, puis `sudoedit /etc/controle-b2/identifiants` (le script refuse un fichier d'un autre propriétaire ou lisible par d'autres) ;
+   - `/etc/controle-b2/telegram` (`controle-b2`, `0600`) : `TELEGRAM_JETON=` et `TELEGRAM_SALON=` d'un **bot distinct** de celui des nœuds (un nœud compromis détient le jeton de leur bot) ;
+   - service `controle-b2.service` (`Type=oneshot`, `User=controle-b2`, `Environment=CONTROLE_B2_BUCKET=NOM_DU_BUCKET CONTROLE_B2_IDENTIFIANTS=/etc/controle-b2/identifiants CONTROLE_B2_TELEGRAM=/etc/controle-b2/telegram`, `ExecStart=/usr/local/bin/controle-b2.sh`) et `controle-b2.timer` (`OnCalendar=hourly`, `RandomizedDelaySec=5min`, `Persistent=true`) ;
+   - signe de vie : un second service identique avec `CONTROLE_B2_SIGNALER_OK=1`, et son timer à `OnCalendar=*-*-* 09:00:00`. **L'absence du message quotidien « en ordre » est une alerte** : la machine de contrôle est tombée ;
+   - premier essai à la main : `sudo systemctl start controle-b2.service`, puis `journalctl -u controle-b2` ; attendu : « en ordre » (après la première sauvegarde de l'étape 7) et code 0. Une base sans aucune écriture n'archive aucun WAL : sans trafic (avant le pilote, ou une nuit vide), l'alerte WAL peut se lever à tort. Ne relever `CONTROLE_B2_MAX_WAL_MIN` qu'après avoir constaté ce cas, et le noter au journal.
 8. Alertes : arrêter `wakatnet-wg-agent` une minute sur B, vérifier que l'alerte puis sa résolution arrivent sur Telegram, et le redémarrer.
 
 ## 3. Avant d'ouvrir la vente en ligne (G-ARGENT)
@@ -97,7 +160,11 @@ ansible-playbook site.yml --limit noeud_b
 ansible-playbook site.yml --limit noeud_a
 ```
 
-Le pare-feu public programme son retour arrière avant d'être appliqué : une erreur de port SSH se corrige seule en 5 minutes.
+Le pare-feu public programme son retour arrière avant d'être appliqué : une erreur de port SSH se corrige seule en 5 minutes. Le retour arrière remet en place la table précédente, **en mémoire et sur disque**, ou la retire s'il n'y en avait pas. Le passage suivant voit donc l'écart et réapplique la table. Une table absente de la mémoire est rechargée à chaque passage, même si son fichier n'a pas changé. Trace du retour arrière :
+
+```bash
+journalctl -t wakatnet-parefeu
+```
 
 Ordre quand une mise à jour touche le schéma : **migrations, puis API, puis `wg-agent`**. Ansible enchaîne les deux premières (l'API redémarre après les migrations) ; le binaire de `wg-agent` se remplace ensuite, à la main. Un `wg-agent` plus récent que le schéma ne fait que journaliser une erreur à chaque tour ; plus ancien, il ne note pas l'IP des routeurs (alerte `ip_routeurs`), et les hotspots retombent sur la garde de la migration 0031.
 

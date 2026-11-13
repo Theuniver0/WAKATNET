@@ -80,7 +80,7 @@
    - aucun `secrets.*` ;
    - actions tierces épinglées par empreinte de commit, et non par étiquette ;
    - `runs-on: ubuntu-24.04`, jamais `ubuntu-latest`, qui bascule vers 26.04 ces jours-ci ;
-   - `concurrency` qui annule le run précédent d'une même PR ;
+   - `concurrency` qui annule le run précédent d'une même PR, mais jamais celui d'un commit de `main` (audit du 13/11/2026 : un groupe par commit sur `main`, `cancel-in-progress` limité aux PR) ;
    - `timeout-minutes` sur chaque job.
 4. **Protection de `main`** (réglage GitHub, fait par Yacouba) : les quatre jobs du premier niveau sont obligatoires avant la fusion.
 5. **P6 est amendée** : « tests verts » veut dire désormais le statut de la CI sur le dernier commit de la PR, et non plus une sortie recopiée.
@@ -119,7 +119,9 @@
 3. [x] Premier run (12/11/2026) :
    - **niveau 1** : vert ; durées d'environ 1 min 30 s (`api`, `e2e`, `wg-agent`) et 8 min 30 s (`radius`) ;
    - **niveau 2** : trois défauts trouvés, corrigés et prouvés en local (voir le journal). **Confirmé sur GitHub** (run 43327951145, `0875067`) : `ansible` 3 min 44 s (conteneurs systemd privilégiés acceptés par le runner), `sauvegarde` 2 min 14 s (posix puis S3), `charge` 2 min 27 s.
-4. [ ] Yacouba : protéger `main` (statuts requis : `api`, `e2e`, `radius`, `wg-agent`), puis vérifier le forfait de minutes.
+4. [ ] Yacouba : protéger `main` (statuts requis : `api`, `e2e`, `radius`, `wg-agent` ; **« Require review from Code Owners »**), puis vérifier le forfait de minutes.
+   - Audit du 13/11/2026 : sans cette case, une PR peut réécrire `.github/workflows/` ou un harnais et faire passer au vert la CI qui la juge. `.github/CODEOWNERS` affecte `.github/`, `**/tests/**`, `infra/**/essais/**`, `packages/payments/` et `infra/sql/` à `@Theuniver0` ; P6 est amendée en conséquence.
+   - À trancher : tant que `@Theuniver0` est aussi l'auteur des PR, GitHub ne compte pas sa propre approbation. Il faudra soit un second relecteur désigné, soit accepter le contournement par l'administrateur, tracé à chaque fusion.
 5. [x] P6 amendée dans `CONTRIBUTING.md`.
 
 ## Écart constaté en écrivant le workflow : corrigé

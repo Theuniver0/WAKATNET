@@ -301,5 +301,12 @@ func TestIPPubliqueDuRouteurNotee(t *testing.T) {
 	if err := c.QueryRow(ctx, "SELECT app._depuis_routeur($1, '127.0.0.1')", site).Scan(&reconnu); err != nil || reconnu {
 		t.Fatalf("routeur révoqué encore reconnu : %v %v", reconnu, err)
 	}
+	// T10 : l'IP du routeur révoqué est effacée au tour suivant, qu'un pair soit encore vu sur wg0 ou non
+	// (wg_points_noter est appelée à chaque tour, même avec des tableaux vides : TestNoterSansPointPurgeQuandMeme).
+	attendre(t, 15*time.Second, func() bool {
+		var efface bool
+		_ = c.QueryRow(ctx, "SELECT ip_publique IS NULL AND ip_vue_le IS NULL FROM app.router WHERE id = $1", routeur).Scan(&efface)
+		return efface
+	})
 	b.intacte(t)
 }

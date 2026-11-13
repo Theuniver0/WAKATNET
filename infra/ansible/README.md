@@ -22,14 +22,15 @@ Les rôles vérifient la **présence** et les droits de ces fichiers, jamais leu
 | `/etc/wakatnet/freeradius.secrets` | root:freerad, 0640 | `WAKATNET_PG_RADIUS_PASSWORD`, `WAKATNET_PG_ACCT_PASSWORD` |
 | `/etc/wakatnet/pg-roles.env` | root, 0600 | les mots de passe des rôles lus par `migrer.sh` (`WAKATNET_PG_*_PASSWORD`) |
 | `/etc/wakatnet/api.env`, `coa.env`, `maint.env`, `sante.env`, `wg-agent.env` | root, 0600 | variables des unités (voir chaque unité dans `infra/systemd/`) |
-| `/etc/pgbackrest/conf.d/secret.conf` | postgres, 0600 | `repo1-cipher-pass`, clés S3 ; **copie hors des nœuds obligatoire** |
+| `/etc/pgbackrest/conf.d/secret.conf` | root:postgres, 0640 (seul fichier admis dans `conf.d`) | `repo1-cipher-pass`, clés S3 ; **copie hors des nœuds obligatoire** |
 | `~postgres/.pgpass` (**les deux nœuds**) | postgres, 0600 | lignes `wk_replication` et `wk_rewind` vers l'autre nœud (`wk_rewind` sert aussi à la garde contre le double primaire) |
 
 Variables du frontal et du pare-feu (ADR 0016), dans l'inventaire :
 - `frontal_nom_api`, `frontal_nom_portail`, `frontal_courriel_acme` ;
-- `frontal_tls` : `letsencrypt` ou `fourni` ;
+- `frontal_tls`, **par nœud** : `letsencrypt` (le nœud que vise le DNS), `autosigne` (défaut ; la réplique, jusqu'à une bascule : RUNBOOK §3) ou `fourni` ;
 - `frontal_ipv6` ;
 - `parefeu_port_ssh` : **le port SSH réel**. Une erreur se corrige seule en 5 minutes, par le retour arrière programmé.
+- `parefeu_retour_delai` : délai du retour arrière, en secondes (300). Il remet la table et le fichier précédents (audit du 13/11/2026).
 
 Dans le dépôt de contrôle, non versionnés : `inventaire.yml` (copie de `inventaire.exemple.yml`), `cles/pgdg.asc`, et la clé de l'éditeur de FreeRADIUS. Ces clés publiques sont vérifiées à la main, empreinte comprise.
 

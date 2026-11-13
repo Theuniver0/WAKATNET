@@ -3,12 +3,15 @@
 // Environnement (EnvironmentFile systemd réservé à root) :
 //   PGHOST, PGDATABASE, PGUSER=wk_wg, PGPASSWORD   connexion (libpq), jamais en argument
 //   WAKATNET_WG_INTERFACE        interface gérée (défaut wg0)
-//   WAKATNET_WG_PERIODE_S        tour périodique de filet (défaut 30)
+//   WAKATNET_WG_PERIODE_S        tour périodique de filet, de 1 à 120 s (défaut 30) ; au-delà, refus au démarrage :
+//                                le budget propre au routeur (fraîcheur de 10 min, réécriture après 5 min,
+//                                migration 0032, ADR 0016 M7) se perdrait par intermittence
 //   WAKATNET_WG_RETRAIT_MASSIF   « 1 » lève la garde anti-effacement (à poser à la main)
 package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -25,14 +28,10 @@ func main() {
 	if nom == "" {
 		nom = "wg0"
 	}
-	periode := 30
-	if v := os.Getenv("WAKATNET_WG_PERIODE_S"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 3600 {
-			journal.Error("WAKATNET_WG_PERIODE_S : entier de 1 à 3600")
-			os.Exit(1)
-		}
-		periode = n
+	periode, err := lirePeriode(os.Getenv("WAKATNET_WG_PERIODE_S"))
+	if err != nil {
+		journal.Error(err.Error())
+		os.Exit(1)
 	}
 	wg, err := wgctrl.New()
 	if err != nil {
@@ -49,4 +48,21 @@ func main() {
 	a := &Agent{WG: wg, Nom: nom, RetraitMassif: os.Getenv("WAKATNET_WG_RETRAIT_MASSIF") == "1", Journal: journal}
 	journal.Info("démarrage", "interface", nom, "periode_s", periode, "retrait_massif", a.RetraitMassif)
 	a.Boucle(ctx, time.Duration(periode)*time.Second, 5*time.Second)
+}
+
+// periodeMax : au-delà, le relevé des IP des routeurs (réécrites après 5 min, jugées fraîches 10 min) prendrait du
+// retard sur la fenêtre de fraîcheur, et le budget propre au routeur se perdrait par intermittence (ADR 0016 M7).
+const periodeMax = 120
+
+// lirePeriode : valeur de WAKATNET_WG_PERIODE_S, en secondes ; vide = 30.
+func lirePeriode(v string) (int, error) {
+	if v == "" {
+		return 30, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 || n > periodeMax {
+		return 0, fmt.Errorf("WAKATNET_WG_PERIODE_S=%q refusée : entier de 1 à %d s attendu (au-delà, le budget "+
+			"propre au routeur se perd par intermittence, ADR 0016 M7)", v, periodeMax)
+	}
+	return n, nil
 }

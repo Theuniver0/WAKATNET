@@ -1,0 +1,16 @@
+# WAKATNET — propriétaires de code (ADR 0021, action 4 ; CONTRIBUTING P6).
+# Une PR ne doit pas pouvoir réécrire la CI ou les harnais qui la jugent, ni le code d'argent et le SQL,
+# sans la relecture de leur propriétaire. Effectif seulement avec la protection de main
+# « Require review from Code Owners » (réglage GitHub, fait par Yacouba).
+# La dernière règle qui correspond l'emporte : garder ces chemins disjoints ou de même propriétaire.
+
+# Workflows, et ce fichier lui-même.
+/.github/                 @Theuniver0
+
+# Harnais de test : tout répertoire tests/, à toute profondeur, et les bancs d'infrastructure.
+**/tests/**               @Theuniver0
+/infra/**/essais/**       @Theuniver0
+
+# Code d'argent et schéma SQL (dont les fonctions radius.* du chemin critique).
+/packages/payments/       @Theuniver0
+/infra/sql/               @Theuniver0

@@ -13,8 +13,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Une PR : le nouveau commit remplace l'ancien. main : un groupe par commit, car GitHub annule aussi un run
+  # « en attente » dans le même groupe ; ainsi chaque commit de main garde sa vérification jusqu'au bout.
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:

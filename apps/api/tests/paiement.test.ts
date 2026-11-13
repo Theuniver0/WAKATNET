@@ -234,6 +234,52 @@ test("changement de fournisseur refusé tant que des paiements sont ouverts (rel
   });
 });
 
+test("audit du 13/11/2026 (migration 0037) : changement de compte marchand et création de paiement sérialisés par la ligne du compte", async () => {
+  await avecApp(async (app) => {
+    const { URL_API } = await import("./aide.ts");
+    const pg = (await import("pg")).default;
+    /** Vrai si la promesse n'est pas réglée au bout de `ms` (elle attend un verrou). */
+    const bloquee = (p: Promise<unknown>, ms = 500) =>
+      Promise.race([p.then(() => false, () => false), new Promise<boolean>((r) => setTimeout(() => r(true), ms))]);
+    const creerSql = (c: InstanceType<typeof pg.Client>, v: { publicId: string; plan: string }, num: string) =>
+      c.query<{ statut: string }>(`SELECT statut FROM app.paiement_creer($1, $2, 'moov_bf', $3, $4, $5, $6, $7, $8, 'test', NULL)`,
+        [v.publicId, v.plan, num, randomBytes(32), `${num.slice(0, 2)} •• •• ${num.slice(6)}`, randomBytes(32), soumission(),
+         `wk_${randomBytes(16).toString("base64url")}`]);
+    const clients = [new pg.Client({ connectionString: URL_API }), new pg.Client({ connectionString: URL_API })];
+    const [a, b] = clients;
+    await Promise.all(clients.map((c) => c.connect()));
+    try {
+      // 1. Le changement de compte passe son contrôle (aucun paiement ouvert) et n'est pas encore validé : un paiement
+      //    créé à cet instant ATTEND (FOR SHARE), puis est débité sur le NOUVEAU compte. Avant 0037, il était créé
+      //    aussitôt, débité sur l'ancien compte puis vérifié avec le nouveau jeton (NOT_FOUND → FAILED).
+      const v = await vendeur(app, "verrou compte marchand 1");
+      await a.query("BEGIN");
+      await a.query("SELECT set_config('wakatnet.tenant_id', $1, true)", [v.tenant]);
+      await a.query("SELECT app.compte_marchand_enregistrer('mock', $1)", [app.paiement!.chiffrerCles(BigInt(v.tenant), { secret_webhook: v.secret })]);
+      const creation = creerSql(b, v, "70123401");
+      assert.equal(await bloquee(creation), true, "paiement_creer doit attendre le changement de compte en cours");
+      await a.query("COMMIT");
+      assert.equal((await creation).rows[0].statut, "cree");
+
+      // 2. Un paiement en cours de création (non validé) : le changement de compte ATTEND, puis voit le paiement et
+      //    est refusé. Avant 0037, son contrôle ne voyait pas le paiement non validé et passait.
+      const w = await vendeur(app, "verrou compte marchand 2");
+      await b.query("BEGIN");
+      assert.equal((await creerSql(b, w, "70123402")).rows[0].statut, "cree");
+      await a.query("BEGIN");
+      await a.query("SELECT set_config('wakatnet.tenant_id', $1, true)", [w.tenant]);
+      const changement = a.query("SELECT app.compte_marchand_enregistrer('mock', $1)", [app.paiement!.chiffrerCles(BigInt(w.tenant), { secret_webhook: w.secret })]);
+      changement.catch(() => undefined);
+      assert.equal(await bloquee(changement), true, "compte_marchand_enregistrer doit attendre le paiement en cours de création");
+      await b.query("COMMIT");
+      await assert.rejects(changement, /paiements encore ouverts/);
+      await a.query("ROLLBACK");
+    } finally {
+      await Promise.all(clients.map((c) => c.end()));
+    }
+  });
+});
+
 test("MockProvider : refusé sans autorisation explicite (relecture argent M4)", () => {
   const avant = process.env.WAKATNET_MOCK;
   delete process.env.WAKATNET_MOCK;

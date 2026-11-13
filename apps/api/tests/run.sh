@@ -21,6 +21,7 @@ ADMIN="$(alea)"; API="$(alea)"
   echo "POSTGRES_PASSWORD=$ADMIN"
   echo "WAKATNET_PG_API_PASSWORD=$API"
   echo "WAKATNET_PG_SANTE_PASSWORD=$(alea)"
+  echo "WAKATNET_PG_RAPPROCHEMENT_PASSWORD=$(alea)"
   echo "WAKATNET_TEST_ADMIN_URL=postgresql://wakatnet_admin:$ADMIN@postgres:5432/wakatnet"
   echo "WAKATNET_API_DATABASE_URL=postgresql://wk_api:$API@postgres:5432/wakatnet"
 } > jeu.secrets

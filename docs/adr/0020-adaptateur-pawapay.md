@@ -69,7 +69,25 @@
 - **Callback sans `clientReferenceId`** : la documentation ne garantit pas ce champ. Le paiement est alors retrouvé par `depositId` (migration 0035).
 - **`UNKNOWN_ERROR`**, même en HTTP 200 : traité comme une indisponibilité, et jamais comme un refus, sinon le client repaierait.
 - **`WAKATNET_PAWAPAY_URL`** : faux serveur local seulement, et jamais pour un compte de production.
-- **Accepté** : le paramètre `expires` de la signature n'est pas appliqué, puisqu'un rejeu ne fait que relancer `verify()`. À revoir quand on saura si pawaPay signe à nouveau ses renvois.
+- **Accepté** (revu par l'audit du 13/11/2026, ci-dessous : `expires` est désormais appliqué) : le paramètre `expires` de la signature n'était pas appliqué, puisqu'un rejeu ne fait que relancer `verify()`.
+
+## Audit du 13/11/2026 : corrigé
+
+- **Moyen, relecture des clés publiques sans limite après un échec** : quand `GET /v2/public-key/http` échouait (5xx, jeton refusé), le cache restait périmé, et chaque callback forgé relançait une lecture avec le jeton du propriétaire.
+  - Désormais, aucune relecture moins de 5 minutes après la précédente, **réussie ou non**. Clés périmées et dernière lecture en échec : le callback est refusé (401), et la vérification périodique conclut le paiement.
+  - Tout ce qui ne demande aucune clé est vérifié **avant** de les lire (`controlerSansCle`) : Content-Digest égal au corps, forme de `Signature-Input` et `Signature`, composants exigés, algorithme, fenêtre de `created`, `expires`, en-têtes signés présents, corps JSON et lien `depositId` ↔ `clientReferenceId`. Un callback forgé grossièrement ne provoque aucun appel sortant.
+  - **`expires` appliqué** : une signature dont `expires` est présent et dépassé est refusée (sans tolérance d'horloge). Cela remplace la décision « Accepté » de la relecture. Si pawaPay renvoie ses callbacks avec la signature d'origine, les renvois tardifs seront refusés ; la vérification périodique (ADR 0013) conclut quand même le paiement. À confirmer au bac à sable.
+  - Une panne réseau à la lecture des clés devient elle aussi une `SignatureInvalide` (401), au lieu d'une erreur 500.
+- **Faible, `PUT /v1/compte-marchand`** (migration 0037) :
+  - le refus pour paiements encore ouverts (409) est rendu **avant** l'appel au fournisseur ;
+  - les vérifications chez le fournisseur (`GET /v2/active-conf`) sont limitées à **5 par heure et par propriétaire**, au-delà 429. Le compte est tenu en base (`app.compte_marchand_verification`), comme les autres limites du dépôt, même si l'API ne tourne qu'en un processus (ADR 0016) : il survit à un redémarrage. Une vérification compte même si elle échoue. Un fournisseur sans `verifierCompte` (mock) n'est pas compté.
+- **Faible, course entre changement de compte et création de paiement** (migration 0037) : en READ COMMITTED, le contrôle de `compte_marchand_enregistrer` ne voyait pas un paiement en cours de création. Ce paiement aurait été débité sur l'ancien compte, puis vérifié avec le nouveau jeton (`NOT_FOUND`, donc FAILED).
+  - `paiement_creer` prend la ligne `app.compte_marchand` du propriétaire `FOR SHARE` ;
+  - `compte_marchand_enregistrer` la prend `FOR UPDATE` avant son contrôle, dans une instruction distincte : après l'attente, le contrôle voit le paiement validé et refuse.
+- **Faible, callback sans `clientReferenceId` après un `charge()` sans réponse** : le paiement restait CREATED sans `reference_fournisseur`, et le callback était acquitté puis ignoré.
+  - **Retenu** : le service note la référence du fournisseur **avant** `charge()`, quand l'adaptateur sait la calculer (`referenceFournisseurPrevue` ; pawaPay : `depositIdDe`). La note est validée dans sa propre transaction (`app.paiement_reference_fournisseur_noter`, paiement CREATED seulement, valeur vide ou identique) ; si elle échoue, `charge()` n'est pas appelé et aucun argent ne bouge.
+  - **Écarté** : recalculer le `depositId` à la recherche. Le `depositId` écrase 6 bits de la référence : il faudrait 64 références candidates par callback, et la logique de pawaPay entrerait dans la base. La note avant `charge()` garde une seule recherche exacte, déjà indexée (migration 0035).
+  - Effet de bord accepté : un paiement CREATED porte désormais un `reference_fournisseur`, ce qui le rend retrouvable par les 4 derniers caractères au portail (migration 0021), comme un paiement PENDING. Ces caractères viennent du `depositId`, inconnu du client.
 
 ## Preuves
 

@@ -14,7 +14,11 @@
 //   - une ligne réussie du jour J sans paiement chez nous est TOUJOURS un écart ;
 //   - une paire trouvée des deux côtés, de part et d'autre de minuit, est un décalage (expliqué, listé) ;
 //   - une paire où l'encaissement précède la confirmation de plus que la tolérance (webhook perdu, repris par
-//     la vérification périodique, jusqu'à 24 h : ADR 0013) est une confirmation tardive (expliquée, listée).
+//     la vérification périodique, jusqu'à 24 h : ADR 0013) est une confirmation tardive (expliquée, listée) ;
+//   - un paiement remboursé (REFUNDED) confirmé le jour J est TOUJOURS à instruire, avec ou sans ligne au relevé.
+// Audit de sécurité de l'outil (constats 1 à 6) : relevé vide ou réduit à l'en-tête refusé (sauf --releve-vide), ligne de
+// commande stricte, débits hors paiement excessifs sous un dépôt présent, texte du relevé neutralisé dans le rapport,
+// remboursements listés ; base lue par le rôle dédié wk_rapprochement (migration 0038), en lecture seule.
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { versXof } from "../../../packages/payments/src/index.ts";
@@ -22,7 +26,9 @@ import { versXof } from "../../../packages/payments/src/index.ts";
 export type LigneBase = { reference: string; referenceFournisseur: string | null; montant: bigint; statut: string; confirmeLe: Date | null };
 /** `hors` : ligne d'un type déclaré « hors paiement » (frais, retrait du journal d'un portefeuille) : jamais rapprochée
  *  d'un paiement, jamais ignorée non plus : totalisée par type au rapport, en centimes (`centimes`, signé). */
-export type LigneReleve = { reference: string; montant: bigint; le: Date; reussi: boolean; ligne: number; hors?: string; centimes?: bigint; brut?: string };
+export type LigneReleve = { reference: string; montant: bigint; le: Date; reussi: boolean; ligne: number; hors?: string; centimes?: bigint; brut?: string;
+  /** Ligne hors paiement sans référence d'un type que --hors-sans-reference n'admet pas (relecture R4, I-1). */
+  sansReferenceSuspecte?: boolean };
 /** `ecriture` : somme des débits de commission au compte du propriétaire ; `nombre` : écritures ; `figee` : commission
  *  figée au journal d'audit de la confirmation ; `taux` : taux de l'écriture ; `tauxEnVigueur` : celui du propriétaire ;
  *  `attendue` : ledger.commission(montant, taux en vigueur, plancher en vigueur), recalculée par la base. */
@@ -31,13 +37,13 @@ export type Commission = { reference: string; nombre: number; ecriture: bigint |
 
 export type Categorie = "concordant" | "decalage" | "confirmation_tardive" | "montant_different" | "doublon_releve"
   | "succes_chez_nous_echec_au_releve" | "succes_au_releve_pas_chez_nous" | "absent_du_releve" | "absent_de_la_base"
-  | "grand_livre" | "taux_commission" | "reference_ambigue" | "hors_paiement_orphelin";
+  | "grand_livre" | "taux_commission" | "reference_ambigue" | "hors_paiement_orphelin" | "hors_paiement_excessif" | "hors_paiement_sans_reference" | "rembourse";
 export type Ecart = { categorie: Categorie; reference: string; detail: string };
 
 export const EXPLIQUES: Categorie[] = ["concordant", "decalage", "confirmation_tardive"];
 export const ECARTS_A_INSTRUIRE: Categorie[] = ["montant_different", "doublon_releve", "succes_chez_nous_echec_au_releve",
   "succes_au_releve_pas_chez_nous", "absent_du_releve", "absent_de_la_base", "grand_livre", "taux_commission", "reference_ambigue",
-  "hors_paiement_orphelin"];
+  "hors_paiement_orphelin", "hors_paiement_excessif", "hors_paiement_sans_reference", "rembourse"];
 
 export type Couverture = { du: Date; au: Date };
 export type Resultat = {
@@ -49,6 +55,10 @@ export type Resultat = {
 const JOUR_MS = 86_400_000;
 /** Délai maximal entre l'encaissement et notre confirmation (vérification périodique pendant 24 h, ADR 0013). */
 const RETARD_MAX_MS = JOUR_MS;
+/** Audit 3 : les débits hors paiement (frais) portés par la référence d'un dépôt ne dépassent pas 10 % de son montant.
+ *  Les frais de pawaPay d'un dépôt (« pass through » et « PawaPay fees ») sont de quelques pour cent ; un remboursement,
+ *  ou tout débit du montant entier, déclaré à tort dans --hors-paiement dépasse ce seuil. En pour cent, entier (A1). */
+export const SEUIL_HORS_PAIEMENT_PCT = 10n;
 
 export function bornes(jour: string, toleranceS: number) {
   const debut = Date.parse(`${jour}T00:00:00Z`);
@@ -78,6 +88,7 @@ export function rapprocher(jour: string, base: LigneBase[], releveComplet: Ligne
   // (exports qui se chevauchent) est à instruire, et n'est pas comptée deux fois.
   const encaisses = new Set(releve.filter((r) => r.reussi).map((r) => r.reference));
   const vues = new Set<string>();
+  const debitsParRef = new Map<string, { centimes: bigint; lignes: number[]; types: Set<string> }>();
   for (const h of releveComplet) {
     if (h.hors === undefined || !dansJour(h.le.getTime())) continue;
     const cle = `${h.hors}\u0000${h.brut ?? `${h.reference}|${h.centimes}|${h.le.toISOString()}`}`;
@@ -89,10 +100,29 @@ export function rapprocher(jour: string, base: LigneBase[], releveComplet: Ligne
     if (h.reference && !encaisses.has(h.reference)) {
       ecartsHors.push({ categorie: "hors_paiement_orphelin", reference: h.reference,
         detail: `ligne ${h.ligne} : « ${h.hors} » de ${formatCentimes(h.centimes ?? 0n)} F sous une référence sans encaissement au relevé (remboursement ? type mal déclaré ?)` });
+    } else if (!h.reference && h.sansReferenceSuspecte) {
+      // Relecture R4 (I-1) : un remboursement ou un ajustement débiteur SANS référence sortirait l'argent du contrôle.
+      ecartsHors.push({ categorie: "hors_paiement_sans_reference", reference: h.hors,
+        detail: `ligne ${h.ligne} : « ${h.hors} » de ${formatCentimes(h.centimes ?? 0n)} F sans référence : rattacher à un paiement, ou déclarer le type par --hors-sans-reference s'il ne touche aucun encaissement` });
+    } else if (h.reference) {
+      // Audit 3 : sous la référence d'un dépôt PRÉSENT, les débits hors paiement sont cumulés, puis comparés à son montant.
+      const d = debitsParRef.get(h.reference) ?? { centimes: 0n, lignes: [] as number[], types: new Set<string>() };
+      d.centimes += h.centimes ?? 0n; d.lignes.push(h.ligne); d.types.add(h.hors);
+      debitsParRef.set(h.reference, d);
     }
     const t = parType.get(h.hors) ?? { type: h.hors, nombre: 0, centimes: 0n };
     t.nombre++; t.centimes += h.centimes ?? 0n;
     parType.set(h.hors, t);
+  }
+  for (const [ref, d] of debitsParRef) {
+    const debit = -d.centimes;                                           // centimes ≤ 0 : lireReleve refuse un crédit
+    const encaisse = releve.filter((r) => r.reussi && r.reference === ref).reduce((n, r) => n + r.montant, 0n);
+    // debit (centimes) > SEUIL % de encaisse (XOF) ⇔ debit × 100 > SEUIL × encaisse × 100 : en entiers.
+    if (debit * 100n > SEUIL_HORS_PAIEMENT_PCT * encaisse * 100n) {
+      ecartsHors.push({ categorie: "hors_paiement_excessif", reference: ref,
+        detail: `lignes ${d.lignes.join(", ")} : ${formatCentimes(-debit)} F hors paiement (${[...d.types].sort().join(", ")}) sous un encaissement de ${encaisse} F, `
+          + `au-delà de ${SEUIL_HORS_PAIEMENT_PCT} % (remboursement déclaré dans --hors-paiement ? frais anormaux ?)` });
+    }
   }
   const lignes: Ecart[] = [...ecartsHors];
 
@@ -130,6 +160,14 @@ export function rapprocher(jour: string, base: LigneBase[], releveComplet: Ligne
 
   for (const b of base) {
     const r = ligneDe.get(b);
+    // Audit 6 : un remboursement confirmé le jour J est toujours à instruire (aucun n'est encore codé : garde).
+    if (b.statut === "REFUNDED" && b.confirmeLe && dansJour(b.confirmeLe.getTime())) {
+      lignes.push({ categorie: "rembourse", reference: b.reference,
+        detail: `${b.montant} F : paiement confirmé le ${b.confirmeLe.toISOString()} puis remboursé ; `
+          + (r ? `ligne ${r.ligne} du relevé : ${r.montant} F ${r.reussi ? "encaissés" : "en échec"}` : "aucune ligne au relevé")
+          + " (vérifier le remboursement au compte marchand et le sort du ticket)" });
+      continue;
+    }
     const baseOk = b.statut === "SUCCEEDED" && b.confirmeLe !== null;
     const tBase = b.confirmeLe?.getTime() ?? NaN;
     // Le jour d'une paire est celui de NOTRE confirmation ; sans confirmation, celui de la ligne du relevé.
@@ -223,7 +261,9 @@ export function rapprocher(jour: string, base: LigneBase[], releveComplet: Ligne
 
 /** `echec` peut être vide (le journal d'un portefeuille ne porte que des mouvements réalisés) ; `reussi` jamais.
  *  `hors` : types de ligne à totaliser hors paiement (frais, retraits) ; tout autre type reste une erreur. */
-export type Colonnes = { reference: string; montant: string; date: string; statut: string; reussi: string[]; echec: string[]; hors?: string[]; sep?: string };
+/** `horsSansReference` : parmi `hors`, les types admis SANS référence (retraits vers la banque) ; défaut : Withdrawal. */
+export type Colonnes = { reference: string; montant: string; date: string; statut: string; reussi: string[]; echec: string[]; hors?: string[];
+  horsSansReference?: string[]; sep?: string };
 
 /** Montant d'un encaissement : XOF entier ; « 200.00 » vaut 200 (format des agrégateurs) ; décimale non nulle refusée. */
 function montantPaiement(v: string): bigint {
@@ -276,12 +316,13 @@ export function lireDate(s: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-/** Lit le relevé. TOUTE anomalie est une erreur (code 2), jamais une ligne ignorée : nombre de champs, statut hors des
- *  listes (--reussi, --echec, --hors-paiement), montant d'encaissement non entier (décimales nulles admises), ligne hors
- *  paiement créditrice, date non ISO, ligne hors de la fenêtre [J − 2, J + 3[ (mauvais fichier). */
-export function lireReleve(texte: string, col: Colonnes, jour?: string): LigneReleve[] {
-  const lignesTexte = texte.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
-  if (lignesTexte.length === 0) return [];
+/** Lit le relevé. TOUTE anomalie est une erreur (code 2), jamais une ligne ignorée : fichier vide, fichier réduit à
+ *  l'en-tête (sauf `videPermis`, option --releve-vide), nombre de champs, statut hors des listes (--reussi, --echec,
+ *  --hors-paiement), montant d'encaissement non entier (décimales nulles admises), ligne hors paiement créditrice, date
+ *  non ISO, ligne hors de la fenêtre [J − 2, J + 3[ (mauvais fichier). Fins de ligne : \r\n, \n ou \r seul (audit 1). */
+export function lireReleve(texte: string, col: Colonnes, jour?: string, opts: { videPermis?: boolean } = {}): LigneReleve[] {
+  const lignesTexte = texte.replace(/^﻿/, "").split(/\r\n|\r|\n/).filter((l) => l.trim() !== "");
+  if (lignesTexte.length === 0) throw new Error("relevé vide, sans en-tête (export interrompu ?) : même un jour sans mouvement, l'export porte son en-tête");
   const sep = col.sep ?? ((lignesTexte[0].match(/;/g)?.length ?? 0) >= (lignesTexte[0].match(/,/g)?.length ?? 0) ? ";" : ",");
   const entete = champs(lignesTexte[0], sep, 1);
   const idx = (n: string) => { const i = entete.indexOf(n); if (i < 0) throw new Error(`colonne « ${n} » absente du relevé (colonnes : ${entete.join(", ")})`); return i; };
@@ -293,8 +334,13 @@ export function lireReleve(texte: string, col: Colonnes, jour?: string): LigneRe
     return new Set(v);
   };
   const reussi = liste(col.reussi, "reussi"), echec = liste(col.echec, "echec", true), hors = liste(col.hors ?? [], "hors-paiement", true);
+  const sansRef = liste(col.horsSansReference ?? ["Withdrawal"], "hors-sans-reference", true);
+  for (const t of sansRef) if (!hors.has(t) && col.horsSansReference !== undefined) throw new Error(`--hors-sans-reference : « ${t} » doit aussi figurer dans --hors-paiement`);
   for (const s of reussi) if (echec.has(s)) throw new Error(`statut « ${s} » à la fois réussi et en échec`);
   for (const s of hors) if (reussi.has(s) || echec.has(s)) throw new Error(`statut « ${s} » à la fois ${reussi.has(s) ? "réussi" : "en échec"} et hors paiement`);
+  if (lignesTexte.length === 1 && !opts.videPermis) {
+    throw new Error("aucune ligne de données (fichier réduit à l'en-tête) : export incomplet ? Un jour réellement sans mouvement se déclare par --releve-vide");
+  }
   const fenetre = jour ? [Date.parse(`${jour}T00:00:00Z`) - 2 * JOUR_MS, Date.parse(`${jour}T00:00:00Z`) + 3 * JOUR_MS] : null;
   return lignesTexte.slice(1).map((l, k) => {
     const ligne = k + 2, c = champs(l, sep, ligne);
@@ -312,7 +358,8 @@ export function lireReleve(texte: string, col: Colonnes, jour?: string): LigneRe
       // Relecture I-a : frais et retraits DÉBITENT le portefeuille ; un crédit hors paiement sortirait de l'argent encaissé
       // du rapprochement sans signal. Une recharge ou un ajustement créditeur s'instruit à la main (PILOTE.md §4).
       if (ct > 0n) throw new Error(`ligne ${ligne} : ligne hors paiement « ${c[iStatut]} » créditrice (+${formatCentimes(ct)} F) : un crédit sur le compte s'instruit à la main, --hors-paiement ne couvre que des débits`);
-      return { reference, montant: 0n, le, reussi: false, ligne, hors: statut, centimes: ct, brut: l.trim() };
+      return { reference, montant: 0n, le, reussi: false, ligne, hors: statut, centimes: ct, brut: l.trim(),
+               ...(!reference && !sansRef.has(statut) ? { sansReferenceSuspecte: true } : {}) };
     }
     if (!reussi.has(statut) && !echec.has(statut)) throw new Error(`ligne ${ligne} : statut « ${c[iStatut]} » ni réussi ni en échec ni hors paiement (--reussi, --echec, --hors-paiement)`);
     if (!reference) throw new Error(`ligne ${ligne} : référence vide`);
@@ -322,12 +369,38 @@ export function lireReleve(texte: string, col: Colonnes, jour?: string): LigneRe
   });
 }
 
+/** Audit 1 : sur l'ensemble des fichiers, zéro ligne lue est une erreur, sauf relevé déclaré vide par l'exploitant
+ *  (--releve-vide) ; déclaré vide, il ne doit porter aucune ligne du jour J (paiement ou hors paiement). */
+export function verifierVolume(jour: string, releve: LigneReleve[], releveVide: boolean): void {
+  const { debut, fin } = bornes(jour, 0);
+  if (!releveVide && releve.length === 0) {
+    throw new Error("aucune ligne lue sur l'ensemble des relevés : export vide ou incomplet ? Un jour réellement sans mouvement se déclare par --releve-vide");
+  }
+  const duJour = releve.filter((r) => r.le.getTime() >= debut && r.le.getTime() < fin).length;
+  if (releveVide && duJour > 0) throw new Error(`--releve-vide : le relevé porte ${duJour} ligne(s) du ${jour} ; il n'est pas vide (retirer l'option)`);
+}
+
 // ------------------------------------------------------------------ rapport
 
-export function rapportMarkdown(r: Resultat, proprietaire: string, couverture: Couverture): string {
+/** Audit 5 : tout texte venu du relevé (référence, type de ligne, détail) est neutralisé avant d'entrer dans le Markdown :
+ *  ni bloc de code refermé (`), ni HTML ou commentaire (<, >), ni cellule de tableau (|), ni caractère de contrôle
+ *  (séquences ANSI, retour à la ligne, inversion bidirectionnelle), rendu visible en \uXXXX. */
+const CONTROLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
+export function sansControle(s: string): string {
+  return s.replace(CONTROLE, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+// Relecture R4 (M-4) : [ et ] aussi, sinon une référence « [x](https://…) » ou « ![](…) » devient un lien ou une image.
+const ENTITES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "`": "&#96;", "|": "&#124;", "[": "&#91;", "]": "&#93;" };
+export function texteMd(s: string): string {
+  return sansControle(s.replace(/[&<>`|[\]]/g, (c) => ENTITES[c]));
+}
+
+export function rapportMarkdown(r: Resultat, proprietaire: string, couverture: Couverture, opts: { releveVide?: boolean } = {}): string {
   const t = r.totaux;
   const parCat = (c: Categorie) => r.lignes.filter((l) => l.categorie === c);
-  const out = [`# Rapprochement du ${r.jour} — propriétaire ${proprietaire} — ${r.ecartNul ? "ÉCART NUL" : "ÉCARTS À INSTRUIRE"}`, "",
+  const out = [`# Rapprochement du ${r.jour} — propriétaire ${texteMd(proprietaire)} — ${r.ecartNul ? "ÉCART NUL" : "ÉCARTS À INSTRUIRE"}`, "",
+    ...(opts.releveVide ? [`> **Attention** : relevé déclaré vide par l'exploitant (--releve-vide) : aucun mouvement au compte marchand le ${r.jour}, `
+      + "selon sa déclaration. À noter au journal du pilote.", ""] : []),
     `Relevé couvrant du ${couverture.du.toISOString()} au ${couverture.au.toISOString()}.`, "",
     "| | Nombre | Montant |", "|---|---|---|",
     `| Paiements réussis chez nous (confirmés le ${r.jour}) | ${t.paiements} | ${t.base_xof} F |`,
@@ -340,13 +413,13 @@ export function rapportMarkdown(r: Resultat, proprietaire: string, couverture: C
     const l = parCat(c);
     if (l.length === 0) continue;
     out.push(`## ${c} (${l.length})${EXPLIQUES.includes(c) ? " — expliqué" : " — À INSTRUIRE"}`, "");
-    for (const x of l) out.push(`- \`${x.reference}\` : ${x.detail}`);
+    for (const x of l) out.push(`- « ${texteMd(x.reference)} » : ${texteMd(x.detail)}`);
     out.push("");
   }
   if (t.hors.length) {
     out.push(`## Lignes hors paiement du ${r.jour} (totalisées, ni rapprochées ni comptées comme écarts)`, "",
       "Frais et retraits déclarés par `--hors-paiement`. Tout autre type de ligne arrête l'outil (code 2).", "",
-      "| Type | Nombre | Montant |", "|---|---|---|", ...t.hors.map((h) => `| ${h.type} | ${h.nombre} | ${formatCentimes(h.centimes)} F |`), "");
+      "| Type | Nombre | Montant |", "|---|---|---|", ...t.hors.map((h) => `| ${texteMd(h.type)} | ${h.nombre} | ${formatCentimes(h.centimes)} F |`), "");
   }
   out.push(`Concordants : ${parCat("concordant").length}.`);
   return out.join("\n") + "\n";
@@ -354,14 +427,56 @@ export function rapportMarkdown(r: Resultat, proprietaire: string, couverture: C
 
 // ------------------------------------------------------------------ point d'entrée
 
-function option(nom: string, defaut?: string): string {
-  const i = process.argv.indexOf(`--${nom}`);
-  const v = i >= 0 ? process.argv[i + 1] : defaut;
-  if (v === undefined || (i >= 0 && v.startsWith("--"))) throw new Error(`option --${nom} manquante`);
-  return v;
-}
-function options(nom: string): string[] {
-  return process.argv.flatMap((a, i) => (a === `--${nom}` && process.argv[i + 1] && !process.argv[i + 1].startsWith("--") ? [process.argv[i + 1]] : []));
+const AVEC_VALEUR = new Set(["proprietaire", "jour", "releve", "releve-du", "releve-au", "col-reference", "col-montant", "col-date",
+  "col-statut", "reussi", "echec", "hors-paiement", "hors-sans-reference", "sep"]);
+const DRAPEAUX = new Set(["releve-vide"]);
+const REPETABLES = new Set(["releve"]);
+export type Arguments = { proprietaire: string; jour: string; couverture: Couverture; fichiers: string[]; col: Colonnes; releveVide: boolean };
+
+/** Audit 2 : ligne de commande stricte. Tout argument positionnel (« --releve a.csv b.csv », motif développé par le shell),
+ *  toute option inconnue ou répétée (sauf --releve), toute option sans valeur est une ERREUR, jamais ignorée. */
+export function lireArguments(args: string[]): Arguments {
+  const v = new Map<string, string[]>();
+  const drapeaux = new Set<string>();
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!a.startsWith("--")) {
+      throw new Error(`argument inattendu « ${a} » : un fichier par --releve (« --releve a.csv --releve b.csv »), jamais un motif développé par le shell`);
+    }
+    const nom = a.slice(2);
+    if (DRAPEAUX.has(nom)) {
+      if (drapeaux.has(nom)) throw new Error(`${a} donnée plus d'une fois`);
+      drapeaux.add(nom);
+      continue;
+    }
+    if (!AVEC_VALEUR.has(nom)) throw new Error(`option inconnue « ${a} » (options : ${[...AVEC_VALEUR, ...DRAPEAUX].map((o) => `--${o}`).join(", ")})`);
+    const valeur = args[i + 1];
+    if (valeur === undefined || valeur.startsWith("--")) throw new Error(`${a} : valeur manquante`);
+    if (v.has(nom) && !REPETABLES.has(nom)) throw new Error(`${a} donnée plus d'une fois`);
+    v.set(nom, [...(v.get(nom) ?? []), valeur]);
+    i++;
+  }
+  const une = (nom: string, defaut?: string) => {
+    const x = v.get(nom)?.[0] ?? defaut;
+    if (x === undefined) throw new Error(`option --${nom} manquante`);
+    return x;
+  };
+  const proprietaire = une("proprietaire"), jour = une("jour");
+  if (!/^\d+$/.test(proprietaire)) throw new Error("--proprietaire : identifiant entier");
+  bornes(jour, 0);
+  const du = lireDate(une("releve-du")), au = lireDate(une("releve-au"));
+  if (!du || !au) throw new Error("--releve-du et --releve-au : dates ISO 8601");
+  const fichiers = v.get("releve") ?? [];
+  if (fichiers.length === 0) throw new Error("--releve : au moins un fichier");
+  const col: Colonnes = { reference: une("col-reference", "reference"), montant: une("col-montant", "montant"),
+    date: une("col-date", "date"), statut: une("col-statut", "statut"),
+    reussi: une("reussi").split(","),
+    // Facultatifs : un journal de portefeuille (pawaPay) n'a aucune ligne d'échec, mais des frais et des retraits.
+    echec: v.has("echec") ? une("echec").split(",") : [],
+    hors: v.has("hors-paiement") ? une("hors-paiement").split(",") : [],
+    ...(v.has("hors-sans-reference") ? { horsSansReference: une("hors-sans-reference").split(",") } : {}),
+    ...(v.has("sep") ? { sep: une("sep") } : {}) };
+  return { proprietaire, jour, couverture: { du, au }, fichiers, col, releveVide: drapeaux.has("releve-vide") };
 }
 
 // pathToFileURL : un chemin avec espace ou accent ne doit pas faire sortir l'outil en silence avec le code 0.
@@ -376,29 +491,19 @@ if (process.argv[1] && lanceDirectement()) {
   //     --reussi SUCCESS --echec FAILED,CANCELLED
   //   Relevé pawaPay (journal du portefeuille, sans échec) : --reussi Deposit, sans --echec, et
   //     --hors-paiement "Deposit pass through fees,Deposit PawaPay fees,Withdrawal" (docs/PILOTE.md §4).
-  // Base en LECTURE SEULE (WAKATNET_ADMIN_DATABASE_URL, jamais en argument). Sortie : rapport Markdown.
-  // Code : 0 écart nul, 1 écarts à instruire, 2 entrée invalide (relevé insuffisant, ligne illisible…).
+  //   Jour réellement sans mouvement (fichiers réduits à l'en-tête) : --releve-vide, noté en tête du rapport.
+  // Base en LECTURE SEULE, rôle wk_rapprochement (migration 0038) : WAKATNET_RAPPROCHEMENT_DATABASE_URL, jamais en argument.
+  // Sortie : rapport Markdown. Code : 0 écart nul, 1 écarts à instruire, 2 entrée invalide (relevé insuffisant ou vide,
+  // ligne illisible, argument inattendu…).
   try {
-    const proprietaire = option("proprietaire"), jour = option("jour");
-    if (!/^\d+$/.test(proprietaire)) throw new Error("--proprietaire : identifiant entier");
-    const du = lireDate(option("releve-du")), au = lireDate(option("releve-au"));
-    if (!du || !au) throw new Error("--releve-du et --releve-au : dates ISO 8601");
-    const couverture = { du, au };
+    const { proprietaire, jour, couverture, fichiers, col, releveVide } = lireArguments(process.argv.slice(2));
     verifierCouverture(jour, couverture);
-    const fichiers = options("releve");
-    if (fichiers.length === 0) throw new Error("--releve : au moins un fichier");
-    const col: Colonnes = { reference: option("col-reference", "reference"), montant: option("col-montant", "montant"),
-      date: option("col-date", "date"), statut: option("col-statut", "statut"),
-      reussi: option("reussi").split(","),
-      // Facultatifs : un journal de portefeuille (pawaPay) n'a aucune ligne d'échec, mais des frais et des retraits.
-      echec: process.argv.includes("--echec") ? option("echec").split(",") : [],
-      hors: process.argv.includes("--hors-paiement") ? option("hors-paiement").split(",") : [],
-      ...(process.argv.includes("--sep") ? { sep: option("sep") } : {}) };
     const releve = fichiers.flatMap((f) => {
-      try { return lireReleve(readFileSync(f, "utf8"), col, jour); } catch (e) { throw new Error(`${f} : ${(e as Error).message}`); }
+      try { return lireReleve(readFileSync(f, "utf8"), col, jour, { videPermis: releveVide }); } catch (e) { throw new Error(`${f} : ${(e as Error).message}`); }
     });
-    const url = process.env.WAKATNET_ADMIN_DATABASE_URL;
-    if (!url) throw new Error("WAKATNET_ADMIN_DATABASE_URL manquant");
+    verifierVolume(jour, releve, releveVide);
+    const url = process.env.WAKATNET_RAPPROCHEMENT_DATABASE_URL;
+    if (!url) throw new Error("WAKATNET_RAPPROCHEMENT_DATABASE_URL manquant (adresse du rôle wk_rapprochement, docs/PILOTE.md §4)");
     const { default: pg } = await import("pg");
     const c = new pg.Client({ connectionString: url });
     await c.connect();
@@ -407,36 +512,28 @@ if (process.argv[1] && lanceDirectement()) {
       // Bornes du jour en UTC quel que soit le fuseau de la session (heure du Burkina).
       await c.query("SET LOCAL TIME ZONE 'UTC'");
       const refs = releve.filter((r) => r.hors === undefined).map((r) => r.reference);
+      // Deux fonctions de lecture du propriétaire des tables (migration 0038) : wk_rapprochement n'a aucun droit sur une
+      // table ni sur le schéma ledger. Elles rendent ce que lisaient les deux requêtes de l'outil, à l'identique.
       const { rows: base } = await c.query<{ reference: string; reference_fournisseur: string | null; montant: string; statut: string; confirme_le: Date | null }>(
-        `SELECT reference, reference_fournisseur, montant::text, statut, confirme_le FROM app.payment
-          WHERE tenant_id = $1 AND (confirme_le >= $2::date - 2 AND confirme_le < $2::date + 3
-                OR reference = ANY($3::text[]) OR reference_fournisseur = ANY($3::text[]))`, [proprietaire, jour, refs]);
+        `SELECT reference, reference_fournisseur, montant::text, statut, confirme_le
+           FROM app.rapprochement_paiements($1::bigint, $2::date, $3::text[])`, [proprietaire, jour, refs]);
       const { rows: comm } = await c.query<{ reference: string; nombre: number; ecriture: string | null; figee: string | null; taux: number | null; taux_en_vigueur: number; attendue: string | null }>(
-        `SELECT p.reference,
-                (SELECT count(*)::int FROM ledger.transaction x WHERE x.objet = 'paiement:' || p.id AND x.nature = 'commission') AS nombre,
-                (SELECT sum(e.debit)::text FROM ledger.transaction x JOIN ledger.ecriture e ON e.transaction_id = x.id
-                  JOIN ledger.compte k ON k.id = e.compte_id AND k.code = 'proprietaire:' || p.tenant_id || ':credits'
-                  WHERE x.objet = 'paiement:' || p.id AND x.nature = 'commission') AS ecriture,
-                (SELECT max((a.details->>'commission')::bigint)::text FROM app.audit_log a
-                  WHERE a.objet = 'paiement:' || p.id AND a.action IN ('paiement_confirme', 'paiement_succes_apres_expiration')) AS figee,
-                (SELECT max(x.taux_bps) FROM ledger.transaction x WHERE x.objet = 'paiement:' || p.id AND x.nature = 'commission') AS taux,
-                t.commission_bps AS taux_en_vigueur,
-                ledger.commission(p.montant, t.commission_bps, t.commission_min)::text AS attendue
-           FROM app.payment p JOIN app.tenant t ON t.id = p.tenant_id
-          WHERE p.tenant_id = $1 AND p.statut = 'SUCCEEDED' AND p.confirme_le >= $2::date AND p.confirme_le < $2::date + 1`, [proprietaire, jour]);
+        `SELECT reference, nombre, ecriture::text, figee::text, taux, taux_en_vigueur, attendue::text
+           FROM app.rapprochement_commissions($1::bigint, $2::date)`, [proprietaire, jour]);
       await c.query("COMMIT");
       const r = rapprocher(jour, base.map((b) => ({ reference: b.reference, referenceFournisseur: b.reference_fournisseur, montant: BigInt(b.montant),
           statut: b.statut, confirmeLe: b.confirme_le })), releve,
         comm.map((x) => ({ reference: x.reference, nombre: x.nombre, ecriture: x.ecriture === null ? null : BigInt(x.ecriture),
           figee: x.figee === null ? null : BigInt(x.figee), taux: x.taux, tauxEnVigueur: x.taux_en_vigueur,
           attendue: x.attendue === null ? null : BigInt(x.attendue) })));
-      process.stdout.write(rapportMarkdown(r, proprietaire, couverture));
+      process.stdout.write(rapportMarkdown(r, proprietaire, couverture, { releveVide }));
       process.exitCode = r.ecartNul ? 0 : 1;
     } finally {
       await c.end();
     }
   } catch (e) {
-    console.error(`rapprochement : ${(e as Error).message}`);
+    // Le message peut citer le relevé ou un argument : aucun caractère de contrôle (séquence ANSI) jusqu'au terminal.
+    console.error(`rapprochement : ${sansControle((e as Error).message)}`);
     process.exitCode = 2;
   }
 }

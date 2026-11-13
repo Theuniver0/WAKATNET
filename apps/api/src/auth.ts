@@ -5,7 +5,7 @@ import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest }
 import type { Base } from "./base.ts";
 import { chiffrer, dechiffrer } from "./chiffrement.ts";
 import { cleSource } from "./cle-ip.ts";
-import { messageAvis, messageVerification, type Expediteur } from "./courriel.ts";
+import { messageAttente, messageAvis, messageVerification, type Expediteur } from "./courriel.ts";
 
 export type Role = "super_admin" | "proprietaire" | "gerant" | "vendeur";
 export type Utilisateur = { id: bigint; tenantId: bigint | null; pdvId: bigint | null; role: Role; email: string; totpOk: boolean };
@@ -26,8 +26,29 @@ export const EN_TETE_CSRF = "x-wakatnet-requete";
 // ------------------------------------------------------------------ mots de passe (scrypt)
 const N = 32768, R = 8, P = 1, LONGUEUR = 32;
 
+/** Audit du 13/11/2026 (LIMITES n° 2) : nginx borne scrypt par /64, mais un abonné qui détient un /56 ou un /48 en a des
+ *  centaines. Plafond GLOBAL : au plus SCRYPT_ACTIFS calculs à la fois (autant que de fils libuv par défaut), et
+ *  SCRYPT_ATTENTE en file ; au-delà, refus immédiat (503 et Retry-After), pour que le reste de l'API, portail et
+ *  paiements compris, garde ses fils libuv. */
+export class CalculsSatures extends Error {
+  readonly statusCode = 503;
+  constructor() { super("calculs de mots de passe saturés"); this.name = "CalculsSatures"; }
+}
+const SCRYPT_ACTIFS = 4, SCRYPT_ATTENTE = 32;
+let scryptActifs = 0;
+const scryptFile: (() => void)[] = [];
+async function avecPlace<T>(f: () => Promise<T>): Promise<T> {
+  if (scryptActifs < SCRYPT_ACTIFS) scryptActifs++;
+  else if (scryptFile.length < SCRYPT_ATTENTE) await new Promise<void>((ok) => scryptFile.push(ok));   // place transmise
+  else throw new CalculsSatures();
+  try { return await f(); } finally {
+    const suivant = scryptFile.shift();
+    if (suivant) suivant(); else scryptActifs--;
+  }
+}
+
 function scryptAsync(mdp: string, sel: Buffer, n: number, r: number, p: number): Promise<Buffer> {
-  return new Promise((ok, ko) => scrypt(mdp, sel, LONGUEUR, { N: n, r, p, maxmem: 128 * n * r * 2 }, (e, k) => (e ? ko(e) : ok(k))));
+  return avecPlace(() => new Promise((ok, ko) => scrypt(mdp, sel, LONGUEUR, { N: n, r, p, maxmem: 128 * n * r * 2 }, (e, k) => (e ? ko(e) : ok(k)))));
 }
 
 export async function hacher(mdp: string): Promise<string> {
@@ -150,6 +171,24 @@ export function garde(base: Base, mode: "proprietaire" | "admin") {
 
 // ------------------------------------------------------------------ routes publiques et de session
 const EMAIL = /^[^@\s]{1,64}@[^@\s]{1,190}\.[a-zA-Z]{2,24}$/;
+/** Adresse acceptée à l'inscription et au renvoi. Le domaine de premier niveau .invalid (RFC 2606) ne reçoit jamais
+ *  d'e-mail, et wakatnet.invalid est réservé aux adresses purgées (audit du 13/11/2026, migration 0039). */
+export const emailAcceptable = (e: unknown): e is string =>
+  typeof e === "string" && e.length <= 254 && EMAIL.test(e) && !/\.invalid$/i.test(e);
+
+// Envois partis après la réponse (audit du 13/11/2026) : suivis, pour que l'arrêt de l'API (et les tests) les attendent.
+// Les renvois de lien ne sont plus acceptés au-delà de 500 travaux en cours : la réponse ne les attendant plus, un client
+// pressé ne doit pas les accumuler sans fin. L'envoi d'un lien déjà créé et compté, lui, part toujours.
+const ENVOIS = new Set<Promise<unknown>>();
+const ENVOIS_MAX = 500;
+function enArrierePlan(travail: () => Promise<unknown>): void {
+  const p: Promise<unknown> = travail().catch(() => undefined).finally(() => ENVOIS.delete(p));
+  ENVOIS.add(p);
+}
+/** Attend la fin des envois en arrière-plan (arrêt de l'API, tests). */
+export async function envoisEnCours(): Promise<void> {
+  while (ENVOIS.size > 0) await Promise.allSettled([...ENVOIS]);
+}
 
 // Appareil connu (revue de sécurité M2, migration 0031) : posé à chaque connexion réussie, envoyé seulement à
 // /v1/connexion ; il donne un budget d'essais propre, que le plafond global d'une attaque distribuée n'atteint pas.
@@ -170,20 +209,26 @@ export async function ouvrirSession(base: Base, utilisateurId: bigint): Promise<
 }
 
 /** Vérification de l'adresse (ADR 0017) : nouveau lien pour ce propriétaire, envoyé si un expéditeur existe.
- *  Rend false sans expéditeur, adresse déjà vérifiée, ou 3 liens dans l'heure. Jamais d'erreur vers l'appelant
- *  pour un envoi échoué : l'inscription ne doit pas en dépendre. */
+ *  Rend false sans expéditeur, adresse déjà vérifiée, 3 liens dans l'heure, 5 en tout, ou plafond global plein. La place
+ *  sur le plafond est prise AVANT de créer le lien, dans la même transaction (migration 0039) ; un envoi refusé par le
+ *  fournisseur est décompté. Jamais d'erreur vers l'appelant : l'inscription ne doit pas en dépendre. */
 async function envoyerVerification(base: Base, courriel: { expediteur: Expediteur | null; urlTableau: string },
                                    utilisateur: bigint, journal: FastifyBaseLogger): Promise<boolean> {
-  if (courriel.expediteur === null) return false;
+  const expediteur = courriel.expediteur;
+  if (expediteur === null) return false;
   // Relecture C4 et C5 : une erreur de la base ou du fournisseur ne fait jamais échouer l'inscription, et son
   // message (qui pourrait citer l'adresse ou le lien) n'est pas journalisé.
   try {
     const jeton = randomBytes(32).toString("base64url");
-    const [{ email }] = await base.$queryRaw<{ email: string | null }[]>`SELECT app.verification_creer(${utilisateur}, ${empreinte(jeton)}) AS email`;
-    if (email === null || !(await courrielPermis(base, journal))) return false;
+    const e = empreinte(jeton);
+    const [{ email }] = await base.$queryRaw<{ email: string | null }[]>`SELECT app.verification_creer(${utilisateur}, ${e}) AS email`;
+    if (email === null) return false;
     // Envoi en arrière-plan (relecture ADR 0019) : la durée de la réponse ne dépend pas de l'aller-retour vers Brevo.
-    courriel.expediteur.envoyer(messageVerification(email, `${courriel.urlTableau}#/verifier?j=${jeton}`))
-      .catch(() => journal.error("envoi du lien de vérification échoué"));
+    enArrierePlan(() => expediteur.envoyer(messageVerification(email, `${courriel.urlTableau}#/verifier?j=${jeton}`)).catch(async () => {
+      journal.error("envoi du lien de vérification échoué");
+      // Le lien n'est pas parti : il ne compte pas dans les limites du compte (audit du 13/11/2026).
+      await base.$queryRaw`SELECT app.verification_annuler(${e})`.catch(() => journal.error("décompte du lien non envoyé échoué"));
+    }));
     return true;
   } catch {
     journal.error("envoi du lien de vérification échoué");
@@ -196,22 +241,18 @@ const ECHEC_CONNEXION = "Adresse ou mot de passe incorrect, ou adresse pas encor
 const REPONSE_INSCRIPTION = "Si cette adresse n'a pas encore de compte, il vient d'être créé : ouvrez le lien de confirmation reçu par e-mail, puis connectez-vous.";
 const REPONSE_RENVOI = "Si un compte attend la confirmation de cette adresse, un nouveau lien vient d'être envoyé.";
 
-/** Plafond global de 200 e-mails par 24 h (ADR 0019, relecture) : au-delà, rien ne part, et l'alerte « courriels » le
- *  signale. */
-async function courrielPermis(base: Base, journal: FastifyBaseLogger): Promise<boolean> {
-  const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.courriel_reserver() AS ok`;
-  if (!ok) journal.error("plafond global d'e-mails atteint : envoi abandonné");
-  return ok;
-}
-
-/** Avis à une adresse déjà inscrite (ADR 0019) ; mêmes plafonds que les liens ; jamais d'erreur vers l'appelant. */
+/** Avis à une adresse déjà inscrite (ADR 0019) : « compte existant », ou « compte en attente » quand l'adresse n'est pas
+ *  confirmée (audit du 13/11/2026 : le mot de passe de cette dernière demande vaut désormais). 1 par jour et par compte ;
+ *  place prise sur le plafond global en base ; jamais d'erreur vers l'appelant. */
 async function envoyerAvis(base: Base, courriel: { expediteur: Expediteur | null; urlTableau: string },
-                           utilisateur: bigint, journal: FastifyBaseLogger): Promise<void> {
-  if (courriel.expediteur === null) return;
+                           utilisateur: bigint, attente: boolean, journal: FastifyBaseLogger): Promise<void> {
+  const expediteur = courriel.expediteur;
+  if (expediteur === null) return;
   try {
     const [{ email }] = await base.$queryRaw<{ email: string | null }[]>`SELECT app.avis_compte_existant(${utilisateur}) AS email`;
-    if (email !== null && (await courrielPermis(base, journal))) {
-      courriel.expediteur.envoyer(messageAvis(email, courriel.urlTableau)).catch(() => journal.error("envoi de l'avis de compte existant échoué"));
+    if (email !== null) {
+      const m = attente ? messageAttente(email, courriel.urlTableau) : messageAvis(email, courriel.urlTableau);
+      enArrierePlan(() => expediteur.envoyer(m).catch(() => journal.error("envoi de l'avis de compte existant échoué")));
     }
   } catch {
     journal.error("envoi de l'avis de compte existant échoué");
@@ -220,6 +261,8 @@ async function envoyerAvis(base: Base, courriel: { expediteur: Expediteur | null
 
 export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buffer | null, cleHmac: Buffer | null = null,
                            courriel: { expediteur: Expediteur | null; urlTableau: string } = { expediteur: null, urlTableau: "" }): void {
+  // À l'arrêt, les envois partis après la réponse se terminent avant la fermeture de la base.
+  app.addHook("onClose", async () => { await envoisEnCours(); });
   app.register(async (pub) => {
     pub.addHook("onRequest", async (req, rep) => {
       if (!csrfOk(req)) return rep.code(403).send({ erreur: "en-tête X-Wakatnet-Requete manquant" });
@@ -230,24 +273,41 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
     // Le mot de passe est haché dans les deux cas, avant la base (pas d'écart de durée révélateur).
     pub.post<{ Body: { nom?: unknown; email?: unknown; mot_de_passe?: unknown } }>("/v1/inscription", async (req, rep) => {
       const { nom, email, mot_de_passe } = req.body ?? {};
-      if (typeof nom !== "string" || nom.trim().length < 1 || nom.length > 120) return rep.code(422).send({ erreur: "nom de 1 à 120 caractères" });
-      if (typeof email !== "string" || email.length > 254 || !EMAIL.test(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
+      // 80 caractères : la limite de la colonne app.utilisateur.nom (audit du 13/11/2026).
+      if (typeof nom !== "string" || nom.trim().length < 1 || nom.length > 80) return rep.code(422).send({ erreur: "nom de 1 à 80 caractères" });
+      if (!emailAcceptable(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
       if (!mdpAcceptable(mot_de_passe)) return rep.code(422).send({ erreur: "mot de passe de 10 caractères au moins" });
       const empreinteMdp = await hacher(mot_de_passe);
       const [r] = await base.$queryRaw<{ statut: string; utilisateur_id: bigint | null }[]>`
         SELECT statut, utilisateur_id FROM app.inscription_demander(${nom.trim()}, ${email}, ${empreinteMdp}, ${cleSource(req.ip, cleHmac, new Date(), 48)})`;
-      if (r.statut === "trop") return rep.code(429).send({ erreur: "Trop d'inscriptions depuis cette connexion : réessayez dans une heure." });
+      if (r.statut === "trop") return rep.code(429).send({ erreur: "Trop de demandes depuis cette connexion : réessayez plus tard." });
       if (r.statut === "cree") await envoyerVerification(base, courriel, r.utilisateur_id!, req.log);
-      else if (r.statut === "existe" && r.utilisateur_id !== null) await envoyerAvis(base, courriel, r.utilisateur_id, req.log);
+      else if ((r.statut === "existe" || r.statut === "attente") && r.utilisateur_id !== null) {
+        await envoyerAvis(base, courriel, r.utilisateur_id, r.statut === "attente", req.log);
+      }
       return rep.code(202).send({ ok: true, message: REPONSE_INSCRIPTION });
     });
 
-    // Lien perdu (ADR 0019) : renvoi sans session, réponse toujours identique ; 5 par heure et par source.
+    // Lien perdu (ADR 0019) : renvoi sans session, réponse toujours identique ; 5 par heure et 10 par jour et par source.
+    // Audit du 13/11/2026 : la réponse part AVANT tout travail en base, qui se fait ensuite ; sa durée ne dit donc pas si
+    // un compte attend la confirmation de cette adresse. Les erreurs sont journalisées sans donnée personnelle.
     pub.post<{ Body: { email?: unknown } }>("/v1/verification/renvoyer", async (req, rep) => {
       const email = req.body?.email;
-      if (typeof email !== "string" || email.length > 254 || !EMAIL.test(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
-      const [{ u }] = await base.$queryRaw<{ u: bigint | null }[]>`SELECT app.renvoi_demander(${email}, ${cleSource(req.ip, cleHmac, new Date(), 48)}) AS u`;
-      if (u !== null) await envoyerVerification(base, courriel, u, req.log);
+      if (!emailAcceptable(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
+      const source = cleSource(req.ip, cleHmac, new Date(), 48);
+      const journal = req.log;
+      if (ENVOIS.size >= ENVOIS_MAX) {
+        journal.error("renvoi du lien abandonné : trop de travaux en cours");
+        return rep.code(202).send({ ok: true, message: REPONSE_RENVOI });
+      }
+      enArrierePlan(async () => {
+        try {
+          const [{ u }] = await base.$queryRaw<{ u: bigint | null }[]>`SELECT app.renvoi_demander(${email}, ${source}) AS u`;
+          if (u !== null) await envoyerVerification(base, courriel, u, journal);
+        } catch {
+          journal.error("renvoi du lien de vérification échoué");
+        }
+      });
       return rep.code(202).send({ ok: true, message: REPONSE_RENVOI });
     });
 

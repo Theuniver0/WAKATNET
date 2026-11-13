@@ -1140,3 +1140,43 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
     - **M-4** : type contenant une virgule, aucun n'est documenté ; il donne le code 2, jamais un silence.
 - **Preuves** : `apps/api/tests/run.sh` : 196/196. Dont l'outil en ligne de commande sur un vrai paiement en base, relevé au format pawaPay : écart nul, frais et retrait totalisés, code 2 sur un ajustement manuel. Les trois tests de la relecture ont été écrits avant le correctif, mais leur échec préalable n'a pas été observé à l'exécution.
 - **Non prouvé** : un export réel. Restent à confirmer le format de la date, le signe et les décimales, le libellé des types, et si les frais portent le `Transaction ID` du dépôt. Le jeton du bac à sable est nécessaire.
+
+## 13/11/2026 — Audit de sécurité du code ajouté depuis la phase 5, corrections
+
+- **Audit** : dix agents en lecture seule, un par domaine. Synthèse et suites dans `docs/REVUE_SECURITE.md` §4. Aucun Critique, cinq Élevés, une vingtaine de Moyens, environ quarante Faibles. Les sous-agents prévus n'ont pas pu être lancés, faute d'outil : chaque domaine a été audité par un seul agent.
+- **Corrections** : sept agents sur des fichiers séparés, puis des raccords faits ici :
+  - plafond de scrypt ;
+  - `npm ci` avec retour arrière ;
+  - droits du test de RADIUS ;
+  - `.invalid` refusé à la création d'un gérant ;
+  - bancs de sauvegarde en `root:postgres` ;
+  - README d'Ansible, ADR 0015, OpenAPI ;
+  - schéma Prisma régénéré (table `compte_marchand_verification`).
+- **Migrations nouvelles** :
+  - 0036 : quota vérifié à la consommation du jeton ;
+  - 0037 : verrous du compte marchand, limite de vérification, depositId noté avant `charge()` ;
+  - 0038 : rôle `wk_rapprochement` en lecture seule ;
+  - 0039 : comptes durcis.
+- **Relecture de la règle 4** des correctifs d'argent, par un agent neuf : aucun bloquant. Corrigés ici :
+  - I-1 : ligne hors paiement sans référence ;
+  - I-2 : tolérance d'horloge sur `expires` ;
+  - M-1 : 401 pour les appelants simultanés ;
+  - M-4 : `[ ]` échappés.
+
+  Pour chacun, test rouge avant et vert après.
+- **Preuves** (sur l'état final, sauf mention) :
+  - `apps/api/tests/run.sh` : 224/224 ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS (axe-core sur 14 écrans) ;
+  - `radius/tests/run.sh` : 288 réussis, 19 ignorés (droits compris) ;
+  - `apps/wg-agent/tests/run.sh` : SUCCÈS (13 tests Go, intégration et pare-feu compris) ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS sur les 10 étapes (idempotence ; 444, en-têtes, budget par site, `/etat`, jeton masqué, B en auto-signé ; retour arrière du pare-feu déclenché) ;
+  - `infra/noeud/essais/sauvegarde.sh` et `sauvegarde-s3.sh` : SUCCÈS ;
+  - `apps/api/tests/charge.sh` : SUCCÈS.
+
+  e2e, RADIUS, wg-agent, Ansible, sauvegardes et charge ont tourné avant les quatre correctifs de la relecture, qui ne touchent que `pawapay.ts`, `rapprochement.ts` et leurs tests, couverts par les 224.
+- **Non prouvé** :
+  - certbot réel ;
+  - B2 réel ;
+  - le filtre d'appels système de systemd sur Debian 13 ;
+  - le format réel du relevé pawaPay ;
+  - le bac à sable pawaPay : le jeton n'est pas injecté par le proxy de la session.

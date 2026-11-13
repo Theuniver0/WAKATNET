@@ -31,6 +31,25 @@ export function cheminMasque(url: string): string {
   return url.split("?")[0].replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
 }
 
+/** Ce qu'on journalise d'une erreur interne (audit du 13/11/2026) : classe, code, code SQLSTATE et nom de la contrainte.
+ *  Jamais le message, la pile ni le DETAIL de PostgreSQL : « Failing row contains (…) » citait l'adresse, le nom et
+ *  l'empreinte du mot de passe. */
+export function resumeErreur(err: unknown): { type: string; code?: string; sqlstate?: string; contrainte?: string } {
+  const e = (typeof err === "object" && err !== null ? err : {}) as {
+    name?: unknown; code?: unknown; meta?: { driverAdapterError?: { cause?: { originalCode?: unknown; code?: unknown; constraint?: unknown; originalMessage?: unknown } } };
+  };
+  const nom = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_.-]{1,80}$/.test(v) ? v : undefined);
+  const type = nom(typeof err === "object" && err !== null ? err.constructor?.name : undefined) ?? nom(e.name) ?? typeof err;
+  const cause = e.meta?.driverAdapterError?.cause;
+  const sqlstate = nom(cause?.originalCode) ?? nom(cause?.code);
+  // Le nom de la contrainte seul, extrait du message de PostgreSQL (« … violates check constraint "nom" ») ; le reste du
+  // message n'est pas gardé.
+  const contrainte = nom(cause?.constraint)
+    ?? (typeof cause?.originalMessage === "string" ? nom(/constraint "([A-Za-z0-9_.-]{1,80})"/.exec(cause.originalMessage)?.[1]) : undefined);
+  const code = nom(e.code);
+  return { type, ...(code ? { code } : {}), ...(sqlstate ? { sqlstate } : {}), ...(contrainte ? { contrainte } : {}) };
+}
+
 export function construire(config: Config, base: Base,
                            options: { journal?: boolean; flux?: NodeJS.WritableStream; service?: ServicePaiement; expediteur?: Expediteur } = {}): FastifyInstance {
   const service = options.service ?? (config.cles ? new ServicePaiement(base, config.cles) : null);
@@ -49,17 +68,19 @@ export function construire(config: Config, base: Base,
   app.decorateRequest("tenantId", 0n);
   app.decorateRequest("utilisateur", null);
 
-  // Erreurs : journalisées en entier, rendues sans détail (texte de la base, adresse, fournisseur).
+  // Erreurs : journalisées en résumé (resumeErreur), rendues sans détail (texte de la base, adresse, fournisseur).
   // Sur le portail, une page HTML ; ailleurs, un JSON générique (revue de fin de phase 3).
   app.setErrorHandler((err, req, rep) => {
     const sc = (err as { statusCode?: unknown }).statusCode;
-    const code = typeof sc === "number" && sc >= 400 && sc < 500 ? sc : 500;
-    if (code === 500) req.log.error({ err }, "erreur interne");
+    // 503 : saturation voulue (CalculsSatures, audit du 13/11/2026), jamais journalisée comme une erreur interne.
+    const code = typeof sc === "number" && ((sc >= 400 && sc < 500) || sc === 503) ? sc : 500;
+    if (code === 503) rep.header("retry-after", "5");
+    if (code === 500) req.log.error({ erreur: resumeErreur(err) }, "erreur interne");
     if (req.url.startsWith("/p/")) {
       return rep.code(code).type("text/html; charset=utf-8").header("cache-control", "no-store")
         .send(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Erreur</title></head><body style="font-family:system-ui,sans-serif;padding:1rem"><h1>Service momentanément indisponible</h1><p>Réessayez dans quelques instants.</p></body></html>`);
     }
-    return rep.code(code).send({ erreur: code === 500 ? "erreur interne" : "requête invalide" });
+    return rep.code(code).send({ erreur: code === 500 ? "erreur interne" : code === 503 ? "service saturé, réessayez" : "requête invalide" });
   });
 
   // Tableau de bord (ADR 0014 §5) : fichiers statiques, même origine, CSP stricte.

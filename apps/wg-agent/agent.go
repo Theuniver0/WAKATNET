@@ -115,16 +115,23 @@ func PointsVus(pairs []wgtypes.Peer, maintenant time.Time) []PointVu {
 
 // Noter : relève les points de terminaison et les écrit. Hors chemin critique : une erreur est seulement
 // journalisée par l'appelant, et ne touche jamais aux pairs. Les IP ne sont pas journalisées.
+//
+// app.wg_points_noter est appelée à CHAQUE fois, même sans point vu : c'est elle qui efface les IP des routeurs
+// révoqués ou non revus depuis un jour (T10, docs/CONFORMITE.md). Interface illisible : appel avec des tableaux
+// vides, qui ne note rien et purge seulement ; l'erreur de lecture remonte quand même.
 func (a *Agent) Noter(ctx context.Context, noter func(context.Context, []PointVu) (int, error)) error {
-	dev, err := a.WG.Device(a.Nom)
-	if err != nil {
-		return fmt.Errorf("interface %s : %w", a.Nom, err)
-	}
-	points := PointsVus(dev.Peers, time.Now())
-	if len(points) == 0 {
-		return nil
+	dev, errDev := a.WG.Device(a.Nom)
+	var points []PointVu
+	if errDev == nil {
+		points = PointsVus(dev.Peers, time.Now())
 	}
 	n, err := noter(ctx, points)
+	if errDev != nil {
+		if err != nil {
+			return fmt.Errorf("interface %s : %w ; purge des IP des routeurs : %v", a.Nom, errDev, err)
+		}
+		return fmt.Errorf("interface %s : %w (IP des routeurs purgées, aucune notée)", a.Nom, errDev)
+	}
 	if err != nil {
 		return fmt.Errorf("IP des routeurs : %w", err)
 	}
@@ -137,6 +144,7 @@ func (a *Agent) Noter(ctx context.Context, noter func(context.Context, []PointVu
 // NoterBase : app.wg_points_noter (rôle wk_wg, EXECUTE seul ; sans effet sur une réplique).
 func NoterBase(conn *pgx.Conn) func(context.Context, []PointVu) (int, error) {
 	return func(ctx context.Context, points []PointVu) (int, error) {
+		// Tableaux vides (jamais NULL) quand aucun point n'est vu : la fonction rend 0 et purge.
 		cles := make([]string, len(points))
 		ips := make([]string, len(points))
 		vus := make([]time.Time, len(points))
@@ -163,6 +171,22 @@ func (a *Agent) Boucle(ctx context.Context, periode, pause time.Duration) {
 	}
 }
 
+// cycle : un tour, puis le relevé des points. Vrai si la session doit s'arrêter (contexte annulé).
+// Le relevé suit le tour même quand celui-ci échoue : il relit l'interface lui-même (et purge seulement si elle
+// est illisible), si bien que les IP des routeurs ne restent jamais sans purge tant que la base répond.
+func (a *Agent) cycle(ctx context.Context, lire func(context.Context) ([]Pair, error), noter func(context.Context, []PointVu) (int, error)) bool {
+	if _, err := a.Tour(ctx, lire); err != nil {
+		a.Journal.Error("tour", "erreur", err.Error())
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return true
+		}
+	}
+	if err := a.Noter(ctx, noter); err != nil {
+		a.Journal.Error("points", "erreur", err.Error())
+	}
+	return false
+}
+
 func (a *Agent) session(ctx context.Context, periode time.Duration) error {
 	cfg, err := pgx.ParseConfig("")
 	if err != nil {
@@ -180,13 +204,8 @@ func (a *Agent) session(ctx context.Context, periode time.Duration) error {
 	lire := LireBase(conn)
 	noter := NoterBase(conn)
 	for {
-		if _, err := a.Tour(ctx, lire); err != nil {
-			a.Journal.Error("tour", "erreur", err.Error())
-			if errors.Is(err, context.Canceled) {
-				return nil
-			}
-		} else if err := a.Noter(ctx, noter); err != nil {
-			a.Journal.Error("points", "erreur", err.Error())
+		if a.cycle(ctx, lire, noter) {
+			return nil
 		}
 		attente, annuler := context.WithTimeout(ctx, periode)
 		_, err := conn.WaitForNotification(attente)

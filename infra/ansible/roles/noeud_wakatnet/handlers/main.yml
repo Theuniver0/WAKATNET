@@ -3,14 +3,37 @@
     daemon_reload: true
 
 # Dans cet ordre : dépendances verrouillées (production seulement), puis client Prisma.
+# --ignore-scripts : aucun script d'installation ne tourne en root. Sans lui, le postinstall de @prisma/engines
+# télécharge un binaire depuis binaries.prisma.sh, hors du verrou. Inutile ici : le client (générateur
+# prisma-client, adaptateur pg) n'utilise aucun moteur, et `prisma generate` réussit sans réseau après
+# `npm ci --ignore-scripts` (vérifié le 13/11/2026, Prisma 7.10.1, sous `unshare -n`).
+# --no-install : npx n'ira jamais chercher prisma sur le registre s'il manquait au verrou.
+# Audit du 13/11/2026 (FRONTAL n° 10) : `npm ci` vide node_modules avant de réinstaller, pendant que l'API tourne. Un échec
+# en cours de route (registre injoignable) laissait node_modules vide, et l'API ne redémarrait plus. Copie préalable
+# par liens physiques (instantanée, sans place en plus : npm écrit de nouveaux fichiers), puis restauration si npm ci
+# ou prisma generate échoue. Le play échoue quand même, pour être vu.
 - name: Installer les dépendances de l'API
-  ansible.builtin.command:
-    cmd: npm ci --omit=dev --no-audit --no-fund -w apps/api
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      sauver()   { rm -rf "$1.precedent"; if [ -d "$1" ]; then cp -al "$1" "$1.precedent"; fi; }
+      restaurer() { if [ -d "$1.precedent" ]; then rm -rf "$1"; mv "$1.precedent" "$1"; fi; }
+      oublier()  { rm -rf "$1.precedent"; }
+      for d in node_modules apps/api/node_modules apps/api/genere; do sauver "$d"; done
+      if npm ci --omit=dev --ignore-scripts --no-audit --no-fund -w apps/api \
+         && (cd apps/api && npx --no-install prisma generate); then
+        for d in node_modules apps/api/node_modules apps/api/genere; do oublier "$d"; done
+      else
+        for d in node_modules apps/api/node_modules apps/api/genere; do restaurer "$d"; done
+        echo "npm ci ou prisma generate en échec : dépendances précédentes restaurées" >&2
+        exit 1
+      fi
     chdir: "{{ wakatnet_racine }}"
+    executable: /bin/bash
   changed_when: true
 
 - name: Générer le client Prisma
   ansible.builtin.command:
-    cmd: npx prisma generate
+    cmd: npx --no-install prisma generate
     chdir: "{{ wakatnet_racine }}/apps/api"
   changed_when: true

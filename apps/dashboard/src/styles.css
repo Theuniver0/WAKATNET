@@ -69,3 +69,12 @@ thead th { background: #e6eaee; }
 .synthese dd { margin: 0; }
 .synthese dd.montant { font-size: 1.5rem; font-weight: 700; }
 pre { background: #101820; color: #f2f5f7; padding: 1rem; border-radius: .35rem; white-space: pre-wrap; word-break: break-all; }
+
+/* Secret saisi (jeton pawaPay) : champ texte masqué, pour que le gestionnaire de mots de passe du navigateur ne propose
+   pas de l'enregistrer (audit du 13/11/2026). Une classe de cette feuille : la CSP du tableau (style-src 'self')
+   refuse tout style en ligne. */
+.secret-masque {
+  -webkit-text-security: disc;
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.1em;
+}

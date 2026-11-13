@@ -119,6 +119,18 @@ test("signature RFC 9421 des callbacks : valide (DER ou r||s) ; corps, chemin, h
   refuse(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, composants: ["@method", "@authority", "@path", "signature-date"] }));
   refuse(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, cree: maintenant - 2 * 86_400 }));
   refuse(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, cree: maintenant + 3600 }));
+  // Audit du 13/11/2026 : `expires` présent et dépassé de plus que la tolérance d'horloge (300 s, comme `created`) → refusée ;
+  // absent → seule la fenêtre de `created` s'applique.
+  refuse(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, expires: maintenant - 301 }));
+  refuse(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, cree: maintenant }), corps, req, cles, maintenant + 361);
+  // Relecture R4 (I-2) : un renvoi reçu un peu après `expires` (file d'attente, dérive d'horloge) n'est PAS refusé ; sinon
+  // la confirmation attendrait la vérification périodique et le client, lassé, rachèterait.
+  verifierSignature(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, cree: maintenant - 120 }), Buffer.from(corps), req, cles, maintenant);
+  verifierSignature(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, expires: maintenant - 1 }), Buffer.from(corps), req, cles, maintenant);
+  verifierSignature(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, cree: maintenant }), Buffer.from(corps), req, cles, maintenant + 61);
+  verifierSignature(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, cree: maintenant - 120, expires: null }),
+                    Buffer.from(corps), req, cles, maintenant);
+  verifierSignature(callbackSigne(corps, { autorite: req.autorite, chemin: req.chemin, cle, expires: maintenant }), Buffer.from(corps), req, cles, maintenant);
   const { signature: _s, "signature-input": _i, ...sansSignature } = ok;
   refuse(sansSignature);
   refuse({ ...ok, signature: `autre=${ok.signature.slice(7)}` });
@@ -152,6 +164,77 @@ test("parseWebhook : clés lues chez pawaPay (avec le jeton) ; rotation suivie, 
   const sansRef = JSON.stringify({ depositId: depositIdDe(ref), status: "COMPLETED", amount: "200.00", currency: "XOF" });
   assert.deepEqual(await f.parseWebhook(callbackSigne(sansRef, { ...req, cle: faux.cle, cree: Math.floor(maintenant / 1000) }), Buffer.from(sansRef), req),
                    { idEvenement: `${depositIdDe(ref)}:COMPLETED`, reference: "", referenceFournisseur: depositIdDe(ref) });
+});
+
+test("audit du 13/11/2026 : clés publiques en panne → une seule lecture par 5 min, quelle que soit la cause de l'échec", async () => {
+  const enPanne = await new FauxPawapay().demarrer();                               // serveur neuf : cache des clés vide
+  try {
+    enPanne.clesEnPanne = true;
+    let maintenant = Date.now();
+    const f = new PawapayProvider({ jeton: JETON, environnement: "sandbox" }, { urlBase: enPanne.url, maintenant: () => maintenant });
+    const lectures = () => enPanne.requetes.filter((r) => r.chemin === "/v2/public-key/http").length;
+    const ref = reference();
+    const corps = JSON.stringify({ depositId: depositIdDe(ref), status: "COMPLETED", amount: "200.00", currency: "XOF", clientReferenceId: ref });
+    const req = { methode: "POST", autorite: "api.exemple.bf", chemin: "/webhooks/pawapay/DDDDDDDDDDDDDDDDDDDDDDDD" };
+    const signe = () => callbackSigne(corps, { ...req, cle: enPanne.cle, cree: Math.floor(maintenant / 1000) });
+    // Callbacks bien formés (forme, digest, date justes) : seule la clé manque. Avant le correctif, chacun relançait
+    // GET /v2/public-key/http avec le jeton du propriétaire (cache expiré après l'échec).
+    for (let i = 0; i < 10; i++) {
+      await assert.rejects(f.parseWebhook(signe(), Buffer.from(corps), req), SignatureInvalide);
+      maintenant += 20_000;                                                          // 10 × 20 s = 200 s < 5 min
+    }
+    assert.equal(lectures(), 1, `lectures pendant la panne : ${lectures()}`);
+    // Relecture R4 (M-1) : pawaPay INJOIGNABLE (port fermé) et callbacks SIMULTANÉS : tous reçoivent SignatureInvalide (401),
+    // jamais l'erreur brute du fournisseur (500), y compris ceux qui attendent la lecture en cours.
+    const injoignable = new PawapayProvider({ jeton: JETON, environnement: "sandbox" }, { urlBase: "http://127.0.0.1:1", maintenant: () => maintenant });
+    const simultanes = await Promise.allSettled(Array.from({ length: 5 }, () => injoignable.parseWebhook(signe(), Buffer.from(corps), req)));
+    for (const x of simultanes) {
+      assert.equal(x.status, "rejected");
+      assert.ok((x as PromiseRejectedResult).reason instanceof SignatureInvalide, String((x as PromiseRejectedResult).reason));
+    }
+    // Panne finie : nouvelle lecture permise 5 min après la précédente, et le callback passe.
+    enPanne.clesEnPanne = false;
+    maintenant += 120_000;
+    assert.equal((await f.parseWebhook(signe(), Buffer.from(corps), req)).reference, ref);
+    assert.equal(lectures(), 2);
+  } finally {
+    await enPanne.arreter();
+  }
+});
+
+test("audit du 13/11/2026 : un callback forgé grossièrement est refusé sans AUCUN appel sortant (forme, composants, algorithme, date, expires, digest)", async () => {
+  const neuf = await new FauxPawapay().demarrer();                                  // cache des clés vide : toute lecture se verrait
+  try {
+    const maintenant = Date.now();
+    const f = new PawapayProvider({ jeton: JETON, environnement: "sandbox" }, { urlBase: neuf.url, maintenant: () => maintenant });
+    const ref = reference();
+    const corps = JSON.stringify({ depositId: depositIdDe(ref), status: "COMPLETED", clientReferenceId: ref });
+    const req = { methode: "POST", autorite: "api.exemple.bf", chemin: "/webhooks/pawapay/EEEEEEEEEEEEEEEEEEEEEEEE" };
+    const cree = Math.floor(maintenant / 1000);
+    const base = { ...req, cle: neuf.cle, cree };
+    const ok = callbackSigne(corps, base);
+    const { signature: _s, "signature-input": _i, ...sansSignature } = ok;
+    const forges: [string, Record<string, string>, string][] = [
+      ["sans en-têtes", {}, corps],
+      ["non signé", sansSignature, corps],
+      ["Signature-Input illisible", { ...ok, "signature-input": "n'importe quoi" }, corps],
+      ["étiquette différente", { ...ok, signature: `autre=${ok.signature.slice(7)}` }, corps],
+      ["composant manquant", callbackSigne(corps, { ...base, composants: ["@method", "@authority", "@path", "signature-date"] }), corps],
+      ["algorithme refusé", callbackSigne(corps, { ...base, alg: "hmac-sha256" }), corps],
+      ["trop vieux", callbackSigne(corps, { ...base, cree: cree - 2 * 86_400 }), corps],
+      ["dans le futur", callbackSigne(corps, { ...base, cree: cree + 3600 }), corps],
+      ["expiré", callbackSigne(corps, { ...base, cree: cree - 600 }), corps],
+      ["corps changé (Content-Digest faux)", ok, corps.replace("COMPLETED", "FAILED")],
+      ["Content-Digest absent", { ...ok, "content-digest": "" }, corps],
+    ];
+    for (const [nom, h, c] of forges) await assert.rejects(f.parseWebhook(h, Buffer.from(c), req), SignatureInvalide, nom);
+    assert.deepEqual(neuf.requetes.map((r) => r.chemin), [], "aucune requête vers pawaPay pour un callback forgé grossièrement");
+    // Le même callback, bien formé, fait lire les clés une fois et passe.
+    assert.equal((await f.parseWebhook(ok, Buffer.from(corps), req)).reference, ref);
+    assert.deepEqual(neuf.requetes.map((r) => r.chemin), ["/v2/public-key/http"]);
+  } finally {
+    await neuf.arreter();
+  }
 });
 
 test("relecture : UNKNOWN_ERROR n'est jamais un refus ; bac à sable refusé sur la plateforme de production ; adresse de test locale seulement", async () => {
@@ -235,6 +318,86 @@ test("de bout en bout : compte marchand pawaPay (bac à sable), achat Orange, ca
         headers: { host: "api.test.invalid", ...callbackSigne(corps2, { autorite: "api.test.invalid", chemin, cle: faux.cle }) } });
       assert.equal(cb2.statusCode, 200, cb2.body);
       assert.equal(cb2.json().statut, "SUCCEEDED");
+    });
+  } finally {
+    delete process.env.WAKATNET_PAWAPAY_URL;
+  }
+});
+
+/** Propriétaire prêt à vendre par pawaPay (bac à sable, faux serveur) : forfait de 200 F, hôte du hotspot, crédits. */
+async function vendeurPawapay(app: Parameters<Parameters<typeof avecApp>[0]>[0], nom: string) {
+  const p = await proprietaire(nom);
+  const [plan] = await sql<{ id: string }>(URL_ADMIN,
+    "INSERT INTO app.plan (tenant_id, nom, prix_xof, uptime_limit_s) VALUES ($1, '1 heure', 200, 3600) RETURNING id::text", [p.tenant]);
+  const [s] = await sql<{ public_id: string }>(URL_ADMIN, "UPDATE app.site SET hotspot_hotes = '{10.5.50.1}' WHERE id = $1 RETURNING public_id", [p.site]);
+  await sql(URL_ADMIN, "SELECT app.credits_recharger($1, 10000, $2)", [p.tenant, `pp-${p.tenant}`]);
+  const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(p.tenant),
+                               payload: { fournisseur: "pawapay", cles: { jeton: JETON, environnement: "sandbox" } } });
+  assert.equal(r.statusCode, 200, r.body);
+  return { ...p, plan: plan.id, publicId: s.public_id, chemin: new URL(r.json().url_webhook).pathname };
+}
+
+test("audit du 13/11/2026 : PUT /v1/compte-marchand → 5 vérifications chez le fournisseur par heure et par propriétaire ; paiements ouverts → 409 SANS appel au fournisseur", async () => {
+  process.env.WAKATNET_PAWAPAY_URL = faux.url;
+  try {
+    await avecApp(async (app) => {
+      const confs = () => faux.requetes.filter((r) => r.chemin === "/v2/active-conf").length;
+      const p = await vendeurPawapay(app, "pawaPay limite de vérification");           // 1re vérification
+      const faux_jeton = (i: number) => ({ fournisseur: "pawapay", cles: { jeton: `jeton-refuse-${i}-0123456789abcdef`, environnement: "sandbox" } });
+      for (let i = 2; i <= 5; i++) {
+        const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(p.tenant), payload: faux_jeton(i) });
+        assert.equal(r.statusCode, 422, `vérification ${i}`);
+      }
+      const avant = confs();
+      for (let i = 6; i <= 9; i++) {
+        const r = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(p.tenant), payload: faux_jeton(i) });
+        assert.equal(r.statusCode, 429, `vérification ${i} : ${r.body}`);
+      }
+      assert.equal(confs(), avant, "au-delà de 5 par heure, plus aucun appel à GET /v2/active-conf");
+      // Limite PAR propriétaire : un autre n'est pas gêné.
+      await vendeurPawapay(app, "pawaPay autre propriétaire");
+
+      // Paiement encore ouvert : 409 avant tout appel au fournisseur (relecture : sinon l'appel serait fait pour rien).
+      const q = await vendeurPawapay(app, "pawaPay 409 avant le fournisseur");
+      const achat = await app.paiement!.creer({ sitePublic: q.publicId, planId: BigInt(q.plan), operateur: "moov_bf", numero: "02345678",
+                                                jetonAppareil: jeton(), soumission: soumission() });
+      if (achat.statut !== "cree") assert.fail(achat.statut);
+      const n = confs();
+      const change = await app.inject({ method: "PUT", url: "/v1/compte-marchand", headers: entetes(q.tenant),
+                                        payload: { fournisseur: "pawapay", cles: { jeton: JETON, environnement: "sandbox" } } });
+      assert.equal(change.statusCode, 409, change.body);
+      assert.equal(confs(), n, "409 décidé sans appeler pawaPay");
+    });
+  } finally {
+    delete process.env.WAKATNET_PAWAPAY_URL;
+  }
+});
+
+test("audit du 13/11/2026 : charge() sans réponse (paiement CREATED), puis callback SANS clientReferenceId → retrouvé par depositId et confirmé", async () => {
+  process.env.WAKATNET_PAWAPAY_URL = faux.url;
+  try {
+    await avecApp(async (app) => {
+      const p = await vendeurPawapay(app, "pawaPay callback après charge expirée");
+      // pawaPay a reçu le dépôt, mais sa réponse s'est perdue (ici : 500) : issue inconnue, le paiement reste CREATED.
+      faux.prochaineReponse = { statut: 500, corps: { failureReason: { failureCode: "UNKNOWN_ERROR" } } };
+      const achat = await app.paiement!.creer({ sitePublic: p.publicId, planId: BigInt(p.plan), operateur: "moov_bf", numero: "02345678",
+                                                jetonAppareil: jeton(), soumission: soumission() });
+      if (achat.statut !== "cree") assert.fail(achat.statut);
+      assert.equal(achat.statutPaiement, "CREATED");
+      const depositId = depositIdDe(achat.reference);
+      const [ligne] = await sql<{ statut: string; reference_fournisseur: string | null }>(URL_ADMIN,
+        "SELECT statut, reference_fournisseur FROM app.payment WHERE reference = $1", [achat.reference]);
+      assert.deepEqual(ligne, { statut: "CREATED", reference_fournisseur: depositId }, "depositId noté AVANT charge()");
+      faux.depots.set(depositId, { depositId, status: "COMPLETED", amount: "200", currency: "XOF", provider: "MOOV_BFA", phoneNumber: "22602345678" });
+      const corps = JSON.stringify(faux.donnees(faux.depots.get(depositId)!));        // sans clientReferenceId
+      assert.ok(!corps.includes("clientReferenceId"));
+      const cb = await app.inject({ method: "POST", url: p.chemin, payload: corps,
+        headers: { host: "api.test.invalid", ...callbackSigne(corps, { autorite: "api.test.invalid", chemin: p.chemin, cle: faux.cle }) } });
+      assert.equal(cb.statusCode, 200, cb.body);
+      assert.deepEqual(cb.json(), { ok: true, statut: "SUCCEEDED" }, "avant le correctif : « paiement inconnu de ce compte », ignoré");
+      const [pay] = await sql<{ statut: string; voucher: boolean }>(URL_ADMIN,
+        "SELECT statut, voucher_id IS NOT NULL AS voucher FROM app.payment WHERE reference = $1", [achat.reference]);
+      assert.deepEqual(pay, { statut: "SUCCEEDED", voucher: true });
     });
   } finally {
     delete process.env.WAKATNET_PAWAPAY_URL;

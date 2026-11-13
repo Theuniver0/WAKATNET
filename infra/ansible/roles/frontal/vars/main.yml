@@ -1,0 +1,8 @@
+# Validation du fichier de contexte http avant sa mise en place : une configuration minimale l'inclut et
+# nginx -t la vérifie. Fichier temporaire unique (mktemp), effacé ensuite. Ansible remplace %s par le fichier
+# candidat (formatage Python : aucun autre « % » ici).
+frontal_nginx_valider: >-
+  bash -c 'f="$(mktemp)" && printf "events {}\nhttp { include /etc/nginx/mime.types; include %s; }\n" > "$f"
+  && nginx -t -q -c "$f"; r=$?; rm -f "$f"; exit $r'
+# Certificat auto-signé local (frontal_tls=autosigne, et en attendant le premier certificat Let's Encrypt).
+frontal_autosigne_dir: /etc/nginx/wakatnet-autosigne

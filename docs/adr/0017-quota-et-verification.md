@@ -50,3 +50,21 @@ Déjà en place : 3 liens par heure, et 5 en tout par compte, contre l'envoi ré
 - **Reste** : des adresses jetables, une fois le lien par e-mail en service. L'alerte `overlay_plein` laisse le temps d'agir : suspendre des comptes, baisser leur quota.
 - **Pour le propriétaire** : un compte non vérifié voit pourquoi le raccordement est bloqué, et ce qu'il faut faire. Un propriétaire qui atteint son quota le voit aussi, et demande une hausse à Telecom Universel.
 - Un routeur remplacé consomme une place du quota : le super-admin la rend en relevant le quota.
+
+## Audit du 13/11/2026
+
+Deux constats, corrigés par la migration 0036 (tests : `quota.test.ts`, « audit 13/11/2026 »).
+
+1. **[Moyen] Plafonds globaux contrôlés à la création du jeton seulement.** Le plafond de 100 routeurs enrôlés par 24 h et l'arrêt à 90 % de l'overlay comptent les routeurs **enrôlés**, pas les jetons ouverts (choix de la relecture de 0034, pour qu'un jeton jamais consommé n'épuise pas le plafond de tous). Or `enroll_register` ne refaisait aucun contrôle. N comptes qui prennent chacun 2 jetons d'un coup, puis enrôlent dans les 30 min, dépassaient largement les deux plafonds.
+   - **Décision** : `enroll_register` refait les contrôles au moment de la consommation, sous les mêmes verrous que `enrolement_autorise` : d'abord celui du propriétaire, puis le verrou global pour un compte non validé. Le verrou est tenu jusqu'à l'insertion du routeur.
+   - **Refus** : statut `plafond`, traduit en **409** avec le même message qu'à la création. Le jeton reste intact : il pourra servir quand le plafond glissant se libère, ou après la validation du compte.
+2. **[Faible] Un jeton émis survivait à la suspension et à la baisse du quota**, pendant ses 30 minutes de validité.
+   - **À la consommation** : `enroll_register` relit le propriétaire. Un compte suspendu reçoit `suspendu`, traduit en **403**. Si les routeurs enrôlés, révoqués compris, plus celui-ci, dépassent le quota courant, le refus est `quota`, traduit en **409**. Le jeton reste intact dans les deux cas.
+   - **Côté super-admin** : `admin_regler` (suspension) et `admin_acces` (baisse du quota) **expirent** les jetons ouverts du propriétaire. Le nombre de jetons expirés est inscrit au journal d'audit. Ces jetons ne reviennent pas quand la suspension est levée ou le quota relevé : le propriétaire crée une nouvelle commande.
+
+**Ordre des verrous** dans `enroll_register` : ligne du jeton (`FOR UPDATE`), puis `wakatnet_quota:<propriétaire>`, puis `wakatnet_quota:global`, puis `wakatnet.overlay`.
+- `enrolement_autorise` prend les deux mêmes verrous consultatifs, dans le même ordre, et n'attend aucune ligne de jeton existante.
+- `admin_regler` et `admin_acces` ne prennent aucun verrou consultatif. Ils posent `FOR NO KEY UPDATE` sur la ligne du propriétaire, ce qui reste compatible avec le `FOR KEY SHARE` que prennent les clés étrangères des insertions de `enroll_register`. Ils verrouillent ensuite les jetons ouverts.
+- Aucun cycle n'est donc possible. Un essai de concurrence, avec 40 enrôlements et 17 actions de super-admin en parallèle sur une base jetable, n'a produit aucun interblocage.
+
+**Conséquence** : une baisse de quota expire **tous** les jetons ouverts du propriétaire, même ceux qui tiendraient sous le nouveau quota. C'est le plus simple et le plus sûr : la baisse est une action rare, contre un compte suspect.

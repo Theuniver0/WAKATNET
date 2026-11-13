@@ -45,6 +45,11 @@ ATTENDU = {
     "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
     # Phase 3 (ADR 0013 §11) : tout ce qui touche à l'argent passe par ces fonctions ; rien sur ledger.
     "app.compte_marchand_enregistrer(p_fournisseur text, p_cles bytea)": {"wk_api"},
+    # Audit du 13/11/2026 : limite des vérifications de compte (0037), depositId noté avant charge() (0037),
+    # lien annulé quand l'envoi échoue (0039).
+    "app.compte_marchand_avant_verification(p_verification boolean)": {"wk_api"},
+    "app.paiement_reference_fournisseur_noter(p_reference text, p_reference_fournisseur text)": {"wk_api"},
+    "app.verification_annuler(p_empreinte bytea)": {"wk_api"},
     "app.compte_marchand_par_webhook(p_fournisseur text, p_webhook_id text)": {"wk_api"},
     "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
     "app.portail_site(p_public_id text)": {"wk_api"},
@@ -108,6 +113,9 @@ ATTENDU = {
     "app.totp_reserver(p_empreinte bytea)": {"wk_api"},
     "app.totp_reussi(p_essai bigint)": {"wk_api"},
     "app.utilisateur_desactiver(p_utilisateur bigint, p_auteur bigint)": {"wk_api"},
+    # Migration 0038 (audit de l'outil de rapprochement, constat 4) : lecture seule, rien d'autre.
+    "app.rapprochement_paiements(p_tenant bigint, p_jour date, p_refs text[])": {"wk_rapprochement"},
+    "app.rapprochement_commissions(p_tenant bigint, p_jour date)": {"wk_rapprochement"},
 }
 
 
@@ -116,7 +124,8 @@ def test_wk_radius_et_wk_acct_ne_touchent_aucune_table_ni_sequence():
         lignes = c.execute("""
             SELECT r.rolname, n.nspname || '.' || cl.relname
               FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace
-              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_replication'), ('wk_rewind'), ('wk_sante')) r(rolname)
+              CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_replication'), ('wk_rewind'), ('wk_sante'),
+                              ('wk_rapprochement')) r(rolname)
              WHERE cl.relkind IN ('r', 'p', 'v', 'm', 'S')
                AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\\_%'
                AND (has_table_privilege(r.rolname, cl.oid, 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER')
@@ -141,18 +150,19 @@ def test_chaque_role_n_execute_que_ses_fonctions():
     with admin() as c:
         lignes = c.execute("""SELECT r.rolname, ns.nspname || '.' || p.proname
                                 FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg'), ('wk_replication'), ('wk_rewind'), ('wk_sante')) r(rolname)
+                                CROSS JOIN (VALUES ('wk_radius'), ('wk_acct'), ('wk_maint'), ('wk_coa'), ('wk_api'), ('wk_wg'), ('wk_replication'), ('wk_rewind'), ('wk_sante'),
+                                                   ('wk_rapprochement')) r(rolname)
                                WHERE ns.nspname IN ('app', 'radius', 'ledger') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_acces"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
-                      ("wk_api", "app.admin_regler"), ("wk_api", "app.avis_compte_existant"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
+                      ("wk_api", "app.admin_regler"), ("wk_api", "app.avis_compte_existant"), ("wk_api", "app.compte_marchand_avant_verification"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
                       ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"), ("wk_api", "app.courriel_reserver"),
                       ("wk_api", "app.enrolement_autorise"), ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
                       ("wk_api", "app.inscription_demander"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"), ("wk_api", "app.paiement_etat"),
-                      ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_par_reference_fournisseur"), ("wk_api", "app.paiement_replanifier"),
+                      ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_par_reference_fournisseur"), ("wk_api", "app.paiement_reference_fournisseur_noter"), ("wk_api", "app.paiement_replanifier"),
                       ("wk_api", "app.paiement_retrouver"), ("wk_api", "app.paiement_transition"), ("wk_api", "app.paiements_a_verifier"),
                       ("wk_api", "app.paiements_expirer"), ("wk_api", "app.paiements_par_numero"), ("wk_api", "app.portail_forfaits"),
                       ("wk_api", "app.portail_site"), ("wk_api", "app.releve"), ("wk_api", "app.renvoi_demander"), ("wk_api", "app.reversement_avant_envoi"),
@@ -161,11 +171,12 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),
                       ("wk_api", "app.stats_ventes_papier"), ("wk_api", "app.synthese_argent"), ("wk_api", "app.tenant_courant"),
                       ("wk_api", "app.totp_reserver"), ("wk_api", "app.totp_reussi"), ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"),
-                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.verification_consommer"), ("wk_api", "app.verification_creer"),
+                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.verification_annuler"), ("wk_api", "app.verification_consommer"), ("wk_api", "app.verification_creer"),
                       ("wk_api", "app.voucher_importer"),
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
+                      ("wk_rapprochement", "app.rapprochement_commissions"), ("wk_rapprochement", "app.rapprochement_paiements"),
                       ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs"), ("wk_wg", "app.wg_points_noter")]
 
 
@@ -266,3 +277,36 @@ def test_roles_des_noeuds_sans_autre_attribut(role, replication):
         ("pg_ls_dir(text,boolean,boolean)",), ("pg_read_binary_file(text)",),
         ("pg_read_binary_file(text,bigint,bigint,boolean)",), ("pg_stat_file(text,boolean)",)]
     assert fonctions == attendu
+
+
+def test_wk_rapprochement_en_lecture_seule():
+    """Migration 0038 (audit de l'outil de rapprochement, constat 4) : wk_rapprochement = LOGIN, sans autre attribut, membre
+    d'aucun rôle ; transactions en lecture seule par défaut ; USAGE sur app seulement ; aucune table (test plus haut), aucun
+    droit sur ledger ; n'exécute que ses deux fonctions de lecture."""
+    with admin() as c:
+        ligne = c.execute("""SELECT rolcanlogin, rolreplication, rolsuper, rolcreatedb, rolcreaterole, rolbypassrls
+                               FROM pg_roles WHERE rolname = 'wk_rapprochement'""").fetchone()
+        membre = c.execute("""SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member
+                               WHERE r.rolname = 'wk_rapprochement'""").fetchone()[0]
+        reglages = c.execute("""SELECT x FROM pg_db_role_setting s JOIN pg_roles r ON r.oid = s.setrole, unnest(s.setconfig) x
+                                 WHERE r.rolname = 'wk_rapprochement' AND s.setdatabase = 0 ORDER BY 1""").fetchall()
+        schemas = c.execute("""SELECT n.nspname, has_schema_privilege('wk_rapprochement', n.oid, 'USAGE'),
+                                      has_schema_privilege('wk_rapprochement', n.oid, 'CREATE')
+                                 FROM pg_namespace n WHERE n.nspname IN ('app', 'ledger', 'radius', 'public') ORDER BY 1""").fetchall()
+    assert ligne == (True, False, False, False, False, False)
+    assert membre == 0, "membre d'aucun rôle"
+    assert ("default_transaction_read_only=on",) in reglages, reglages
+    assert schemas == [("app", True, False), ("ledger", False, False), ("public", False, False), ("radius", False, False)]
+
+
+def test_wk_rapprochement_lit_par_ses_fonctions_et_rien_d_autre_en_pratique():
+    with admin() as c:
+        c.execute("SET ROLE wk_rapprochement")
+        c.execute("SELECT * FROM app.rapprochement_paiements(1, current_date, '{}')").fetchall()
+        c.execute("SELECT * FROM app.rapprochement_commissions(1, current_date)").fetchall()
+    for requete in ("SELECT reference FROM app.payment LIMIT 1", "SELECT 1 FROM ledger.ecriture LIMIT 1",
+                    "SELECT ledger.commission(200, 1000, 0)", "SELECT secret FROM radius.router_secret LIMIT 1"):
+        with admin() as c:
+            c.execute("SET ROLE wk_rapprochement")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                c.execute(requete)

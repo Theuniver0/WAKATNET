@@ -48,6 +48,11 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new ConfigInvalide("WAKATNET_API_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
   let cles: Config["cles"] = null;
+  // Sans clé HMAC, les sources (IP) des échecs de connexion et des demandes de paiement seraient gardées en clair
+  // (connexion_echec.source, source_demande.source) : refusé en production (T10 de docs/CONFORMITE.md, ADR 0016 §2).
+  if (!env.WAKATNET_CLE_HMAC && env.NODE_ENV === "production") {
+    throw new ConfigInvalide("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources seraient gardées en clair (ADR 0016 §2)");
+  }
   if (env.WAKATNET_CLE_MARCHANDS || env.WAKATNET_CLE_HMAC) {
     try {
       cles = { marchands: lireCle(env.WAKATNET_CLE_MARCHANDS, "WAKATNET_CLE_MARCHANDS", 32),

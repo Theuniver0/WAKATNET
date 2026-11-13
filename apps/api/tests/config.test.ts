@@ -6,6 +6,9 @@ import { ConfigInvalide, lireConfig } from "../src/config.ts";
 
 const URL = { WAKATNET_API_DATABASE_URL: "postgresql://x@h/d" };
 
+// Clés de test seulement (32 octets nuls en base64) : aucune valeur réelle.
+const CLES = { WAKATNET_CLE_MARCHANDS: Buffer.alloc(32).toString("base64"), WAKATNET_CLE_HMAC: Buffer.alloc(32).toString("base64") };
+
 test("URL de base absente, URL publique invalide : refus de démarrer", () => {
   assert.throws(() => lireConfig({}), ConfigInvalide);
   assert.throws(() => lireConfig({ ...URL, WAKATNET_API_URL_PUBLIQUE: "http://api.x" }), ConfigInvalide);
@@ -40,6 +43,17 @@ test("WAKATNET_TRUST_PROXY (ADR 0016 §2) : adresses seulement ; absent, aucune 
   assert.equal(lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "127.0.0.1" }).trustProxy, "127.0.0.1");
   assert.throws(() => lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "true" }), ConfigInvalide);
   // En production, son absence ramènerait toutes les requêtes à une seule source (M2, M7) : refusé.
-  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production" }), /WAKATNET_TRUST_PROXY requis en production/);
-  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1" }).trustProxy, "127.0.0.1");
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", ...CLES }), /WAKATNET_TRUST_PROXY requis en production/);
+  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", ...CLES }).trustProxy, "127.0.0.1");
+});
+
+test("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources resteraient en clair (T10, ADR 0016 §2)", () => {
+  const URL = { WAKATNET_API_DATABASE_URL: "postgresql://x@127.0.0.1/x", WAKATNET_TRUST_PROXY: "127.0.0.1" };
+  // Hors production, l'absence reste admise (routes de paiement en 503, sources en clair : tests, développement).
+  assert.equal(lireConfig(URL).cles, null);
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production" }), /WAKATNET_CLE_HMAC requise en production/);
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_HMAC: "" }), /WAKATNET_CLE_HMAC requise en production/);
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_MARCHANDS: CLES.WAKATNET_CLE_MARCHANDS }),
+                /WAKATNET_CLE_HMAC/);
+  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", ...CLES }).cles?.hmac.length === 32);
 });

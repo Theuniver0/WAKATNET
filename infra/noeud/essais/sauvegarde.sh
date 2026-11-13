@@ -31,13 +31,15 @@ pg() { docker exec -i -u postgres -e PGHOST=/var/run/postgresql "$NOM" "$@"; }
 etape "Configuration (phrase de passe aléatoire, jamais affichée) et base primaire"
 dans bash -s <<'SH'
 set -euo pipefail
-install -d -o postgres -g postgres -m 0700 /srv/a /srv/depot /var/lib/wakatnet /var/log/pgbackrest /etc/pgbackrest/conf.d
+install -d -o postgres -g postgres -m 0700 /srv/a /srv/depot /var/lib/wakatnet /var/log/pgbackrest
+# Configuration comme en production (rôle pgbackrest, audit du 13/11/2026) : à root, lisible par postgres seulement.
+install -d -o root -g postgres -m 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
 # Modèle de production, dépôt S3 remplacé par un répertoire (le reste est inchangé).
 sed -e 's/^repo1-type=s3/repo1-type=posix/' -e '/^repo1-s3-/d' -e 's#^repo1-path=.*#repo1-path=/srv/depot#' \
     -e 's#^pg1-path=.*#pg1-path=/srv/a#' /depot/infra/pgbackrest/pgbackrest.conf > /etc/pgbackrest/pgbackrest.conf
 umask 077
 printf '[global]\nrepo1-cipher-pass=%s\n' "$(head -c 32 /dev/urandom | base64 | tr -d '=+/\n')" > /etc/pgbackrest/conf.d/secret.conf
-chown postgres:postgres /etc/pgbackrest/conf.d/secret.conf
+chown root:postgres /etc/pgbackrest/conf.d/secret.conf && chmod 0640 /etc/pgbackrest/conf.d/secret.conf
 su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /srv/a -E UTF8 --locale=C.UTF-8 >/dev/null"
 cat >> /srv/a/postgresql.conf <<'CONF'
 wal_level = replica

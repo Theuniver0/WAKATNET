@@ -91,29 +91,30 @@ model site {
 }
 
 model tenant {
-  id                  BigInt           @id @default(autoincrement())
-  nom                 String
-  suspendu            Boolean          @default(false)
-  cree_le             DateTime         @default(now()) @db.Timestamptz(6)
-  settlement_mode     String           @default("A")
-  commission_bps      Int              @default(1000)
-  commission_min      BigInt           @default(0)
-  offline_fee_bps     Int              @default(1000)
-  offline_fee_min     BigInt           @default(10)
-  plafond_decouvert   BigInt           @default(3000)
-  frais_papier_depuis DateTime         @default(now()) @db.Timestamptz(6)
-  quota_routeurs      Int              @default(2)
-  valide_admin        Boolean          @default(false)
-  audit_log           audit_log[]
-  compte_marchand     compte_marchand?
-  payment             payment[]
-  payment_event       payment_event[]
-  payout              payout[]
-  plan                plan[]
-  point_of_sale       point_of_sale[]
-  site                site[]
-  utilisateur         utilisateur[]
-  voucher_batch       voucher_batch[]
+  id                           BigInt                         @id @default(autoincrement())
+  nom                          String
+  suspendu                     Boolean                        @default(false)
+  cree_le                      DateTime                       @default(now()) @db.Timestamptz(6)
+  settlement_mode              String                         @default("A")
+  commission_bps               Int                            @default(1000)
+  commission_min               BigInt                         @default(0)
+  offline_fee_bps              Int                            @default(1000)
+  offline_fee_min              BigInt                         @default(10)
+  plafond_decouvert            BigInt                         @default(3000)
+  frais_papier_depuis          DateTime                       @default(now()) @db.Timestamptz(6)
+  quota_routeurs               Int                            @default(2)
+  valide_admin                 Boolean                        @default(false)
+  audit_log                    audit_log[]
+  compte_marchand              compte_marchand?
+  compte_marchand_verification compte_marchand_verification[]
+  payment                      payment[]
+  payment_event                payment_event[]
+  payout                       payout[]
+  plan                         plan[]
+  point_of_sale                point_of_sale[]
+  site                         site[]
+  utilisateur                  utilisateur[]
+  voucher_batch                voucher_batch[]
 
   @@schema("app")
 }
@@ -470,5 +471,16 @@ model courriel_envoye {
   le DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([le], map: "courriel_envoye_le")
+  @@schema("app")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model compte_marchand_verification {
+  id        BigInt   @id @default(autoincrement())
+  tenant_id BigInt
+  le        DateTime @default(now()) @db.Timestamptz(6)
+  tenant    tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([tenant_id, le], map: "compte_marchand_verification_tenant")
   @@schema("app")
 }

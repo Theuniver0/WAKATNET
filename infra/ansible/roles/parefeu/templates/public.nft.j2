@@ -12,7 +12,7 @@ table inet wakatnet_public {
 		ct state invalid drop
 		icmp type { echo-request, destination-unreachable, time-exceeded } limit rate 20/second accept
 		icmpv6 type { echo-request, destination-unreachable, packet-too-big, time-exceeded, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert } accept
-		udp dport 68 accept                                   # renouvellement DHCP de l'hébergeur
+		meta nfproto ipv4 udp sport 67 udp dport 68 accept   # renouvellement DHCP de l'hébergeur (réponses du serveur)
 		tcp dport { {{ parefeu_port_ssh }}, 80, 443 } accept
 		udp dport { {{ parefeu_port_wg0 }}, {{ wk_noeuds_port }} } accept
 		counter drop

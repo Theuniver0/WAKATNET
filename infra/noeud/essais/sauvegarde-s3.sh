@@ -105,7 +105,10 @@ printf 'repo1-storage-port=9000\nrepo1-storage-verify-tls=n\nrepo1-s3-uri-style=
 umask 077
 printf '[global]\nrepo1-cipher-pass=%s\nrepo1-s3-key=cle-factice\nrepo1-s3-key-secret=secret-factice\n' \
   "$(head -c 32 /dev/urandom | base64 | tr -d '=+/\n')" > /etc/pgbackrest/conf.d/secret.conf
-chown -R postgres:postgres /etc/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest
+chown -R postgres:postgres /var/log/pgbackrest /var/spool/pgbackrest
+# Configuration comme en production (rôle pgbackrest, audit du 13/11/2026) : à root, lisible par postgres seulement.
+chown -R root:postgres /etc/pgbackrest && chmod 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
+chmod 0640 /etc/pgbackrest/pgbackrest.conf /etc/pgbackrest/conf.d/secret.conf
 su postgres -c "/usr/lib/postgresql/$V/bin/pg_ctl -D /srv/a -l /tmp/pg.log -w start >/dev/null"
 SH
 pg pgbackrest --stanza=wakatnet stanza-create
