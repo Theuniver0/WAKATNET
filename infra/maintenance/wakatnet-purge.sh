@@ -1,5 +1,6 @@
 #!/bin/sh
-# WAKATNET — purge quotidienne du journal des tentatives à 90 jours (ADR 0005 ; ticket 07).
+# WAKATNET — purge quotidienne : journal des tentatives à 90 jours (ADR 0005 ; ticket 07), puis durées de
+# conservation (docs/CONFORMITE.md §7 bis, migration 0040).
 # Lancé par wakatnet-purge.timer. Installé en /usr/local/sbin/wakatnet-purge.
 # Idempotent ; chaque passage est journalisé dans app.audit_log par radius.purge_auth_log().
 # Variables (EnvironmentFile réservé, jamais en argument) :
@@ -27,3 +28,16 @@ while [ "$i" -lt 1000 ]; do
   [ "$n" -lt "$LOT" ] && break
 done
 echo "wakatnet-purge : $total ligne(s) supprimée(s) en $i lot(s)"
+
+# Durées de conservation (docs/CONFORMITE.md §7 bis, migration 0040) : sessions anonymisées à 12 mois, quarantaine et
+# anomalies d'accounting à 12 mois, corps des webhooks vidés à 6 mois, journal d'audit à 5 ans. Mêmes lots.
+total=0
+i=0
+while [ "$i" -lt 1000 ]; do
+  n="$(psql -X -q -tA -v ON_ERROR_STOP=1 -h "${WAKATNET_PG_HOST:-127.0.0.1}" -U wk_maint -d wakatnet \
+         -c "SELECT radius.purge_conservation($LOT)")"
+  total=$((total + n))
+  i=$((i + 1))
+  [ "$n" -lt "$LOT" ] && break
+done
+echo "wakatnet-purge : conservation, $total ligne(s) traitée(s) en $i lot(s)"
