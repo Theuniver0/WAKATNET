@@ -1185,3 +1185,12 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 
 - **Mot de passe oublié** : non prévu par le SPEC, donc inscrit dans `docs/IDEES.md` (P5), à décider.
 - **Blocage de « J'ai payé »** : laissé exprès, car le plafond par numéro est l'anti-devinette du suffixe. Le correctif proposé ferait passer le risque de vol de ticket d'environ 5 % à environ 20 %. Le chiffrage est dans `docs/REVUE_SECURITE.md` §4.
+
+## 13/11/2026 — CONFORMITE.md : durées réellement appliquées
+
+- **Fait** : `docs/CONFORMITE.md` §7 bis relève les durées de conservation que le code applique (16 lignes, chacune avec sa source : migration, fonction ou ADR). Le juriste et la CIL valideront le réel, et non plus une proposition.
+- **Trouvé** : trois données sans aucune purge codée, à trancher avant G-PILOTE :
+  - les sessions RADIUS (`radius.session` : MAC, IP, octets) ;
+  - les corps bruts des webhooks (`payment_event`, F4, encore ouvert). Avec pawaPay, ils gardent le numéro du payeur en clair au-delà des 6 mois ;
+  - le journal d'audit.
+- **Non fait** : aucune purge n'a été écrite, car la durée relève du juriste et de la CIL (§6). Les sections qui exigent une signature ou un avis restent `[À CONFIRMER]`.

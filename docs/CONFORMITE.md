@@ -149,6 +149,34 @@ Collecte minimale (§10.1 du SPEC) : la plateforme ne demande ni nom, ni inscrip
 | T9 | Sauvegardes | Copie chiffrée de toutes les bases | Toutes | Reprise après sinistre (§10.2) | Intérêt légitime ; obligation de sécurité | Environ 4 semaines (4 complètes), verrouillées 30 jours, versions effacées 31 jours après (ADR 0018) | Telecom Universel ; **Backblaze B2**, sous-traitant de stockage (ne voit que des blocs chiffrés) | Hors site, Union européenne (région EU Central de B2, [À CONFIRMER] à l'ouverture) | Chiffrement AES-256 côté client, verrou en mode conformité, test de restauration mensuel | [À CONFIRMER] |
 | T10 | Limitation des abus (ADR 0016, migrations 0031 et 0032) | Journal d'accès de nginx : **IP en clair**, chemin, date ; en base : adresse e-mail saisie à la connexion et HMAC du jour de la source (jamais l'IP), empreinte du cookie d'appareil connu ; **IP publique de chaque routeur** (connexion du propriétaire, souvent un particulier), relevée par `wg-agent` | Clients finaux, propriétaires, gérants, vendeurs, attaquants | Bloquer la devinette des mots de passe et l'envoi massif de demandes de paiement | Intérêt légitime ; obligation de sécurité [À CONFIRMER] | nginx : rotation du paquet (environ 14 jours) [À CONFIRMER] ; échecs de connexion : 1 jour ; demandes de paiement : 1 heure ; appareils connus : 90 jours ; IP du routeur : effacée à la révocation, ou après 1 jour sans être revue | Telecom Universel | VPS A et B | HMAC à clé renouvelée chaque jour ; purge à chaque appel ; les sauvegardes les gardent aussi longtemps qu'elles | [À CONFIRMER] |
 
+### 7 bis. Durées réellement appliquées par le code (relevé du 13/11/2026)
+
+Ce que fait la plateforme aujourd'hui. Le juriste et la CIL valident ou font changer ces valeurs ; le registre ci-dessus doit les reprendre. Chaque ligne cite sa source.
+
+| Donnée (traitement) | Durée appliquée | Source |
+|---|---|---|
+| Numéro du payeur en clair (T2) | **6 mois**, puis effacé ; restent le HMAC et la forme masquée | `purge_numero_le` = création + 6 mois (migration 0037), `app.numeros_purger()` (0022), ADR 0005 |
+| Tentatives de récupération d'un achat (T2) | 24 heures | `app.numeros_purger()` (0022) |
+| Journal d'authentification RADIUS, MAC comprise (T1) | **90 jours** | `radius.purge_auth_log()` (radius 0009), ADR 0005 |
+| Alertes RADIUS, MAC comprise (T1) | 90 jours | `radius.purge_auth_log()` (radius 0009) |
+| Échecs de connexion au tableau de bord (T10) | 1 jour | migrations 0023, 0030, 0031 |
+| Essais TOTP (T4) | 1 jour | migration 0030 |
+| Demandes de paiement par source, en HMAC (T10) | 1 heure | migrations 0031, 0032 |
+| Demandes d'inscription par source, en HMAC (T10) | 1 jour | migrations 0034, 0039 |
+| Appareils connus (empreinte du cookie, T10) | 90 jours | migration 0031 |
+| IP publique d'un routeur (T10) | effacée à la révocation, ou après 1 jour sans être revue | migration 0032, wg-agent |
+| Liens de vérification d'adresse (T4) | valides 24 heures, effacés après 7 jours | migration 0039 |
+| Compte propriétaire jamais confirmé (T4) | adresse libérée après 7 jours (renommée `purge-<id>@wakatnet.invalid`) | migrations 0034, 0039, ADR 0019 |
+| Envois d'e-mails comptés pour le plafond (T4) | 2 jours | migration 0034 |
+| Vérifications du compte marchand (T6) | 1 heure | migration 0037 |
+| Journal d'accès de nginx, IP en clair (T10) | rotation du paquet Debian, environ 14 jours | ADR 0016 §2 |
+| Sauvegardes (T9) | 4 complètes hebdomadaires, verrou de 30 jours, versions effacées 31 jours après | ADR 0018 |
+
+**Aucune purge n'est codée pour les données suivantes : à trancher avant G-PILOTE.**
+- **Sessions RADIUS** (T3 : MAC, IP, octets, durées). `radius.session` n'est ni purgée ni partitionnée (le commentaire de radius 0005 parle d'un partitionnement mensuel « futur »). La durée du registre (« [N] mois, puis agrégats ») n'est donc pas appliquée.
+- **Corps bruts des webhooks** (T2, `payment_event`). Avec pawaPay, ils contiennent le numéro du payeur en clair, qui survit donc à la purge de 6 mois. C'est le constat F4 de la revue de phase 5, toujours ouvert.
+- **Journal d'audit** (T7) : conservé sans limite. C'est cohérent avec « ajout seul », mais la durée « [N] ans » du registre n'existe pas dans le code.
+
 Conflit à arbitrer : la purge des données personnelles (T1 à T3) et l'immuabilité du grand livre (T8). Proposition technique : le grand livre ne référence que des identifiants internes ; le numéro du payeur vit dans `payment` et peut être pseudonymisé à échéance sans toucher aux écritures [À CONFIRMER].
 
 ---
