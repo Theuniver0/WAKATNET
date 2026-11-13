@@ -1194,3 +1194,15 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - les corps bruts des webhooks (`payment_event`, F4, encore ouvert). Avec pawaPay, ils gardent le numéro du payeur en clair au-delà des 6 mois ;
   - le journal d'audit.
 - **Non fait** : aucune purge n'a été écrite, car la durée relève du juriste et de la CIL (§6). Les sections qui exigent une signature ou un avis restent `[À CONFIRMER]`.
+
+## 13/11/2026 — Test de promotion instable (CI de la PR 31)
+
+- **Échec** : `radius` en CI sur une PR qui ne change que de la documentation. En cause, `test_promotion.py::test_p2`, avec l'assertion « le spool de A attend toujours (A arrêté) ».
+- **Cause racine** : le test contredisait la conception.
+  - Le spool de A se vide « dans le PRIMAIRE, où qu'il soit » (ADR 0015 §2, `WAKATNET_PG_ACCT_HOSTS` contient B).
+  - Une fois B promu, le FreeRADIUS de A, toujours en marche, peut vider son spool dans B avant l'assertion. Tout dépend de son délai de réessai.
+  - La fin du journal de CI le montre : `Reconnecting`, `PGRES_TUPLES_OK`, puis `Unlinking detail.work`. C'était donc une course, et non un défaut du produit.
+- **Correctif** : l'assertion est retirée, avec son motif en commentaire. Les propriétés réelles restent vérifiées :
+  - p1b : le spool attend tant qu'aucun primaire n'est joignable ;
+  - p3 : l'événement de A arrive dans B, une seule fois.
+- **Preuve** : `radius/tests/run.sh`, 288 réussis, 19 ignorés, étapes de promotion comprises : SUCCÈS.

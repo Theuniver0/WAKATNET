@@ -120,7 +120,11 @@ def test_p2_b_promu_accepte_les_ecritures_et_le_spool_de_a_attend():
     sid_b = _start(SERVEUR_B, etat["tickets"][0])
     _attendre(lambda: _vide(SPOOL_B) and _session(PG_B, etat["tickets"][0]) == [(sid_b,)], 60,
               "le spool de B ne s'est pas vidé dans B promu")
-    assert not _vide(SPOOL_A), "le spool de A attend toujours (A arrêté)"
+    # PAS d'assertion sur le spool de A ici : son FreeRADIUS tourne toujours et rejoue « dans le PRIMAIRE, où qu'il
+    # soit » (ADR 0015 §2, WAKATNET_PG_ACCT_HOSTS contient B). Dès que B est promu, A peut vider son spool dans B, avant
+    # ou après cette ligne selon le délai de réessai de FreeRADIUS : affirmer qu'il attend encore était une course
+    # (échec vu en CI le 13/11/2026). Ce qui compte, vérifié en p1b et p3 : le spool attend tant qu'aucun primaire
+    # n'est joignable, puis l'événement de A arrive dans B, une seule fois.
     etat["sid_b"] = sid_b
     _ecrire(etat)
 
