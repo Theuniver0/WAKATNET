@@ -1180,3 +1180,8 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - le filtre d'appels système de systemd sur Debian 13 ;
   - le format réel du relevé pawaPay ;
   - le bac à sable pawaPay : le jeton n'est pas injecté par le proxy de la session.
+
+## 13/11/2026 — Suites de l'audit hors du code
+
+- **Mot de passe oublié** : non prévu par le SPEC, donc inscrit dans `docs/IDEES.md` (P5), à décider.
+- **Blocage de « J'ai payé »** : laissé exprès, car le plafond par numéro est l'anti-devinette du suffixe. Le correctif proposé ferait passer le risque de vol de ticket d'environ 5 % à environ 20 %. Le chiffrage est dans `docs/REVUE_SECURITE.md` §4.
