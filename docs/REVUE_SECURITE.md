@@ -201,3 +201,56 @@ Scan automatisé par plusieurs agents, chaque constat contre-vérifié par un pa
   - **F4, banc** : il lance le script en root hors de systemd, donc ni les capacités, ni `ProtectSystem`, ni `StateDirectory` ne sont exercés, ni le réseau dans le piège. Suite : le banc Ansible nocturne (nœuds sous systemd), et un piège réseau.
   - **F4, restauration sous `postgres`** : un manifeste piégé ne trouverait que les chemins accessibles en écriture de l'unité, dont `/var/lib/wakatnet`. Suite : un troisième utilisateur pour la restauration.
   - **F5/F6** : un tiers qui connaît le numéro bloque la récupération pendant 24 h. Impact nul tant que la récupération est coupée en production.
+
+**Points ouverts corrigés (« corrige les manquants », décisions de Yacouba du 13/11/2026)**
+
+- **F3, attaque lente : budget horaire** (migrations 0046 et 0047).
+  - Chaque échec est marqué « forme faible » ou non, sans jamais garder le code.
+  - Au-delà de 30 échecs de forme faible en une heure sur un routeur (`devinette_faibles_par_heure`, `devinette_faibles_fenetre_s`), ou pendant une alerte, le routeur est **restreint** : les codes faibles y sont refusés, et un ticket importé de forme forte (préfixe Mikhmon) reçoit la réponse d'un code inconnu.
+  - Les codes de la plateforme restent servis.
+  - Test : `test_f3_budget_horaire_d_echecs_faibles_attaque_lente`.
+  - **Reste**, en connaissance de cause :
+    - 30 essais par heure, soit 720 par jour, contre un stock Mikhmon de 4 chiffres (10 000 valeurs) : la réémission reste la parade de fond ;
+    - un client qui échoue exprès 30 fois retient les tickets importés du routeur pendant une heure.
+- **F4, réseau et sockets** : l'instance restaurée et tout ce qu'elle lance tournent dans leurs propres espaces de noms (`unshare --net --mount`).
+  - Ils n'ont aucune interface réseau, ni Internet, ni l'autre nœud, ni l'API ou FreeRADIUS en local.
+  - La socket et le répertoire de la base vivante, `/etc/pgbackrest`, `/etc/wakatnet` et `/var/lib/wakatnet` y sont masqués.
+  - L'essai vérifie ces masquages et cette absence de réseau avant de restaurer, et refuse de tourner sinon.
+  - L'unité gagne `CAP_SYS_ADMIN` et `RestrictNamespaces=net mnt`, que setpriv abandonne.
+- **F4, ressources** : `OOMScoreAdjust=1000`, `MemoryHigh=25%`, `MemoryMax=40%`, `TasksMax=512`, `CPUWeight=20`. Avant de restaurer, l'essai compare la taille annoncée de la sauvegarde (plus 20 %) à la place libre, en gardant 10 % du disque ou 2 Gio.
+- **F4, banc** : le conteneur tourne en `--privileged` pour les espaces de noms, et le piège essaie aussi le réseau. Preuves :
+  - le piège s'exécute sous `wakatnet-essai`, **sans réseau**, et n'atteint rien ;
+  - contre-épreuve 1 : l'ancien script exécute le piège **avec réseau** en `postgres`, et crée une table dans la base vivante ;
+  - contre-épreuve 2 : avec un pg_hba en `trust`, le nouveau script refuse de tourner ;
+  - contre-épreuve 3 : sans espaces de noms (conteneur non privilégié), il refuse aussi.
+- **F6** : refus gardé (décision de Yacouba). Le client garde son ticket sur l'appareil d'achat ; sinon, c'est le support.
+
+**Toujours ouverts**
+
+- La restauration elle-même tourne sous `postgres`. Un manifeste piégé n'atteindrait que les chemins accessibles en écriture de l'unité. Un troisième utilisateur dédié à la restauration est la suite.
+- Disque : le code isolé peut encore remplir `$RACINE` pendant l'essai. Un système de fichiers dédié à `/var/lib/wakatnet-essai` le borne.
+- L'unité et le rôle Ansible ne sont exercés que par le banc nocturne : il faut le surveiller à la première nuit.
+- F2 : le mot de passe saisi à l'inscription ne sert plus (décision d'interface).
+
+**Troisième relecture (13/11/2026), corrigée aussitôt**
+
+- **F3** :
+  - la 0044, déjà poussée, n'est plus modifiée : le budget passe dans la 0046, idempotente, avec la colonne en tête (ordre des verrous de `post_auth`, pas d'interblocage) ;
+  - la restriction est évaluée pour toute saisie (pas d'oracle de durée) ;
+  - une alerte `budget_routeur` est posée, et un paramètre à 0 vaut 1 ;
+  - sous alerte, le test couvre aussi l'import de forme forte.
+- **F4** :
+  - `/run` est masqué en entier (D-Bus, systemd-resolved : plus de DNS détourné), ainsi que `/var/spool` et `/var/log` ;
+  - `/tmp`, `/var/tmp` et `/dev/shm` sont des tmpfs de 64 Mio ;
+  - l'instance a son propre espace de noms IPC, et `setpriv` passe en `--no-new-privs --bounding-set=-all` ;
+  - l'état du dépôt n'est lu qu'une fois, et `restore --set` restaure la sauvegarde contrôlée ;
+  - la plage de WAL est bornée (4096 segments) et comptée dans la place disque ;
+  - `postgresql.auto.conf` est vidé sous `postgres` ;
+  - banc : une sonde distingue « fermé » d'une erreur quelconque et exige un `/run` vide. Le piège voit `ferme errno=101 run=` ; l'ancien script voit `ouvert run=5` et crée la table vivante.
+- **Restent ouverts** :
+  - budget par propriétaire (30 × N routeurs) ;
+  - restauration sous un troisième utilisateur ;
+  - espace de noms PID (le nettoyage repose sur `pkill` et le cgroup de l'unité) ;
+  - `SystemCallFilter` ;
+  - disque dédié à l'essai ;
+  - unité et rôle Ansible à éprouver sur systemd (banc nocturne).

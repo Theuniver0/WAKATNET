@@ -58,3 +58,17 @@ Pour savoir si une MAC est bloquée, `trop_de_tentatives` compte ses échecs ré
 - **Coût** : pendant une attaque, les clients qui ont un ticket importé attendent la fin de l'alerte (5 minutes après la dernière rafale). Le message du portail est « Trop d'essais : patientez quelques minutes ».
 - **Limite** : quand B sert seul (réplique), `post_auth` n'écrit rien (migration 0027). Ni le blocage par MAC ni l'alerte n'y existent : c'est assumé en mode dégradé (§10.2). L'option 3 (limiter sur le routeur) reste souhaitable.
 - **Preuve** : `radius/tests/test_t07_sql.py::test_f3_routeur_sous_attaque_codes_faibles_refuses_quelle_que_soit_la_mac`. Chaîne réelle : 100 échecs de 100 MAC par `post_auth`, puis l'alerte, puis le refus. Couvre un ticket importé court et un de 8 chiffres.
+
+### Complément du 13/11/2026 : budget horaire (décision de Yacouba)
+
+- **Pourquoi** : sous le seuil d'alerte (100 échecs par minute), un attaquant lent qui change de MAC n'était jamais freiné.
+- **Décision** : 30 échecs de **forme faible** en une heure glissante sur un routeur suffisent à le **restreindre**, comme une alerte (`devinette_faibles_par_heure`, `devinette_faibles_fenetre_s` dans `radius.parametre`). Sur un routeur restreint :
+  - les codes de forme faible sont refusés (`trop_de_tentatives`) ;
+  - un ticket **importé** de forme forte (préfixe Mikhmon) reçoit la réponse d'un code inconnu, ce qui ne crée aucun oracle ;
+  - les codes de la plateforme restent servis.
+- **Données** : `radius.auth_log.forme_faible`, calculée par `post_auth` sur la saisie mise en majuscules. Le code n'est jamais gardé (migration 0010). Migration 0046 (idempotente), index partiel par la 0047, créé `CONCURRENTLY`. La restriction est évaluée pour toute saisie, avant la recherche du ticket, ce qui ne laisse aucun écart de durée. Un budget épuisé pose une alerte `budget_routeur` par fenêtre. Un paramètre à 0 vaut 1.
+- **Prix** :
+  - un client qui échoue exprès 30 fois en une heure retient les tickets importés du routeur pendant une heure ;
+  - un stock de 4 chiffres reste exposé à 720 essais par jour.
+
+  **Réémettre les tickets importés** en codes de la plateforme reste recommandé.

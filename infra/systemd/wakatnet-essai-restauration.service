@@ -11,11 +11,18 @@ Wants=network-online.target
 Type=oneshot
 # En root, sans autres capacités que celles qu'il faut pour CONFIER chaque étape (scan de sécurité F4) : restauration
 # sous postgres, instance restaurée sous l'utilisateur dédié wakatnet-essai, qui n'a accès à rien.
-CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL
+# CAP_SYS_ADMIN : espaces de noms réseau et montage de l'instance restaurée (unshare), abandonnés par setpriv.
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_SYS_ADMIN
 StateDirectory=wakatnet-essai
 StateDirectoryMode=0711
 TimeoutStartSec=6h
 Nice=10
+# Ressources (seconde relecture du scan F4) : l'essai cède avant la base vivante (mémoire, tâches, OOM).
+OOMScoreAdjust=1000
+MemoryHigh=25%
+MemoryMax=40%
+TasksMax=512
+CPUWeight=20
 IOSchedulingClass=idle
 ExecStart=/opt/wakatnet/infra/noeud/essai-restauration.sh
 ReadWritePaths=/var/lib/wakatnet /var/log/pgbackrest /var/spool/pgbackrest /tmp
@@ -28,7 +35,7 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-RestrictNamespaces=yes
+RestrictNamespaces=net mnt ipc
 LockPersonality=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native

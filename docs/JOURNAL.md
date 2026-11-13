@@ -1329,3 +1329,21 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - F4 : un essai sur une machine jetable.
 
   Rien n'a été exécuté sur un CHR ni sur un nœud réel. Ni Ansible ni l'unité modifiée n'ont été rejoués sur systemd : banc nocturne.
+
+## 13/11/2026 — Points ouverts du scan corrigés (F3 budget horaire, F4 espaces de noms et ressources)
+
+- **Demande** : « corrige les manquants ». Décisions demandées : F3, budget horaire ; F6, garder le refus.
+- **Fait** :
+  - migrations 0046 (budget, `forme_faible`, `post_auth`, alerte `budget_routeur` ; idempotente, car le test de rejeu de 0012 la rejoue) et 0047 (index `CONCURRENTLY`). La 0044, déjà poussée, n'est pas modifiée ;
+  - essai de restauration : espaces de noms, masquages, contrôle de place ;
+  - unité systemd (capacités, ressources) ;
+  - banc (`--privileged`, piège réseau).
+
+  Détail dans `docs/REVUE_SECURITE.md` §5.
+- **Preuves** : banc de sauvegarde vert (piège sans réseau, sous `wakatnet-essai`) et trois contre-épreuves :
+  - l'ancien script : réseau ouvert et table créée dans la base vivante ;
+  - pg_hba en `trust` : refus ;
+  - sans espaces de noms : refus.
+
+  Suites API, RADIUS et e2e : résultats dans le message de commit.
+- **Reste** : restauration sous un troisième utilisateur ; disque dédié à l'essai ; première nuit du banc Ansible à surveiller (unité et rôle sur systemd) ; réémission des tickets Mikhmon.

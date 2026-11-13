@@ -24,7 +24,8 @@ CA=()
 [ -s /root/.ccr/ca-bundle.crt ] && CA=("--secret" "id=ca,src=/root/.ccr/ca-bundle.crt")
 docker build -q --network host "${CA[@]}" -f "$ICI/Dockerfile.sauvegarde" -t wakatnet-essai-sauvegarde:local \
   --build-arg https_proxy "$ICI" >/dev/null
-docker run -d --name "$NOM" -v "$DEPOT/infra:/depot/infra:ro" -v "$DEPOT/radius/tests/perf:/depot/perf:ro" \
+# --privileged : l'essai isole l'instance restaurée par espaces de noms (unshare --net --mount), comme sous systemd.
+docker run -d --privileged --name "$NOM" -v "$DEPOT/infra:/depot/infra:ro" -v "$DEPOT/radius/tests/perf:/depot/perf:ro" \
   wakatnet-essai-sauvegarde:local >/dev/null
 
 dans() { docker exec -i "$NOM" "$@"; }
@@ -36,6 +37,19 @@ set -euo pipefail
 install -d -o postgres -g postgres -m 0700 /srv/a /srv/depot /var/lib/wakatnet /var/log/pgbackrest
 # Utilisateur de l'instance restaurée (rôle Ansible noeud_wakatnet, scan de sécurité F4).
 useradd --system --shell /usr/sbin/nologin --no-create-home --home-dir /nonexistent wakatnet-essai
+# Témoins du piège (scan F4) : hors des chemins que l'essai masque. La sonde dit si le réseau local répond (avec l'erreur
+# précise, pour ne pas confondre « fermé » et « python absent ») et ce que le code voit de /run.
+install -d -m 1777 /srv/temoin
+cat > /srv/temoin/sonde.py <<'PY'
+import os, socket
+try:
+    socket.create_connection(("127.0.0.1", 5432), 2)
+    r = "ouvert"
+except OSError as e:
+    r = "ferme errno=%s" % e.errno
+print(r, "run=" + ",".join(sorted(os.listdir("/run"))))
+PY
+chmod 0644 /srv/temoin/sonde.py
 # Configuration comme en production (rôle pgbackrest, audit du 13/11/2026) : à root, lisible par postgres seulement.
 install -d -o root -g postgres -m 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
 # Modèle de production, dépôt S3 remplacé par un répertoire (le reste est inchangé).
@@ -82,7 +96,7 @@ pg env WAKATNET_JOUR_COMPLETE=0 bash /depot/infra/noeud/sauvegarder.sh
 pg python3 -c 'import json; e = json.load(open("/var/lib/wakatnet/sauvegarde.json")); assert e["ok"] and e["type"] == "diff", e; print("état :", e)'
 
 etape "Essai de restauration (chronométré)"
-dans env WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh
+dans env WAKATNET_ESSAI_MARGE_MIO=512 WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh
 pg cat /var/lib/wakatnet/essai-restauration.json
 
 etape "Sauvegarde piégée (scan de sécurité F4) : son code s'exécute sous l'utilisateur isolé, sans rien atteindre"
@@ -92,12 +106,12 @@ etape "Sauvegarde piégée (scan de sécurité F4) : son code s'exécute sous l'
 # programme qui note son utilisateur, tente d'écrire dans la base VIVANTE (peer en postgres) et à côté d'elle. Tout est
 # défait sur la base vivante juste après la sauvegarde. Contre-épreuve (13/11/2026) : l'ancien essai, lancé en postgres,
 # crée bien la table dans la base vivante.
-dans rm -f /tmp/piege-qui /var/lib/wakatnet/piege-execute
+dans rm -f /srv/temoin/piege-qui /srv/temoin/piege-reseau /var/lib/wakatnet/piege-execute
 pg psql -X -q -v ON_ERROR_STOP=1 -d wakatnet <<'SQL'
 CREATE SCHEMA IF NOT EXISTS piege;
 CREATE FUNCTION piege.lancer() RETURNS void LANGUAGE plpgsql AS $f$
 BEGIN
-  COPY (SELECT 1) TO PROGRAM 'id -un > /tmp/piege-qui; psql -X -q -h /var/run/postgresql -U postgres -d wakatnet -c "CREATE TABLE IF NOT EXISTS public.piege_vivant ()" >/dev/null 2>&1; touch /var/lib/wakatnet/piege-execute 2>/dev/null; true';
+  COPY (SELECT 1) TO PROGRAM 'id -un > /srv/temoin/piege-qui; psql -X -q -h /var/run/postgresql -U postgres -d wakatnet -c "CREATE TABLE IF NOT EXISTS public.piege_vivant ()" >/dev/null 2>&1; touch /var/lib/wakatnet/piege-execute 2>/dev/null; python3 /srv/temoin/sonde.py > /srv/temoin/piege-reseau 2>&1; true';
 END $f$;
 -- Appelée par l'ancien essai (search_path de la base), puis par le nouveau (pg_catalog, correspondance exacte).
 CREATE FUNCTION piege.md5(text) RETURNS text LANGUAGE plpgsql AS $f$ BEGIN PERFORM piege.lancer(); RETURN 'piege'; END $f$;
@@ -112,16 +126,19 @@ SQL
 pg pgbackrest --stanza=wakatnet backup --type=incr
 pg psql -X -q -v ON_ERROR_STOP=1 -d wakatnet -c "SET client_min_messages = warning" -c "DROP FUNCTION pg_catalog.unnest(text[])" -c "DROP SCHEMA piege CASCADE" -c "ALTER DATABASE wakatnet RESET search_path" \
   -c "ALTER SYSTEM RESET recovery_end_command" -c "SELECT pg_reload_conf()" >/dev/null
-dans rm -f /tmp/piege-qui
-dans env WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh
+dans rm -f /srv/temoin/piege-qui /srv/temoin/piege-reseau
+dans env WAKATNET_ESSAI_MARGE_MIO=512 WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh
 # Témoin positif : le piège s'est bien exécuté, et sous l'utilisateur isolé.
-[ "$(dans cat /tmp/piege-qui 2>/dev/null)" = wakatnet-essai ] \
+[ "$(dans cat /srv/temoin/piege-qui 2>/dev/null)" = wakatnet-essai ] \
   || { echo "ÉCHEC : le piège de pg_catalog ne s'est pas exécuté (ou pas sous wakatnet-essai) : le banc ne prouve rien"; exit 1; }
 if dans test -e /var/lib/wakatnet/piege-execute; then echo "ÉCHEC : le code de la sauvegarde a écrit à côté de la base vivante"; exit 1; fi
+RESEAU="$(dans cat /srv/temoin/piege-reseau 2>/dev/null)"
+[[ "$RESEAU" =~ ^ferme\ errno=[0-9]+\ run=$ ]] \
+  || { echo "ÉCHEC : le code de la sauvegarde atteint le réseau ou voit /run : $RESEAU"; exit 1; }
 if [ "$(pg psql -X -tA -d wakatnet -c "SELECT to_regclass('public.piege_vivant') IS NOT NULL")" = t ]; then
   echo "ÉCHEC : le code de la sauvegarde a écrit dans la base VIVANTE"; exit 1
 fi
-echo "piège exécuté sous wakatnet-essai, sans accès à la base vivante ni à son répertoire ; recovery_end_command ignoré"
+echo "piège exécuté sous wakatnet-essai, sans réseau ($RESEAU) ni accès à la base vivante ou à son répertoire ; recovery_end_command ignoré"
 
 etape "Atteinte au grand livre après la sauvegarde : l'essai doit la détecter"
 ID="$(pg psql -X -q -tA -d wakatnet -c "SELECT max(id) FROM ledger.ecriture WHERE transaction_id IN
@@ -133,7 +150,7 @@ UPDATE ledger.ecriture SET debit = credit, credit = debit WHERE transaction_id =
 ALTER TABLE ledger.ecriture ENABLE TRIGGER ajout_seul;
 SQL
 set +e
-SORTIE="$(dans env WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh 2>&1)"
+SORTIE="$(dans env WAKATNET_ESSAI_MARGE_MIO=512 WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh 2>&1)"
 CODE=$?
 set -e
 printf '%s\n' "$SORTIE" | tail -3

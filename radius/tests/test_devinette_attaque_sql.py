@@ -105,7 +105,7 @@ def test_l_index_par_routeur_porte_sur_l_expression_et_l_ancien_a_disparu():
 FICHIER_0012 = "0012_radius_devinette_sous_attaque.sans_transaction.sql"
 # Migrations postérieures qui redéfinissent une fonction de 0012 : rejouer 0012 les écraserait ;
 # elles sont donc rejouées avec elle, dans l'ordre de migrer.sh (phase 5 : garde de réplique, T13).
-SUIVANTES_0012 = ("0027_radius_post_auth_replique.sql",)
+SUIVANTES_0012 = ("0027_radius_post_auth_replique.sql", "0046_radius_devinette_budget.sql")
 
 
 def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivante():

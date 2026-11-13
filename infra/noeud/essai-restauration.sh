@@ -41,6 +41,25 @@ if [ "$uid_isole" = 0 ] || [ "$uid_isole" = "$(id -u postgres)" ]; then
   echo "ÉCHEC : $ISOLE doit être un utilisateur dédié, ni root ni postgres" >&2; exit 1
 fi
 cd /
+# Instance restaurée et tout ce qu'elle lance : sous $ISOLE, sans groupe secondaire ni capacité (no_new_privs), dans ses
+# PROPRES espaces de noms :
+#   - réseau : aucune interface (ni Internet, ni l'autre nœud, ni l'API ou FreeRADIUS en local) ;
+#   - IPC : sémaphores et mémoire partagée System V à part (la base vivante ne peut pas en être privée) ;
+#   - montage : /run en entier (socket de la base vivante, D-Bus, systemd-resolved : pas de résolution DNS détournée),
+#     la base vivante, les secrets, journaux et files masqués par des tmpfs vides ; /tmp, /var/tmp et /dev/shm remplacés
+#     par des tmpfs BORNÉS (le code de la sauvegarde ne remplit pas le disque du primaire par là).
+# L'instance n'a besoin que de $DONNEES (sa socket y est) et de $WAL. Échec d'un masquage : refus.
+isole() {
+  unshare --net --ipc --mount --propagation private -- sh -c '
+    for d in /run /var/run /var/lib/postgresql /etc/pgbackrest /etc/wakatnet /var/lib/wakatnet /var/spool /var/log; do
+      if [ -d "$d" ] && [ ! -L "$d" ]; then mount -n -t tmpfs -o size=64k,mode=0755 essai-masque "$d" || exit 97; fi
+    done
+    for d in /tmp /var/tmp /dev/shm; do
+      if [ -d "$d" ] && [ ! -L "$d" ]; then mount -n -t tmpfs -o size=64m,mode=1777 essai-borne "$d" || exit 97; fi
+    done
+    u="$1"; shift
+    exec setpriv --reuid="$u" --regid="$u" --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all -- "$@"' isole "$ISOLE" "$@"
+}
 comme() {
   local u="$1"; shift
   # L'utilisateur isolé n'a AUCUN groupe secondaire (s'il était ajouté au groupe postgres, il lirait ses journaux).
@@ -66,6 +85,18 @@ for d in /etc/pgbackrest /etc/wakatnet; do
     echo "ÉCHEC : $ISOLE lit $d (secrets) : l'isolement de l'essai serait nul" >&2; exit 1
   fi
 done
+# Les espaces de noms doivent marcher (sinon refus, jamais d'essai à découvert) : aucune connexion TCP, même locale,
+# et pas de socket de la base vivante.
+if ! isole python3 -c '
+import socket, sys, glob
+assert not glob.glob("/var/run/postgresql/.s.PGSQL.*") and not glob.glob("/run/postgresql/.s.PGSQL.*")
+s = socket.socket(); s.settimeout(2)
+try:
+    s.connect(("127.0.0.1", 5432)); sys.exit(1)
+except OSError:
+    pass' 2>/dev/null; then
+  echo "ÉCHEC : isolement de l'instance indisponible (unshare --net --mount) : l'essai ne tourne pas à découvert" >&2; exit 1
+fi
 install -d -o root -g root -m 0711 "$RACINE"
 # Une copie laissée par un essai interrompu (SIGKILL à l'expiration du délai : le piège EXIT ne s'exécute
 # pas) est une base EN CLAIR sur disque : effacée avant tout (revue de sécurité F7).
@@ -79,10 +110,10 @@ chmod 0700 "$DONNEES" "$WAL"
 chmod 0755 "$CONF"
 # Session imposée par le client (prioritaire sur ALTER ROLE / ALTER DATABASE restaurés) ; défense en profondeur
 # seulement : l'isolement vient de l'utilisateur.
-ESSAI=(comme "$ISOLE" env "PGOPTIONS=-c session_preload_libraries= -c local_preload_libraries= -c search_path=pg_catalog -c jit=off"
+ESSAI=(isole env "PGOPTIONS=-c session_preload_libraries= -c local_preload_libraries= -c search_path=pg_catalog -c jit=off"
        psql -X -q -tA -v ON_ERROR_STOP=1 -h "$DONNEES" -p "$PORT" -U postgres -d "$BASE")
 nettoyer() {
-  comme "$ISOLE" "$PGBIN/pg_ctl" -D "$DONNEES" -m immediate stop >/dev/null 2>&1 || true
+  isole "$PGBIN/pg_ctl" -D "$DONNEES" -m immediate stop >/dev/null 2>&1 || true
   # Tout processus laissé par le code de la sauvegarde (COPY … TO PROGRAM détaché) est tué.
   pkill -KILL -u "$ISOLE" 2>/dev/null || true
   rm -rf "$DONNEES" "$WAL" "$CONF"
@@ -99,20 +130,38 @@ essai_lire() {
   printf '%s\n' "$sortie"
 }
 
+# État du dépôt lu UNE fois (seconde relecture : la sauvegarde contrôlée est celle qui est restaurée, --set). Le dépôt
+# est écrit par l'autre nœud : chaque valeur est validée par python, jamais interprétée par le shell.
+#   - étiquette, taille annoncée, WAL de cohérence (premier et dernier segment) ;
+#   - au plus WAKATNET_ESSAI_WAL_MAX segments de 16 Mio (4096 par défaut, 64 Gio) : une plage démesurée est refusée ;
+#   - place disque : sauvegarde + WAL, plus 20 %, en laissant au système de fichiers au moins 10 % ou 2 Gio libres
+#     (WAKATNET_ESSAI_MARGE_MIO pour un banc). La base vivante ne doit jamais manquer de place pour ses WAL à cause de
+#     l'essai (sur le même disque, elle s'arrêterait). Un disque dédié à $RACINE reste préférable.
+etat="$(comme postgres pgbackrest --stanza="$STANZA" info --output=json | python3 -c '
+import json, os, re, sys
+b = json.load(sys.stdin)[0]["backup"][-1]
+e, d, f, taille = b["label"], b["archive"]["start"], b["archive"]["stop"], int(b["info"]["size"])
+assert re.fullmatch(r"[0-9]{8}-[0-9]{6}F(_[0-9]{8}-[0-9]{6}[DI])?", e), e
+assert re.fullmatch(r"[0-9A-F]{24}", d) and re.fullmatch(r"[0-9A-F]{24}", f) and d[:8] == f[:8] and d <= f, (d, f)
+nb = (int(f[8:16], 16) * 256 + int(f[16:], 16)) - (int(d[8:16], 16) * 256 + int(d[16:], 16)) + 1
+if not 0 < nb <= int(sys.argv[3]):
+    sys.exit("ÉCHEC : plage de WAL invalide ou démesurée (%d segments) : sauvegarde suspecte, rien n est restauré" % nb)
+st = os.statvfs(sys.argv[1])
+libre, total = st.f_bavail * st.f_frsize, st.f_blocks * st.f_frsize
+besoin = (taille + nb * (16 << 20)) * 12 // 10
+marge = int(sys.argv[2]) << 20 if sys.argv[2] else max(total // 10, 2 << 30)
+if libre - besoin < marge:
+    sys.exit("ÉCHEC : place insuffisante pour l essai (%d Mio nécessaires, %d Mio libres) : rien n est restauré"
+             % (besoin >> 20, libre >> 20))
+print(e, d, f)' "$RACINE" "${WAKATNET_ESSAI_MARGE_MIO:-}" "${WAKATNET_ESSAI_WAL_MAX:-4096}")" || exit 1
+read -r etiquette wal_debut wal_fin <<<"$etat"
+
 debut="$(date +%s.%N)"
 # Restauration sous postgres : pgBackRest pose les fichiers, rien de la sauvegarde ne s'exécute. Un tablespace déclaré
 # par le manifeste est replacé DANS le répertoire d'essai (jamais au chemin choisi par la sauvegarde) ; les liens
 # symboliques sont restaurés en répertoires (link-all désactivé par défaut).
 comme postgres pgbackrest --stanza="$STANZA" --pg1-path="$DONNEES" --type=immediate --target-action=promote \
-  --archive-mode=off --tablespace-map-all="$DONNEES/pg_tblspc_essai" restore >/dev/null
-# Étiquette et WAL de cohérence de la dernière sauvegarde (lus par python : jamais interprétés par le shell).
-read -r etiquette wal_debut wal_fin < <(comme postgres pgbackrest --stanza="$STANZA" info --output=json | python3 -c '
-import json, re, sys
-b = json.load(sys.stdin)[0]["backup"][-1]
-e, d, f = b["label"], b["archive"]["start"], b["archive"]["stop"]
-assert re.fullmatch(r"[0-9]{8}-[0-9]{6}F(_[0-9]{8}-[0-9]{6}[DI])?", e), e
-assert re.fullmatch(r"[0-9A-F]{24}", d) and re.fullmatch(r"[0-9A-F]{24}", f) and d[:8] == f[:8] and d <= f, (d, f)
-print(e, d, f)')
+  --archive-mode=off --tablespace-map-all="$DONNEES/pg_tblspc_essai" --set="$etiquette" restore >/dev/null
 # WAL tirés AVANT le démarrage (segments de 16 Mo) : l'instance restaurée ne touche jamais au dépôt ni à sa phrase de passe.
 while read -r seg; do
   comme postgres pgbackrest --stanza="$STANZA" archive-get "$seg" "$WAL/$seg" >/dev/null
@@ -130,7 +179,8 @@ comme postgres pgbackrest --stanza="$STANZA" archive-get "${wal_debut:0:8}.histo
 # récupération exige au moins égales au primaire sont lues dans la base VIVANTE.
 rm -f "$DONNEES/postgresql.conf" "$DONNEES/pg_hba.conf" "$DONNEES/pg_ident.conf"
 rm -rf "$DONNEES/conf.d"
-: > "$DONNEES/postgresql.auto.conf"
+# Sous postgres : un lien posé par la sauvegarde à cet endroit ne fait pas écrire root ailleurs.
+comme postgres sh -c ': > "$1/postgresql.auto.conf"' vider "$DONNEES"
 {
   for p in max_connections max_worker_processes max_wal_senders max_prepared_transactions max_locks_per_transaction wal_level; do
     printf "%s = '%s'\n" "$p" "$("${VIVANTE[@]}" -c "SHOW $p")"
@@ -165,10 +215,10 @@ printf 'local all all trust\n' > "$CONF/pg_hba.conf"
 : > "$CONF/pg_ident.conf"
 chmod 0644 "$CONF"/*
 chown -R "$ISOLE:$ISOLE" "$DONNEES" "$WAL"
-comme "$ISOLE" "$PGBIN/pg_ctl" -D "$DONNEES" -w -t 600 -l "$DONNEES/essai.log" -o "-c config_file=$CONF/postgresql.conf" start >/dev/null \
+isole "$PGBIN/pg_ctl" -D "$DONNEES" -w -t 600 -l "$DONNEES/essai.log" -o "-c config_file=$CONF/postgresql.conf" start >/dev/null \
   || { echo "ÉCHEC : l'instance restaurée ne démarre pas ; fin de son journal :" >&2
        # Lu sous l'utilisateur isolé : son répertoire est à lui (un lien vers un secret ne se lit pas en root).
-       comme "$ISOLE" tail -20 "$DONNEES/essai.log" >&2 || true; exit 1; }
+       isole tail -20 "$DONNEES/essai.log" >&2 || true; exit 1; }
 for _ in $(seq 1 600); do
   [ "$("${ESSAI[@]}" -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)" = f ] && break
   sleep 1
