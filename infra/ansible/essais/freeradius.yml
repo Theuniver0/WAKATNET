@@ -1,5 +1,5 @@
 # WAKATNET — garde de version de FreeRADIUS (essais/essai.sh) : sans le dépôt de l'éditeur, le paquet
-# d'Ubuntu 24.04 (3.2.5) doit être REFUSÉ.
+# de la distribution (Ubuntu 24.04 : 3.2.5 ; Debian 13 : 3.2.7) doit être REFUSÉ.
 - name: Garde de version de FreeRADIUS
   hosts: noeud_a
   become: true

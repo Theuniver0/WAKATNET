@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+# WAKATNET — Debian 13 avec systemd, pour éprouver les unités de infra/systemd (essais/unite-api.sh). TEST SEULEMENT.
+FROM debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+# HTTPS seulement derrière le proxy du poste de développement (certificat monté) ; sinon http, index signés (GPG).
+RUN --mount=type=secret,id=ca,target=/ca.crt,required=false \
+    if [ -s /ca.crt ]; then install -m 0644 /ca.crt /tmp/ca.crt \
+      && sed -i 's#http://#https://#g' /etc/apt/sources.list.d/debian.sources \
+      && echo 'Acquire::https::CAInfo "/tmp/ca.crt";' > /etc/apt/apt.conf.d/99ca; fi \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv curl ca-certificates \
+ && rm -f /etc/apt/apt.conf.d/99ca /tmp/ca.crt
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

@@ -29,7 +29,7 @@
 |---|---|---|
 | Phase 5 verte au labo (T13, bascule, sauvegardes, supervision, charge, revue de sécurité) | Fait | — |
 | Nœuds achetés après la mesure de latence (LABO-17), nom de domaine | Non fait | Yacouba |
-| Rôles Ansible rejoués sur une **VM Debian 13**, paquets de l'éditeur de FreeRADIUS (dépôt **[À CONFIRMER]**) | Non fait (prouvé sur Ubuntu 24.04 seulement) | Yacouba |
+| Rôles Ansible rejoués sur une **VM Debian 13**, paquets de l'éditeur de FreeRADIUS (dépôt **[À CONFIRMER]**) | Partiel : prouvés sur **conteneurs Debian 13** (13/11/2026, dépôt PGDG, seuils de production) ; restent la VM (WireGuard du noyau, `noeud_wakatnet`) et FreeRADIUS de l'éditeur | Yacouba |
 | LABO-16 et LABO-09 sur CHR : bascule réelle d'un routeur vers B, `timeout` | Non fait | Yacouba |
 | **B chez un second hébergeur**, T13 rejoué, promotion rejouée (ADR 0004 §3) | Non fait | Yacouba |
 | Scripts RouterOS joués sur CHR, sur un routeur vierge **et** sur un routeur déjà configuré (§13, règle 6) | Non fait (`docs/AUDIT_SCRIPTS_ROUTEROS.md`) | Yacouba |

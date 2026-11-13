@@ -1223,3 +1223,25 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Preuves** :
   - `radius/tests/run.sh` complet, migration 0040 appliquée : 288 réussis. Seul le nouveau test échouait, à cause de deux erreurs dans le test lui-même : il attendait 6 lignes au lieu de 5, et lisait un enregistrement SQL rendu en chaînes. Après correction, `run.sh -k "conservation or droits or purge"` : 18 réussis ;
   - `apps/api/tests/run.sh` : 224/224.
+
+## 13/11/2026 — Rôles Ansible et unité de l'API éprouvés sur Debian 13
+
+- **Débloqué** : `deb.debian.org` et `apt.postgresql.org` ajoutés à l'environnement de développement, avec l'accord de Yacouba. Jusqu'ici, tout était prouvé sur Ubuntu 24.04, faute d'accès aux dépôts Debian.
+- **Fait** :
+  - `essai.sh` prend `WAKATNET_ESSAI_OS=debian13`, en plus du défaut `ubuntu2404`. L'image `Dockerfile.noeud-debian13` contient Debian 13, avec PostgreSQL 16 et pgBackRest 2.60.0 tirés de PGDG ; le dépôt est déclaré comme le rôle le déclare, et les seuils sont ceux de la production.
+  - Clé PGDG : les clés de `cles/` restent hors du dépôt (README Ansible). Le banc prend donc celle du paquet Debian `postgresql-common`, après contrôle de son empreinte (`B97B…4CF8`).
+  - `infra/systemd/essais/unite-api.sh` lance la vraie `wakatnet-api.service` sous systemd 257, avec une sonde à la place de l'API.
+  - Banc de nuit : `ansible` passe en matrice (`ubuntu2404`, `debian13`), et un job `unite-api` est ajouté.
+- **Trouvé par Debian 13** :
+  - **Défaut de production** : nginx refusait toute la configuration (`"server_tokens" directive is duplicate`). Debian 13 active `server_tokens off;` dans son propre `nginx.conf`, alors qu'Ubuntu le laisse en commentaire. **Corrigé** : la directive est désormais déclarée dans chaque bloc `server`.
+  - FreeRADIUS de Debian 13 : **3.2.7**, refusé par la garde de version. Le dépôt de l'éditeur reste nécessaire (ADR 0004).
+  - Le 444 de nginx se lit `curl 56` avec OpenSSL 3.5 (`curl 52` sur Ubuntu). Le test accepte les deux codes, et vérifie aussi le 444 dans le journal de nginx.
+  - À titre d'information : Debian 13 livre Node 20 et PostgreSQL 17. Les rôles installent Node 22 (nodejs.org) et PostgreSQL 16 (PGDG), comme prévu.
+- **Preuves** (état final) :
+  - `WAKATNET_ESSAI_OS=debian13 essai.sh` : SUCCÈS sur les 10 étapes. Idempotence `changed=0`, garde contre le double primaire, nginx (444, limites, en-têtes), pare-feu et retour arrière déclenché ;
+  - `essai.sh` (Ubuntu 24.04) : SUCCÈS sur les 10 étapes, sans régression ;
+  - `unite-api.sh` : SUCCÈS. HTTP, fetch, scrypt, fs, DNS, worker, zlib et wasm passent, `Seccomp: 2`, exposition 1,5. Contrôle négatif : avec `~@process` ajouté, l'essai échoue.
+- **Non prouvé** :
+  - une VM Debian 13 (module WireGuard, `noeud_wakatnet`, FreeRADIUS de l'éditeur) ;
+  - un processeur avec PKU ;
+  - `actionlint` : son installation par le registre Go a été refusée dans la session. GitHub validera `nuit.yml` à son premier run.

@@ -123,7 +123,7 @@ Trois formes comparées :
   - `noeud_wakatnet` : unités systemd, `wg-agent`, Node 22 officiel, API en conteneur.
 - **Les secrets ne passent jamais par Ansible** : les fichiers de secrets sont créés à la main sur le nœud (§13, règle 5). Les rôles vérifient leur **présence**, jamais leur contenu.
 - Preuve : `ansible-playbook --syntax-check`, `ansible-lint`, puis une exécution réelle sur des conteneurs avec systemd, deux fois (idempotence : aucun changement au second passage).
-  - *Précisé à l'implémentation (ticket 06)* : les conteneurs sont des **Ubuntu 24.04**, faute d'accès aux dépôts Debian depuis l'environnement de développement. Le rejeu sur Debian 13 revient à la VM de Yacouba (§8).
+  - *Précisé à l'implémentation (ticket 06)* : les conteneurs sont des **Ubuntu 24.04**, faute d'accès aux dépôts Debian depuis l'environnement de développement. Le rejeu sur Debian 13 revient à la VM de Yacouba (§8). *Complété le 13/11/2026* : le banc tourne aussi sur des conteneurs **Debian 13** (`WAKATNET_ESSAI_OS=debian13`), dépôt PGDG compris ; il a trouvé un défaut que Ubuntu masquait (`server_tokens` en double avec le `nginx.conf` de Debian).
   - Garde ajoutée : un nœud déclaré réplique qui n'en est pas une n'est effacé que sur demande explicite (`postgresql_reconstruire_replique=true`).
 - Mises à jour un nœud à la fois, B d'abord (§10.3) ; la procédure est dans `docs/RUNBOOK.md`.
 

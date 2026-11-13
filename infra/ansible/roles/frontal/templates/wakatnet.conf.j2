@@ -1,6 +1,8 @@
 # WAKATNET — nginx devant l'API (ADR 0016 §2). Géré par Ansible.
 # Certificat servi : {{ frontal_cert_servi }} (mode {{ frontal_tls }}).
-server_tokens off;
+# server_tokens : posé dans chaque bloc server, pas au niveau http. Debian 13 l'active déjà dans son nginx.conf
+# (contexte http) : le redéclarer ici faisait refuser toute la configuration (« directive is duplicate »,
+# banc Debian 13 du 13/11/2026) ; Ubuntu 24.04 le laisse en commentaire. Au niveau server, il vaut sur les deux.
 
 # Limites par IP source (M1). Les clients d'un site sortent tous par l'IP WAN de son routeur.
 # IPv6 : la clé est le /64 (quatre premiers groupes), comme dans l'API (apps/api/src/cle-ip.ts) ; un abonné en
@@ -47,12 +49,14 @@ upstream wakatnet_api {
 # Tout nom inconnu : connexion fermée (F10). En TLS, poignée de main refusée sans certificat (SNI inconnu ou
 # absent) ; avec un SNI connu mais un en-tête Host inconnu, la requête arrive ici : 444 aussi.
 server {
+    server_tokens off;
     listen 80 default_server;
     {% if frontal_ipv6 | bool %}listen [::]:80 default_server;{% endif %}
     access_log {{ frontal_journal_acces }} wakatnet;
     return 444;
 }
 server {
+    server_tokens off;
     listen 443 ssl default_server;
     {% if frontal_ipv6 | bool %}listen [::]:443 ssl default_server;{% endif %}
     ssl_reject_handshake on;
@@ -62,6 +66,7 @@ server {
 
 # Port 80 : défi ACME, puis redirection vers HTTPS.
 server {
+    server_tokens off;
     listen 80;
     {% if frontal_ipv6 | bool %}listen [::]:80;{% endif %}
     server_name {{ frontal_nom_api }} {{ frontal_nom_portail }};
@@ -76,6 +81,7 @@ server {
 # (répétés dans chaque bloc server : nginx n'hérite pas des proxy_set_header d'un niveau à l'autre
 #  quand un niveau en déclare.)
 server {
+    server_tokens off;
     listen 443 ssl;
     {% if frontal_ipv6 | bool %}listen [::]:443 ssl;{% endif %}
     server_name {{ frontal_nom_api }};
@@ -105,6 +111,7 @@ server {
 }
 
 server {
+    server_tokens off;
     listen 443 ssl;
     {% if frontal_ipv6 | bool %}listen [::]:443 ssl;{% endif %}
     server_name {{ frontal_nom_portail }};

@@ -8,7 +8,7 @@
 - La spec demande 2 VPS Debian stable chez **2 hébergeurs différents**, avec IP fixes et un nom de domaine (D6). FreeRADIUS, PostgreSQL et WireGuard y tournent en natif sous systemd (D7).
 - Yacouba a déjà un compte **Hetzner**. À ma connaissance, Hetzner n'a de datacenters qu'en Europe, aux États-Unis et à Singapour, pas en Afrique : **à revérifier**.
 - Aucune mesure de latence n'existe depuis des routeurs au Burkina (fibre, 4G, Starlink) vers les datacenters candidats.
-- Phase 0 (E-FR-1) : FreeRADIUS **≥ 3.2.10** requis, **3.2.9 interdite** (lecteur `detail`). La version livrée par Debian 13 n'a pas été vérifiée.
+- Phase 0 (E-FR-1) : FreeRADIUS **≥ 3.2.10** requis, **3.2.9 interdite** (lecteur `detail`). Debian 13 livre **3.2.7** (`3.2.7+dfsg-1+deb13u2`, relevé le 13/11/2026) : refusée par la garde de version, le dépôt de l'éditeur reste nécessaire.
 
 ## Décisions
 

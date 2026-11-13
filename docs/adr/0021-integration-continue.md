@@ -123,6 +123,7 @@
    - Audit du 13/11/2026 : sans cette case, une PR peut réécrire `.github/workflows/` ou un harnais et faire passer au vert la CI qui la juge. `.github/CODEOWNERS` affecte `.github/`, `**/tests/**`, `infra/**/essais/**`, `packages/payments/` et `infra/sql/` à `@Theuniver0` ; P6 est amendée en conséquence.
    - À trancher : tant que `@Theuniver0` est aussi l'auteur des PR, GitHub ne compte pas sa propre approbation. Il faudra soit un second relecteur désigné, soit accepter le contournement par l'administrateur, tracé à chaque fusion.
 5. [x] P6 amendée dans `CONTRIBUTING.md`.
+6. [x] Banc de nuit étendu le 13/11/2026 : `ansible` en matrice (`ubuntu2404`, `debian13`, la cible de production) et `unite-api` (unité systemd de l'API sous Debian 13). À confirmer au premier run de nuit sur GitHub.
 
 ## Écart constaté en écrivant le workflow : corrigé
 
