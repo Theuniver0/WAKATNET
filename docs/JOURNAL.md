@@ -1096,3 +1096,87 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Premier run de la CI** (`63e5841`) : `api` et `wg-agent` verts. `e2e` en échec : `genere/prisma/client.ts` est introuvable. Le client Prisma est ignoré par git et n'existait que sur le poste de développement. Échec reproduit en local en retirant `apps/api/genere`. Correctif : `e2e.sh` et `charge.sh` génèrent le client (`npm run generer`), comme `tests/Dockerfile`. Après correctif, `e2e.sh` est en SUCCÈS en local, à partir d'un client absent.
 - **Playwright verrouillé** : `playwright` 1.63.0 (version exacte) dans les `devDependencies` de `apps/api`. Le job `e2e` ne télécharge plus que Chromium, et l'installation globale par `NODE_PATH` a disparu.
   - Preuves : `e2e.sh` lancé sans `NODE_PATH` : SUCCÈS (résolu depuis `node_modules`, 1.63.0) ; `apps/api/tests/run.sh` : 194/194.
+
+## 12/11/2026 — Premier run des bancs de nuit (ADR 0021, point 3)
+
+- **Run** : `nuit` lancé à la main sur `main` (45d5c45). Résultat : `ansible`, `sauvegarde` et `charge` en échec.
+- **`ansible` et `sauvegarde`** : `apt-get` sort en 100 pendant la construction de l'image.
+  - Cause : `Dockerfile.noeud` et `Dockerfile.sauvegarde` passaient les dépôts apt en `https://` dans tous les cas, alors que `ubuntu:24.04` n'a aucune autorité de certification (`ca-certificates` absent, vérifié). Sur le poste de développement, le certificat du proxy, monté comme secret, masquait le défaut.
+  - Reproduit : apt en HTTPS sans certificat → « Certificate verification failed ».
+  - Correctif : HTTPS seulement si le certificat est monté, comme le faisait déjà `Dockerfile.s3`. Sinon, http, dont les index restent signés par GPG.
+- **`sauvegarde-s3.sh`**, joué sans certificat : 502 sur `CreateBucket` au premier démarrage d'une image neuve.
+  - Cause : la boucle d'attente (`curl -sk`, sans `-f`) acceptait la 502 de nginx alors que moto, derrière lui, n'était pas prêt.
+  - Correctif : `curl -skf`, 30 s au plus, puis échec explicite avec le journal de moto.
+- **`charge`** : toutes les mesures sont bonnes (0 erreur, 2 001 paiements confirmés), mais le banc sortait en code 1.
+  - Cause : `grep -c` sort en 1 quand il ne trouve rien, ce qui, sous `pipefail`, faisait échouer le banc quand il n'y avait aucune erreur. Le code de retour n'avait jamais été regardé en phase 5. Reproduit en local : code 1.
+  - Correctif : le compte est lu, le banc échoue s'il y a au moins une erreur interne, et affiche SUCCÈS sinon.
+- **Preuves**, sur le poste, avec le certificat masqué (`unshare` + `mount --bind /dev/null`), donc comme en CI :
+  - `sauvegarde.sh` : SUCCÈS ;
+  - `sauvegarde-s3.sh` : SUCCÈS, image reconstruite sans cache ;
+  - `essai.sh` (Ansible) : SUCCÈS ;
+  - `charge.sh` : code 0, SUCCÈS.
+- **Non prouvé** : le banc Ansible sur un runner GitHub (conteneurs systemd privilégiés), qui n'a pas encore dépassé la construction de l'image.
+- **Confirmé sur GitHub** (`0875067`) :
+  - `nuit` (run 43327951145) : `ansible`, `sauvegarde` et `charge` verts. Le runner accepte les conteneurs systemd privilégiés du banc Ansible ;
+  - `ci` : `api`, `e2e`, `radius` et `wg-agent` verts.
+  - Le point 3 de l'ADR 0021 est clos.
+
+## 12/11/2026 — Rapprochement : relevé pawaPay (ADR 0020, PILOTE.md §4)
+
+- **Constat** : d'après la documentation de pawaPay (Dashboard > Statements, lue le 12/11/2026), le relevé est le **journal du portefeuille** (`Creation date, MSISDN, Transaction ID, Amount, MNO, Type, Balance, Reason, Metadata`), et non une liste de paiements. On y trouve : aucune colonne de statut, aucun dépôt échoué, des lignes de frais séparées, des retraits sans référence, et des montants probablement en « 100.00 ». L'outil de rapprochement, tel qu'il était, ne pouvait pas le lire : il sortait en code 2 tous les jours.
+- **Fait** (`apps/api/src/rapprochement.ts`) :
+  - `--hors-paiement TYPE,…` : lignes totalisées par type au rapport, ni rapprochées ni comptées comme écarts ;
+  - `--echec` facultatif ;
+  - « N.00 » accepté pour un encaissement, une décimale non nulle restant refusée ;
+  - profil pawaPay dans `PILOTE.md` §4.
+- **Relu par un second agent** (règle 4) : aucun bloquant.
+  - Corrigés :
+    - **I-a** : une ligne hors paiement créditrice passait sans signal. Elle provoque désormais une erreur (code 2) ;
+    - **I-b** : une ligne hors paiement sous une référence sans encaissement (remboursement déclaré par erreur) donnait « écart nul ». Elle est désormais à instruire (`hors_paiement_orphelin`) ;
+    - **M-1** : une ligne hors paiement en double était comptée deux fois. Elle est désormais à instruire (`doublon_releve`), et comptée une fois ;
+    - **M-3** : commentaires et `PILOTE.md` mis à jour.
+  - Différés :
+    - **M-2** : contrôle de continuité de la colonne `Balance`, à écrire une fois le format réel connu ;
+    - **M-4** : type contenant une virgule, aucun n'est documenté ; il donne le code 2, jamais un silence.
+- **Preuves** : `apps/api/tests/run.sh` : 196/196. Dont l'outil en ligne de commande sur un vrai paiement en base, relevé au format pawaPay : écart nul, frais et retrait totalisés, code 2 sur un ajustement manuel. Les trois tests de la relecture ont été écrits avant le correctif, mais leur échec préalable n'a pas été observé à l'exécution.
+- **Non prouvé** : un export réel. Restent à confirmer le format de la date, le signe et les décimales, le libellé des types, et si les frais portent le `Transaction ID` du dépôt. Le jeton du bac à sable est nécessaire.
+
+## 13/11/2026 — Audit de sécurité du code ajouté depuis la phase 5, corrections
+
+- **Audit** : dix agents en lecture seule, un par domaine. Synthèse et suites dans `docs/REVUE_SECURITE.md` §4. Aucun Critique, cinq Élevés, une vingtaine de Moyens, environ quarante Faibles. Les sous-agents prévus n'ont pas pu être lancés, faute d'outil : chaque domaine a été audité par un seul agent.
+- **Corrections** : sept agents sur des fichiers séparés, puis des raccords faits ici :
+  - plafond de scrypt ;
+  - `npm ci` avec retour arrière ;
+  - droits du test de RADIUS ;
+  - `.invalid` refusé à la création d'un gérant ;
+  - bancs de sauvegarde en `root:postgres` ;
+  - README d'Ansible, ADR 0015, OpenAPI ;
+  - schéma Prisma régénéré (table `compte_marchand_verification`).
+- **Migrations nouvelles** :
+  - 0036 : quota vérifié à la consommation du jeton ;
+  - 0037 : verrous du compte marchand, limite de vérification, depositId noté avant `charge()` ;
+  - 0038 : rôle `wk_rapprochement` en lecture seule ;
+  - 0039 : comptes durcis.
+- **Relecture de la règle 4** des correctifs d'argent, par un agent neuf : aucun bloquant. Corrigés ici :
+  - I-1 : ligne hors paiement sans référence ;
+  - I-2 : tolérance d'horloge sur `expires` ;
+  - M-1 : 401 pour les appelants simultanés ;
+  - M-4 : `[ ]` échappés.
+
+  Pour chacun, test rouge avant et vert après.
+- **Preuves** (sur l'état final, sauf mention) :
+  - `apps/api/tests/run.sh` : 224/224 ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS (axe-core sur 14 écrans) ;
+  - `radius/tests/run.sh` : 288 réussis, 19 ignorés (droits compris) ;
+  - `apps/wg-agent/tests/run.sh` : SUCCÈS (13 tests Go, intégration et pare-feu compris) ;
+  - `infra/ansible/essais/essai.sh` : SUCCÈS sur les 10 étapes (idempotence ; 444, en-têtes, budget par site, `/etat`, jeton masqué, B en auto-signé ; retour arrière du pare-feu déclenché) ;
+  - `infra/noeud/essais/sauvegarde.sh` et `sauvegarde-s3.sh` : SUCCÈS ;
+  - `apps/api/tests/charge.sh` : SUCCÈS.
+
+  e2e, RADIUS, wg-agent, Ansible, sauvegardes et charge ont tourné avant les quatre correctifs de la relecture, qui ne touchent que `pawapay.ts`, `rapprochement.ts` et leurs tests, couverts par les 224.
+- **Non prouvé** :
+  - certbot réel ;
+  - B2 réel ;
+  - le filtre d'appels système de systemd sur Debian 13 ;
+  - le format réel du relevé pawaPay ;
+  - le bac à sable pawaPay : le jeton n'est pas injecté par le proxy de la session.

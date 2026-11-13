@@ -2,9 +2,14 @@
 // Ticket : .scratch/phase-4-exploitation/issues/02-comptes-auth.md
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { Writable } from "node:stream";
 import { test } from "node:test";
-import { base32Encoder, chiffrerTotp, hacher, hotp, totpPas, verifier } from "../src/auth.ts";
-import { avecApp, CLES, config, empreinteTest, entetesJeton, MDP_TEST, proprietaire, session, sql, URL_ADMIN } from "./aide.ts";
+import pg from "pg";
+import { construire } from "../src/app.ts";
+import { base32Encoder, chiffrerTotp, envoisEnCours, hacher, hotp, totpPas, verifier } from "../src/auth.ts";
+import { enTantQue, ouvrirBase } from "../src/base.ts";
+import { ExpediteurMemoire } from "../src/courriel.ts";
+import { avecApp, CLES, config, empreinteTest, entetesJeton, MDP_TEST, proprietaire, session, sql, URL_ADMIN, URL_API } from "./aide.ts";
 
 type App = Parameters<Parameters<typeof avecApp>[0]>[0];
 const CSRF = { "x-wakatnet-requete": "1" };
@@ -242,4 +247,218 @@ test("revue de sécurité M2 derrière nginx : la source est l'en-tête X-Forwar
     for (let i = 0; i < 5; i++) await via(`192.0.2.${i}`, "203.0.113.50");
     assert.equal((await via("192.0.2.99", "203.0.113.50")).statusCode, 429);
   }, config({ trustProxy: "127.0.0.1" }));
+});
+
+// --- Audit du 13/11/2026 (comptes, inscription, vérification de l'adresse) : migration 0039. ---
+
+const verifie = async (email: string) => (await sql<{ v: boolean }>(URL_ADMIN,
+  "SELECT email_verifie_le IS NOT NULL AS v FROM app.utilisateur WHERE email = lower($1)", [email]))[0]?.v;
+const inscrireDepuis = (app: App, email: string, source: string, mot_de_passe = "un-mot-de-passe-long", nom = "Zone test") =>
+  app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: source, payload: { nom, email, mot_de_passe } });
+const renvoyer = (app: App, email: string, source = sourceAuHasard()) =>
+  app.inject({ method: "POST", url: "/v1/verification/renvoyer", headers: CSRF, remoteAddress: source, payload: { email } });
+const confirmer = (app: App, jeton: string) =>
+  app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton } });
+const jetonsPour = (exp: ExpediteurMemoire, email: string) =>
+  exp.messages.filter((m) => m.a === email).map((m) => /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(m.texte)?.[1]).filter((j): j is string => !!j);
+/** Envois partis en arrière-plan (renvoi du lien) : terminés avant de regarder les messages. */
+const envoisTermines = envoisEnCours;
+const liensComptes = async (email: string) => (await sql<{ n: number }>(URL_ADMIN,
+  `SELECT ((SELECT count(*) FROM app.utilisateur_liens l WHERE l.utilisateur_id = u.id)
+        + (SELECT count(*) FROM app.verification_email v WHERE v.utilisateur_id = u.id))::int AS n
+     FROM app.utilisateur u WHERE u.email = lower($1)`, [email]))[0].n;
+
+test("audit 13/11/2026 (1) : adresses en .invalid refusées par l'API (422) et par la base ; seule la forme purgée de la ligne elle-même passe", async () => {
+  await avecApp(async (app) => {
+    const [{ n }] = await sql<{ n: string }>(URL_ADMIN, "SELECT (coalesce(max(id), 0) + 3)::text AS n FROM app.utilisateur");
+    for (const email of [`purge-${n}@wakatnet.invalid`, "quelqu-un@exemple.invalid", `PURGE-${n}@WAKATNET.INVALID`, "a@sous.wakatnet.invalid"]) {
+      const r = await inscrireBrut(app, email);
+      assert.equal(r.statusCode, 422, `${email} : ${r.body}`);
+    }
+    // En base : une adresse du domaine wakatnet.invalid n'est permise qu'à la ligne purgée elle-même (purge-<son id>).
+    const p = await proprietaire("adresse réservée");
+    const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.utilisateur WHERE tenant_id = $1", [p.tenant]);
+    await assert.rejects(sql(URL_ADMIN, "UPDATE app.utilisateur SET email = $2 WHERE id = $1", [id, `purge-${BigInt(id) + 1000n}@wakatnet.invalid`]), /utilisateur_email_reservee/);
+    await assert.rejects(sql(URL_ADMIN, "UPDATE app.utilisateur SET email = 'x@sous.wakatnet.invalid' WHERE id = $1", [id]), /utilisateur_email_reservee/);
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET email = $2, actif = false WHERE id = $1", [id, `purge-${id}@wakatnet.invalid`]);
+  });
+});
+
+test("audit 13/11/2026 (1) : une purge en échec ne fait jamais échouer l'inscription", async () => {
+  const exp = new ExpediteurMemoire();
+  await avecApp(async (app) => {
+    // Un compte jamais confirmé depuis 8 jours : la prochaine inscription le purge. On force l'échec de cette purge.
+    const vieux = adresse();
+    await inscrireBrut(app, vieux);
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET cree_le = now() - interval '8 days' WHERE email = $1", [vieux]);
+    await sql(URL_ADMIN, `CREATE FUNCTION public.purge_en_echec() RETURNS trigger LANGUAGE plpgsql AS $$
+                          BEGIN IF NEW.email LIKE 'purge-%' THEN RAISE EXCEPTION 'purge refusée (test)'; END IF; RETURN NEW; END $$`);
+    await sql(URL_ADMIN, "CREATE TRIGGER purge_en_echec BEFORE UPDATE ON app.utilisateur FOR EACH ROW EXECUTE FUNCTION public.purge_en_echec()");
+    try {
+      const email = adresse();
+      const r = await inscrireBrut(app, email);
+      assert.equal(r.statusCode, 202, r.body);
+      assert.equal(jetonsPour(exp, email).length, 1, "le compte neuf est créé et reçoit son lien");
+    } finally {
+      await sql(URL_ADMIN, "DROP TRIGGER purge_en_echec ON app.utilisateur");
+      await sql(URL_ADMIN, "DROP FUNCTION public.purge_en_echec()");
+      await sql(URL_ADMIN, "UPDATE app.utilisateur SET cree_le = now() WHERE email = $1", [vieux]);
+    }
+  }, config(), { expediteur: exp });
+});
+
+test("audit 13/11/2026 (2) : nom de 81 caractères refusé (422) ; une création en échec répond comme une adresse prise et compte dans le budget de la source", async () => {
+  await avecApp(async (app) => {
+    const r = await inscrireDepuis(app, adresse(), sourceAuHasard(), "un-mot-de-passe-long", "N".repeat(81));
+    assert.equal(r.statusCode, 422);
+    assert.equal((await inscrireDepuis(app, adresse(), sourceAuHasard(), "un-mot-de-passe-long", "N".repeat(80))).statusCode, 202);
+    // En base, directement (wk_api) : une création qui échoue ne lève pas d'erreur, et l'essai est compté.
+    const source = `essai-${randomBytes(6).toString("hex")}`;
+    const statuts: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const [s] = await sql<{ statut: string; utilisateur_id: string | null }>(URL_API,
+        "SELECT statut, utilisateur_id::text FROM app.inscription_demander($1, $2, $3, $4)",
+        ["N".repeat(100), adresse(), await empreinteTest(), source]);
+      statuts.push(s.statut);
+      if (i < 5) assert.equal(s.utilisateur_id, null);
+    }
+    assert.deepEqual(statuts, ["existe", "existe", "existe", "existe", "existe", "trop"]);
+  });
+});
+
+test("audit 13/11/2026 (3) : pré-appropriation — l'inscription d'une adresse non confirmée remplace le mot de passe et invalide les liens ouverts", async () => {
+  const exp = new ExpediteurMemoire();
+  await avecApp(async (app) => {
+    const victime = adresse();
+    const att = await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-l-attaquant-42");
+    const [lienAttaquant] = jetonsPour(exp, victime);
+    assert.ok(lienAttaquant, "lien envoyé à la boîte de la victime");
+    const vic = await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-la-victime-1");
+    assert.deepEqual([att.statusCode, vic.statusCode], [202, 202]);
+    assert.equal(vic.body, att.body, "réponse identique (F9)");
+    const avis = exp.messages.filter((m) => m.a === victime).at(-1)!;
+    assert.doesNotMatch(avis.texte, /verifier\?j=/, "l'avis ne porte aucun lien");
+    assert.equal((await confirmer(app, lienAttaquant)).statusCode, 404, "le lien ouvert avant la nouvelle demande ne vaut plus");
+    assert.equal(await verifie(victime), false);
+    await renvoyer(app, victime);
+    await envoisTermines();
+    const lienVictime = jetonsPour(exp, victime).at(-1)!;
+    assert.notEqual(lienVictime, lienAttaquant);
+    assert.equal((await confirmer(app, lienVictime)).statusCode, 200);
+    assert.equal((await connecter(app, victime, "mdp-de-l-attaquant-42")).statusCode, 401, "l'attaquant n'entre pas");
+    assert.equal((await connecter(app, victime, "mdp-de-la-victime-1")).statusCode, 200, "la victime entre");
+    // Adresse CONFIRMÉE : une nouvelle inscription ne change plus rien.
+    assert.equal((await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-l-attaquant-43")).statusCode, 202);
+    assert.equal((await connecter(app, victime, "mdp-de-l-attaquant-43")).statusCode, 401);
+    assert.equal((await connecter(app, victime, "mdp-de-la-victime-1")).statusCode, 200);
+  }, config(), { expediteur: exp });
+});
+
+test("audit 13/11/2026 (4) : plafond global plein → aucun lien créé ni compté ; un envoi échoué ne compte pas", async () => {
+  const exp = new ExpediteurMemoire();
+  await avecApp(async (app) => {
+    await sql(URL_ADMIN, "DELETE FROM app.courriel_envoye");
+    await sql(URL_ADMIN, "INSERT INTO app.courriel_envoye (le) SELECT now() FROM generate_series(1, 200)");
+    const email = adresse();
+    try {
+      assert.equal((await inscrireBrut(app, email)).statusCode, 202);
+      for (let i = 0; i < 6; i++) assert.equal((await renvoyer(app, email)).statusCode, 202);
+      await envoisTermines();
+      assert.equal(await liensComptes(email), 0, "rien n'est créé ni compté tant que rien ne part");
+    } finally {
+      await sql(URL_ADMIN, "DELETE FROM app.courriel_envoye");
+    }
+    await renvoyer(app, email);
+    await envoisTermines();
+    assert.equal(jetonsPour(exp, email).length, 1, "le plafond libéré, le lien part");
+  }, config(), { expediteur: exp });
+  // Fournisseur en panne : le lien n'est pas compté dans la limite à vie.
+  const enPanne = { envoyer: async () => { throw new Error("panne"); } };
+  await avecApp(async (app) => {
+    const email = adresse();
+    assert.equal((await inscrireBrut(app, email)).statusCode, 202);
+    await renvoyer(app, email);
+    await envoisTermines();
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(await liensComptes(email), 0);
+  }, config(), { expediteur: enPanne });
+});
+
+test("audit 13/11/2026 (4) : plafond quotidien de 10 demandes par source (inscriptions et renvois confondus)", async () => {
+  await avecApp(async (app) => {
+    const source = sourceAuHasard();
+    const vieillir = () => sql(URL_ADMIN, "UPDATE app.source_demande SET le = le - interval '61 minutes'");
+    for (let i = 0; i < 5; i++) assert.equal((await inscrireDepuis(app, adresse(), source)).statusCode, 202);
+    await vieillir();
+    for (let i = 0; i < 5; i++) assert.equal((await renvoyer(app, adresse(), source)).statusCode, 202);
+    await envoisTermines();
+    await vieillir();
+    assert.equal((await inscrireDepuis(app, adresse(), source)).statusCode, 429, "11e demande du jour");
+  });
+});
+
+test("audit 13/11/2026 (5) : une erreur 500 ne journalise ni le message ni le DETAIL de la base, seulement la classe, le code et la contrainte", async () => {
+  const lignes: string[] = [];
+  const flux = new Writable({ write(c, _e, cb) { lignes.push(String(c)); cb(); } });
+  const base = ouvrirBase(URL_API);
+  const app = construire(config(), base, { flux });
+  const p = await proprietaire("journal");
+  app.get("/test/erreur-contrainte", async () =>
+    enTantQue(base, BigInt(p.tenant), (tx) => tx.$executeRaw`INSERT INTO app.point_of_sale (tenant_id, nom) VALUES (${BigInt(p.tenant)}, ${"x".repeat(81) + "fuite@exemple.bf"})`));
+  app.get("/test/erreur-valeur", async () => base.$queryRawUnsafe("SELECT $1::int", "fuite@exemple.bf"));
+  try {
+    assert.equal((await app.inject({ url: "/test/erreur-contrainte" })).statusCode, 500);
+    assert.equal((await app.inject({ url: "/test/erreur-valeur" })).statusCode, 500);
+    const j = lignes.join("");
+    assert.doesNotMatch(j, /fuite@exemple\.bf|Failing row|xxxxxxxx/);
+    assert.match(j, /"sqlstate":"23514"/);
+    assert.match(j, /"contrainte":"point_of_sale_nom_check"/);
+    assert.match(j, /"sqlstate":"22P02"/);
+    assert.match(j, /PrismaClientKnownRequestError/);
+  } finally {
+    await app.close();
+    await base.$disconnect();
+  }
+});
+
+test("audit 13/11/2026 (6) : le renvoi répond 202 sans attendre le travail du lien (pas d'écart de durée selon l'adresse)", async () => {
+  const exp = new ExpediteurMemoire();
+  await avecApp(async (app) => {
+    const email = adresse();
+    await inscrireBrut(app, email);
+    const [{ id }] = await sql<{ id: string }>(URL_ADMIN, "SELECT id::text FROM app.utilisateur WHERE email = $1", [email]);
+    // Le verrou du compte est tenu ailleurs : un renvoi qui attendrait la création du lien resterait bloqué.
+    const verrou = new pg.Client({ connectionString: URL_ADMIN });
+    await verrou.connect();
+    await verrou.query("SELECT pg_advisory_lock(hashtext('wakatnet_verification:' || $1))", [id]);
+    try {
+      const r = await Promise.race([renvoyer(app, email), new Promise<"bloqué">((ok) => setTimeout(() => ok("bloqué"), 3000))]);
+      assert.notEqual(r, "bloqué", "la réponse n'attend pas le lien");
+      assert.equal((r as { statusCode: number }).statusCode, 202);
+    } finally {
+      await verrou.query("SELECT pg_advisory_unlock_all()");
+      await verrou.end();
+    }
+    await envoisTermines();
+    assert.equal(jetonsPour(exp, email).length, 2, "le lien part ensuite (inscription, puis renvoi)");
+  }, config(), { expediteur: exp });
+});
+
+test("audit 13/11/2026 (LIMITES n° 2) : calculs scrypt plafonnés ; au-delà, 503 et Retry-After, jamais 500", async () => {
+  // Sans base : 4 calculs actifs + 32 en attente ; le 37e est refusé tout de suite (CalculsSatures).
+  const r = await Promise.allSettled(Array.from({ length: 40 }, () => hacher("mot-de-passe-de-test")));
+  const refus = r.filter((x) => x.status === "rejected");
+  assert.equal(refus.length, 4, "40 demandes simultanées : 36 servies, 4 refusées");
+  for (const x of refus) assert.equal(((x as PromiseRejectedResult).reason as Error).name, "CalculsSatures");
+  assert.ok(await verifier("a", await hacher("a")), "les places se libèrent ensuite");
+  // Par l'API : 60 connexions simultanées sur des adresses inconnues (le hachage factice tourne à chaque fois).
+  await avecApp(async (app) => {
+    const reps = await Promise.all(Array.from({ length: 60 }, (_, i) => app.inject({ method: "POST", url: "/v1/connexion",
+      headers: CSRF, remoteAddress: `198.51.100.${i + 1}`, payload: { email: `inconnu-${i}-${randomBytes(4).toString("hex")}@exemple.bf`, mot_de_passe: "mot-de-passe-faux" } })));
+    const codes = reps.map((x) => x.statusCode);
+    assert.ok(codes.every((c) => c === 401 || c === 503), `codes inattendus : ${[...new Set(codes)]}`);
+    assert.ok(codes.includes(503), "la saturation est bien visible (503)");
+    const sature = reps.find((x) => x.statusCode === 503)!;
+    assert.equal(sature.headers["retry-after"], "5");
+  });
 });

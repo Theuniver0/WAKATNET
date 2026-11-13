@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
+import { envoisEnCours } from "../src/auth.ts";
 import { ExpediteurMemoire } from "../src/courriel.ts";
 import { avecApp, config, entetes, proprietaire, routeur, session, sql, URL_ADMIN } from "./aide.ts";
 
@@ -145,10 +146,13 @@ test("ADR 0019 : renvoi du lien sans session ; réponse identique ; seulement au
     const b = await renvoyer(`inconnu-${Date.now()}@exemple.bf`, "10.79.0.1");
     assert.deepEqual([a.statusCode, b.statusCode], [202, 202]);
     assert.equal(a.body, b.body, "réponse identique");
+    await envoisEnCours();             // audit du 13/11/2026 : le lien part après la réponse
     assert.equal(exp.messages.filter((x) => x.a === email).length, 1, "lien envoyé au seul compte qui attend");
     for (let i = 0; i < 3; i++) await renvoyer(email, "10.79.0.1");
+    await envoisEnCours();
     const avant = exp.messages.filter((x) => x.a === email).length;
     await renvoyer(email, "10.79.0.1");       // 6e demande de la source dans l'heure : rien n'est envoyé
+    await envoisEnCours();
     assert.equal(exp.messages.filter((x) => x.a === email).length, avant);
   }, config(), { expediteur: exp });
 });
@@ -242,6 +246,7 @@ test("ADR 0019 (relecture) : des avis provoqués par un tiers n'épuisent pas le
     for (let i = 0; i < 6; i++) await inscrire(`10.80.1.${i}`, "mot-de-passe-du-tiers");      // le tiers insiste
     const renvoi = await app.inject({ method: "POST", url: "/v1/verification/renvoyer", headers: CSRF, remoteAddress: "10.80.2.1", payload: { email } });
     assert.equal(renvoi.statusCode, 202);
+    await envoisEnCours();             // audit du 13/11/2026 : le lien part après la réponse
     const liens = exp.messages.filter((x) => x.a === email && /verifier\?j=/.test(x.texte));
     assert.equal(liens.length, 2, "lien d'inscription, puis lien renvoyé : le budget de liens est intact");
     // Jamais confirmé au bout de 7 jours : l'adresse est libérée à la prochaine inscription, et le compte désactivé.
@@ -265,9 +270,145 @@ test("ADR 0019 (relecture) : plafond global de 200 e-mails par 24 h ; au-delà, 
     try {
       const r = await app.inject({ method: "POST", url: "/v1/verification/renvoyer", headers: CSRF, remoteAddress: "10.81.0.1", payload: { email } });
       assert.equal(r.statusCode, 202, "réponse identique");
+      await envoisEnCours();
       assert.equal(exp.messages.filter((x) => x.a === email).length, 0);
     } finally {
       await sql(URL_ADMIN, "DELETE FROM app.courriel_envoye");
     }
   }, config(), { expediteur: exp });
+});
+
+// --- Audit du 13/11/2026 (M4, suite) : contrôles refaits à la CONSOMMATION du jeton (migration 0036). ---
+
+let numeroCle = 0;
+/** Clé publique WireGuard de forme valide, unique par appel. */
+function nouvelleCle(): string {
+  numeroCle++;
+  return createHash("sha256").update(`quota ${process.pid} ${Date.now()} ${numeroCle}`).digest("base64");
+}
+const inscriptionRouteur = () => ({
+  cle: nouvelleCle(), identity: "Zone quota", modele: "hAP ax2", version: "7.15.3 (stable)",
+  listen_port: 13231, coa_port: 3799, coa_accept: false,
+  hotspots: [{ serveur: "hotspot1", profil: "hsprof1", use_radius: false, html_directory: "hotspot",
+               radius_accounting: true, radius_interim_update: "received", adresse: "10.5.50.1", dns: "Login.Wifi" }],
+});
+async function jeton(app: App, p: { tenant: string; site: string }): Promise<string> {
+  const r = await commande(app, p);
+  assert.equal(r.statusCode, 201, r.body);
+  return /\/enroll\/([A-Za-z0-9_-]{43})"/.exec(r.json().commande)![1];
+}
+const enroler = (app: App, j: string) => app.inject({ method: "POST", url: `/enroll/${j}`, payload: inscriptionRouteur() });
+const jetonValide = async (app: App, j: string) => (await app.inject({ url: `/enroll/${j}` })).statusCode === 200;
+const enrolementsNonValides24h = async () => (await sql<{ n: number }>(URL_ADMIN,
+  `SELECT count(*)::int AS n FROM app.router r JOIN app.tenant t ON t.id = r.tenant_id
+    WHERE NOT t.valide_admin AND r.enrole_le > now() - interval '24 hours'`))[0].n;
+
+test("audit 13/11/2026 : rafale de jetons de plusieurs comptes non validés → le plafond de 100 par jour tient à la consommation (409, jeton intact)", async () => {
+  await avecApp(async (app) => {
+    const comptes = [await proprietaire("rafale 1"), await proprietaire("rafale 2"), await proprietaire("rafale 3")];
+    const remplissage = await proprietaire("rafale remplissage");
+    const tous = [...comptes, remplissage].map((c) => c.tenant);
+    await sql(URL_ADMIN, "UPDATE app.tenant SET valide_admin = false, quota_routeurs = 2 WHERE id = ANY($1::bigint[])", [tous]);
+    // 98 routeurs enrôlés dans les 24 h par des comptes non validés : il reste 2 places au plafond global.
+    const manque = 98 - (await enrolementsNonValides24h());
+    assert.ok(manque >= 0, `déjà ${98 - manque} enrôlements non validés dans la base de test`);
+    await sql(URL_ADMIN, `INSERT INTO app.router (tenant_id, site_id, overlay_ip, shortname, enrole_le)
+                          SELECT $1::bigint, $2::bigint, '10.213.150.0'::inet + g, 'plafond-' || g, now() - interval '2 hours'
+                            FROM generate_series(1, $3::int) g`, [remplissage.tenant, remplissage.site, manque]);
+    try {
+      // Chaque compte prend 2 jetons d'un coup : à la création, le plafond (routeurs enrôlés) n'est pas atteint.
+      const jetons: string[] = [];
+      for (const c of comptes) jetons.push(await jeton(app, c), await jeton(app, c));
+      assert.equal(jetons.length, 6);
+      // Puis tous enrôlent en même temps, dans les 30 min de validité.
+      const reponses = await Promise.all(jetons.map((j) => enroler(app, j)));
+      const codes = reponses.map((r) => r.statusCode);
+      assert.equal(codes.filter((c) => c === 200).length, 2, JSON.stringify(codes));
+      assert.equal(codes.filter((c) => c === 409).length, 4, JSON.stringify(codes));
+      for (const r of reponses.filter((x) => x.statusCode === 409)) assert.match(r.json().erreur, /suspendus pour les comptes non validés/);
+      assert.equal(await enrolementsNonValides24h(), 100, "plafond de 100 par 24 h tenu");
+      // Les jetons refusés restent intacts (ni consommés, ni expirés).
+      const refuses = jetons.filter((_, i) => codes[i] === 409);
+      for (const j of refuses) assert.ok(await jetonValide(app, j), "jeton refusé intact");
+    } finally {
+      await sql(URL_ADMIN, "DELETE FROM app.enrollment_token WHERE tenant_id = ANY($1::bigint[]) AND consomme_le IS NULL", [tous]);
+      await sql(URL_ADMIN, "DELETE FROM app.router WHERE shortname LIKE 'plafond-%'");
+      // Les routeurs réellement enrôlés restent (secret, jeton) : leurs comptes sortent du décompte des tests suivants.
+      await sql(URL_ADMIN, "UPDATE app.tenant SET valide_admin = true WHERE id = ANY($1::bigint[])", [tous]);
+    }
+  });
+});
+
+test("audit 13/11/2026 : overlay rempli à 90 % APRÈS l'émission du jeton → enrôlement refusé (409) pour un compte non validé", async () => {
+  await avecApp(async (app) => {
+    const p = await proprietaire("overlay après émission");
+    const remplissage = await proprietaire("overlay après émission, remplissage");
+    await sql(URL_ADMIN, "UPDATE app.tenant SET valide_admin = false, quota_routeurs = 2 WHERE id = $1", [p.tenant]);
+    const j = await jeton(app, p);
+    await sql(URL_ADMIN, `INSERT INTO app.router (tenant_id, site_id, overlay_ip, shortname)
+                          SELECT $1, $2, '10.213.0.0'::inet + g, 'remplissage-' || g FROM generate_series(1, 64000) g
+                           WHERE NOT ('10.213.0.0'::inet + g) << '10.213.200.0/22'::inet
+                          ON CONFLICT DO NOTHING`, [remplissage.tenant, remplissage.site]);
+    try {
+      const r = await enroler(app, j);
+      assert.equal(r.statusCode, 409, r.body);
+      assert.match(r.json().erreur, /suspendus pour les comptes non validés/);
+      assert.ok(await jetonValide(app, j), "jeton intact");
+    } finally {
+      await sql(URL_ADMIN, "DELETE FROM app.enrollment_token WHERE tenant_id = $1", [p.tenant]);
+      await sql(URL_ADMIN, "DELETE FROM app.router WHERE shortname LIKE 'remplissage-%'");
+      await sql(URL_ADMIN, "UPDATE app.tenant SET valide_admin = true WHERE id = $1", [p.tenant]);
+    }
+  });
+});
+
+test("audit 13/11/2026 : compte suspendu après l'émission du jeton → enrôlement refusé ; la suspension par le super-admin expire les jetons ouverts", async () => {
+  await avecApp(async (app) => {
+    const p = await proprietaire("suspendu après émission");
+    const j1 = await jeton(app, p);
+    const j2 = await jeton(app, p);
+    // Suspension posée hors de l'écran d'administration : enroll_register la voit lui-même.
+    await sql(URL_ADMIN, "UPDATE app.tenant SET suspendu = true WHERE id = $1", [p.tenant]);
+    const refus = await enroler(app, j1);
+    assert.equal(refus.statusCode, 403, refus.body);
+    assert.match(refus.json().erreur, /suspendu/);
+    assert.ok(await jetonValide(app, j1), "jeton intact, refusé tant que le compte est suspendu");
+    await sql(URL_ADMIN, "UPDATE app.tenant SET suspendu = false WHERE id = $1", [p.tenant]);
+    // Suspension par le super-admin : les jetons ouverts sont expirés, et le restent après la levée.
+    const h = await admin();
+    assert.equal((await app.inject({ method: "PUT", url: `/admin/v1/proprietaires/${p.tenant}`, headers: h, payload: { suspendu: true } })).statusCode, 200);
+    const [{ ouverts }] = await sql<{ ouverts: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS ouverts FROM app.enrollment_token WHERE tenant_id = $1 AND consomme_le IS NULL AND expire_le > now()", [p.tenant]);
+    assert.equal(ouverts, 0, "jetons ouverts expirés à la suspension");
+    assert.equal((await app.inject({ method: "PUT", url: `/admin/v1/proprietaires/${p.tenant}`, headers: h, payload: { suspendu: false } })).statusCode, 200);
+    for (const j of [j1, j2]) assert.equal((await enroler(app, j)).statusCode, 404, "jeton expiré par la suspension");
+    // Un réglage sans suspension (commission) n'expire rien.
+    const j3 = await jeton(app, p);
+    assert.equal((await app.inject({ method: "PUT", url: `/admin/v1/proprietaires/${p.tenant}`, headers: h, payload: { commission_bps: 500 } })).statusCode, 200);
+    assert.equal((await enroler(app, j3)).statusCode, 200);
+  });
+});
+
+test("audit 13/11/2026 : quota baissé après l'émission du jeton → enrôlement refusé au-delà (409) ; la baisse par le super-admin expire les jetons ouverts", async () => {
+  await avecApp(async (app) => {
+    const p = await proprietaire("quota baissé après émission");
+    await sql(URL_ADMIN, "UPDATE app.tenant SET quota_routeurs = 3 WHERE id = $1", [p.tenant]);
+    const a = await jeton(app, p);
+    const b = await jeton(app, p);
+    // Baisse posée hors de l'écran d'administration : enroll_register recompte (enrôlés, révoqués compris, + celui-ci).
+    await sql(URL_ADMIN, "UPDATE app.tenant SET quota_routeurs = 1 WHERE id = $1", [p.tenant]);
+    assert.equal((await enroler(app, a)).statusCode, 200);
+    const refus = await enroler(app, b);
+    assert.equal(refus.statusCode, 409, refus.body);
+    assert.match(refus.json().erreur, /Quota de routeurs atteint/);
+    assert.ok(await jetonValide(app, b), "jeton intact");
+    // Baisse par le super-admin : les jetons ouverts sont expirés ; une hausse n'expire rien.
+    const h = await admin();
+    const acces = (quota: number) => app.inject({ method: "PUT", url: `/admin/v1/proprietaires/${p.tenant}/acces`, headers: h, payload: { quota_routeurs: quota } });
+    assert.equal((await acces(5)).statusCode, 200);
+    assert.ok(await jetonValide(app, b), "une hausse n'expire pas les jetons");
+    const c = await jeton(app, p);
+    assert.equal((await acces(4)).statusCode, 200);
+    for (const j of [b, c]) assert.equal((await enroler(app, j)).statusCode, 404, "jeton expiré par la baisse du quota");
+  });
 });

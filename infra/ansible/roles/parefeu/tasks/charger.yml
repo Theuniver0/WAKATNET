@@ -1,0 +1,50 @@
+# Rendu et chargement de la table publique, retour arrière programmé AVANT le chargement (ADR 0016 §3).
+# Inclus par main.yml, qui vérifie ensuite le nœud par une connexion neuve et annule le retour arrière ; le banc
+# (essais/parefeu-retour.yml) l'inclut seul pour déclencher le retour arrière.
+- name: Script de retour arrière
+  ansible.builtin.copy:
+    src: wakatnet-parefeu-retour
+    dest: /usr/local/sbin/wakatnet-parefeu-retour
+    mode: "0755"
+
+# À chaque passage, sans condition : un fichier en place ne prouve pas que la table est chargée (retour
+# arrière d'un passage précédent, « nft flush ruleset » à la main, table retirée).
+- name: La table publique est-elle chargée ?
+  ansible.builtin.command: nft list table inet wakatnet_public
+  register: parefeu_table_chargee
+  changed_when: false
+  failed_when: false
+
+- name: Table publique
+  ansible.builtin.template:
+    src: public.nft.j2
+    dest: /etc/nftables.d/wakatnet-public.nft
+    mode: "0644"
+    # Copie du fichier précédent (« wakatnet-public.nft.<pid>.<date>~ », hors du motif *.nft chargé au
+    # démarrage) : c'est elle que le retour arrière remet en place.
+    backup: true
+  register: parefeu_table
+
+- name: Table à appliquer ?
+  ansible.builtin.set_fact:
+    parefeu_a_appliquer: "{{ parefeu_table is changed or parefeu_table_chargee.rc != 0 }}"
+    parefeu_sauvegarde: "{{ parefeu_table.backup_file | default('') }}"
+
+# noqa: no-handler — l'ordre est la garantie (programmer, charger, vérifier par une connexion neuve,
+# annuler) : un gestionnaire ne le tiendrait pas.
+- name: Chargement avec retour arrière programmé  # noqa: no-handler
+  when: parefeu_a_appliquer | bool
+  block:
+    - name: Aucun retour arrière d'un passage précédent en attente
+      ansible.builtin.systemd_service:
+        name: wakatnet-parefeu-retour.timer
+        state: stopped
+      failed_when: false
+    - name: Retour arrière programmé (mémoire et fichier)
+      ansible.builtin.command:
+        argv: "{{ ['systemd-run', '--unit=wakatnet-parefeu-retour', '--collect', '--on-active=' ~ parefeu_retour_delai,
+                   '/usr/local/sbin/wakatnet-parefeu-retour'] + ([parefeu_sauvegarde] if parefeu_sauvegarde else []) }}"
+      changed_when: true
+    - name: Charger la table
+      ansible.builtin.command: nft -f /etc/nftables.d/wakatnet-public.nft
+      changed_when: true

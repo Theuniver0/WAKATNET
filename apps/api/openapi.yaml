@@ -60,10 +60,10 @@ paths:
         "202": { description: "Demande prise : lien de confirmation (compte neuf) ou avis (adresse déjà inscrite) envoyé par e-mail" }
         "403": { description: En-tête anti-CSRF manquant }
         "422": { description: Saisie invalide }
-        "429": { description: "5 inscriptions par heure et par source" }
+        "429": { description: "5 demandes par heure et 10 par jour, par source (inscriptions et renvois confondus ; ADR 0019, audit du 13/11/2026)" }
   /v1/verification/renvoyer:
     post:
-      summary: "Renvoi du lien de confirmation sans session ; réponse toujours identique ; 5 par heure et par source (ADR 0019)"
+      summary: "Renvoi du lien de confirmation sans session ; réponse toujours identique ; 5 par heure et 10 par jour, par source (ADR 0019)"
       security: []
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string } } } } } }
       responses: { "202": { description: Demande prise }, "422": { description: Adresse invalide } }

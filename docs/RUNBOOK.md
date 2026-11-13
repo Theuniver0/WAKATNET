@@ -75,7 +75,35 @@ Le spool doit se vider en quelques minutes.
 4. Le spool de B se vide alors dans B (`target_session_attrs=read-write`) : le vérifier comme au §2.
 5. Applications sur B : démarrer l'API, le portail et les tâches (unités systemd `wakatnet-*`, conteneurs de l'API).
 6. DNS : faire pointer `api.` et le nom du portail vers l'IP de B. Le webhook de l'agrégateur vise le nom, pas l'IP.
-7. Vérifier un achat de bout en bout avec un petit montant, puis noter l'heure de chaque étape au journal.
+7. Certificat TLS de B (ADR 0016, audit du 13/11/2026). Jusqu'ici, B sert un certificat **auto-signé** : les routeurs (`check-certificate=yes`), les navigateurs et l'agrégateur le refusent.
+   1. Attendre que le DNS public donne l'IP de B, vérifié depuis l'extérieur des nœuds :
+
+      ```bash
+      dig +short api.DOMAINE @1.1.1.1
+      ```
+
+      Faire de même pour `portail.DOMAINE`.
+   2. Dans l'inventaire, sur `noeud_b` : `frontal_tls: letsencrypt` et `wakatnet_role: primaire`. Sur `noeud_a` : `frontal_tls: autosigne` et `wakatnet_role: replique`.
+   3. Repasser Ansible sur B seul : certbot obtient le certificat, puis nginx est rechargé.
+
+      ```bash
+      ansible-playbook site.yml --limit noeud_b
+      ```
+
+   4. Si B garde un certificat d'une bascule précédente, Ansible ne le redemande pas, et il peut avoir expiré. Le renouveler à la main ; le crochet recharge nginx.
+
+      ```bash
+      sudo certbot renew --cert-name wakatnet
+      ```
+
+   5. Vérifier depuis l'extérieur l'émetteur et la date d'expiration :
+
+      ```bash
+      echo | openssl s_client -connect api.DOMAINE:443 -servername api.DOMAINE 2>/dev/null | openssl x509 -noout -issuer -enddate
+      ```
+
+   - Tant que le DNS vise B, les renouvellements de certbot échouent sur A : c'est attendu. Au retour sur A (§4, étape 5), même procédure en sens inverse, y compris le renouvellement manuel : le certificat de A a pu expirer.
+8. Vérifier un achat de bout en bout avec un petit montant, puis noter l'heure de chaque étape au journal.
 
 ## 4. Faire revenir A, en réplique de B
 
@@ -112,13 +140,30 @@ Le spool doit se vider en quelques minutes.
 ## 7. Sauvegardes et restauration
 
 - Sauvegarde : `wakatnet-sauvegarde.timer`, chaque nuit à 2 h 30, sur le primaire (le script ne fait rien sur une réplique). Complète le dimanche, différentielle sinon. État : `/var/lib/wakatnet/sauvegarde.json`. Alerte au-delà de 26 h sans réussite.
+- Contrôle externe du bucket (ADR 0018, audit du 13/11/2026) : `infra/surveillance/controle-b2.sh`, chaque heure, **hors des nœuds**, avec une clé de liste seule. Il alerte sur son propre bot Telegram si la dernière sauvegarde dans le bucket a plus de 26 h, le dernier WAL plus d'une heure, ou si `backup.info`/`archive.info` ont été masqués. Une alerte du contrôle externe **sans** alerte des nœuds est le signe d'un nœud qui ment : la traiter comme le cas « effacement du dépôt » ci-dessous.
 - Essai de restauration : `wakatnet-essai-restauration.timer`, le 3 de chaque mois. Résultat : `/var/lib/wakatnet/essai-restauration.json`. En cas d'échec, lire `journalctl -u wakatnet-essai-restauration` : un **écart du grand livre** (`ecriture:ID`) signale une ligne disparue ou modifiée depuis la sauvegarde. Le traiter comme un incident de sécurité, pas comme une panne.
-- Phrase de passe du dépôt : dans `/etc/pgbackrest/conf.d/secret.conf` **et** hors des nœuds. Sans elle, aucune restauration n'est possible.
+- Phrase de passe du dépôt : dans `/etc/pgbackrest/conf.d/secret.conf` **et** hors des nœuds. Sans elle, aucune restauration n'est possible. La copie hors site ne garde **que la phrase de passe** : les clés B2 se recréent dans la console, et une clé hors site serait une clé de plus à voler.
+- `secret.conf` appartient à root, groupe postgres, `0640` ; `/etc/pgbackrest` et `conf.d` à `root:postgres`, `0750`. pgBackRest, lancé en postgres, ne fait que les lire. Ansible échoue si `conf.d` contient autre chose que `secret.conf` : un fichier inconnu y est un **incident de sécurité** (redirection possible du dépôt), pas une erreur de déploiement. Pour (re)créer le fichier, sans secret sur la ligne de commande :
+
+  ```bash
+  sudo install -d -o root -g postgres -m 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
+  sudo install -o root -g postgres -m 0640 /dev/null /etc/pgbackrest/conf.d/secret.conf
+  sudoedit /etc/pgbackrest/conf.d/secret.conf
+  ```
+
+  Contenu : `[global]`, puis `repo1-cipher-pass=`, `repo1-s3-key=` (keyID B2) et `repo1-s3-key-secret=` (applicationKey). `sudoedit` garde le propriétaire et le mode. Vérifier : `sudo stat -c '%U:%G %a' /etc/pgbackrest/conf.d/secret.conf` donne `root:postgres 640`.
+
+### Rotation (clé B2 des nœuds, clé de contrôle, phrase de passe)
+
+1. Créer la nouvelle clé dans la console B2 ou par `b2 key create` (capacités : `docs/MISE_EN_PRODUCTION.md` §1), la poser sur **les deux** nœuds par `sudoedit` (ci-dessus), puis `sudo -u postgres pgbackrest --stanza=wakatnet check` sur le primaire.
+2. Révoquer l'ancienne (`b2 key delete KEYID`), puis contrôler par `b2 key list --long`.
+3. **Mettre à jour la copie hors site** : la phrase de passe si elle change, et la date de la rotation avec l'identifiant (keyID, non secret) de la clé en service. Jamais la clé elle-même.
+4. La phrase de passe d'un dépôt existant ne se change pas en place : une nouvelle phrase veut dire un nouveau dépôt (`repo1-path` neuf, à reporter dans `CONTROLE_B2_CHEMIN`), suivi d'une sauvegarde complète. L'ancienne phrase reste dans la copie hors site tant que des sauvegardes chiffrées avec elle sont gardées (30 jours de verrou au moins).
 
 ### Restaurer la base après une perte des deux nœuds
 
 1. Nouveau nœud installé par Ansible (§5), PostgreSQL arrêté, répertoire de données vide.
-2. Remettre `/etc/pgbackrest/conf.d/secret.conf` (copie hors site).
+2. Remettre `/etc/pgbackrest/conf.d/secret.conf` comme ci-dessus : phrase de passe tirée de la copie hors site ; clé B2 **neuve**, créée dans la console (lecture seule `listBuckets,listFiles,readFiles` le temps de la restauration, puis la clé d'écriture des nœuds avant `stanza-create` ou la première sauvegarde).
 3. Restaurer jusqu'à la fin des WAL archivés (perte bornée par `archive_timeout`, 60 s) :
 
    ```bash
@@ -130,11 +175,18 @@ Le spool doit se vider en quelques minutes.
 
 ### Restaurer après l'effacement du dépôt (nœud compromis, ADR 0018)
 
-Le bucket B2 est verrouillé en mode conformité pendant 30 jours : un effacement ne fait que **masquer** les objets, et leurs versions restent lisibles. Symptômes : alerte `sauvegarde` (la stanza n'existe plus), ou `pgbackrest info` vide.
+Le bucket B2 est verrouillé en mode conformité pendant 30 jours : un effacement ne fait que **masquer** les objets, et leurs versions restent lisibles. Symptômes : alerte du contrôle externe (`backup.info` masqué, sauvegarde ou WAL trop vieux), alerte `sauvegarde` des nœuds (la stanza n'existe plus), ou `pgbackrest info` vide.
 
 1. **Contenir d'abord** :
    - révoquer la clé d'application B2 des nœuds (console B2) ;
-   - traiter le nœud compromis (RUNBOOK §3 : couper son réseau).
+   - traiter le nœud compromis (RUNBOOK §3 : couper son réseau) ;
+   - créer une **clé de restauration en lecture seule**, limitée au bucket, depuis le poste de Yacouba (la clé maîtresse **ne va jamais sur un nœud**, même pour une restauration) :
+
+     ```bash
+     b2 key create --bucket NOM_DU_BUCKET wakatnet-restauration listBuckets,listFiles,readFiles
+     ```
+
+   - la poser sur le **nœud sain** dans `secret.conf` (`repo1-s3-key`, `repo1-s3-key-secret`), par `sudoedit`, comme plus haut. Avec elle, `info` et `restore` lisent le dépôt ; rien ne peut y être écrit ni masqué.
 2. Retrouver l'heure de l'effacement : console B2, versions de `wakatnet/backup/wakatnet/backup.info` (heure du masquage). Choisir une heure **juste avant**, en UTC.
 3. Vérifier ce que le dépôt contenait à cette heure :
 
@@ -148,7 +200,8 @@ Le bucket B2 est verrouillé en mode conformité pendant 30 jours : un effacemen
    sudo -u postgres pgbackrest --stanza=wakatnet --repo=1 --repo-target-time="2026-11-20 03:00:00+00" restore
    ```
 
-5. Démarrer PostgreSQL, fumée, §1. Créer une **nouvelle clé** B2 pour les nœuds, puis recréer la stanza (`stanza-create`) et lancer une sauvegarde complète.
+5. Démarrer PostgreSQL, fumée, §1. Puis seulement, créer la **nouvelle clé d'écriture** des nœuds (capacités de `docs/MISE_EN_PRODUCTION.md` §1), la poser à la place de la clé de restauration dans `secret.conf`, **révoquer la clé de restauration**, contrôler par `b2 key list --long`, recréer la stanza (`stanza-create`) et lancer une sauvegarde complète. Mettre à jour la copie hors site (« Rotation », point 3). D'ici là, la clé de lecture seule refuse `archive-push` : les WAL attendent dans `pg_wal`, donc ne pas laisser traîner cette étape.
+6. Le contrôle externe continue de signaler les marques d'effacement de l'incident : une fois la nouvelle sauvegarde vue par lui, régler `CONTROLE_B2_IGNORER_AVANT` à l'heure de la fin de l'incident (UTC) sur la machine de contrôle.
 
 Prouvé au banc `infra/noeud/essais/sauvegarde-s3.sh` (S3 de test, verrou de conformité) ; à rejouer une fois sur B2 à la mise en service (`docs/MISE_EN_PRODUCTION.md`).
 

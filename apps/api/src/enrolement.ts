@@ -207,6 +207,14 @@ export function routesRouteur(app: FastifyInstance, config: Config, base: Base):
     }
     if (ligne.statut === "introuvable") return rep.code(404).send(INTROUVABLE);
     if (ligne.statut === "cle_utilisee") return rep.code(409).send({ erreur: "cette clé WireGuard est déjà enrôlée" });
+    // Revue M4, audit du 13/11/2026 (migration 0036) : contrôles refaits à la consommation, jeton intact.
+    if (ligne.statut === "suspendu") return rep.code(403).send({ erreur: "compte suspendu : raccordement refusé, contactez Telecom Universel" });
+    if (ligne.statut === "quota") {
+      return rep.code(409).send({ erreur: "Quota de routeurs atteint (routeurs raccordés, révoqués compris) : demandez une hausse à Telecom Universel." });
+    }
+    if (ligne.statut === "plafond") {
+      return rep.code(409).send({ erreur: "Raccordements momentanément suspendus pour les comptes non validés : demandez la validation de votre compte à Telecom Universel." });
+    }
     if (ligne.statut !== "enrole") return rep.code(503).send({ erreur: "plus aucune adresse libre dans l'overlay" });
     req.log.info({ routeur: ligne.router_id!.toString(), overlay_ip: ligne.overlay_ip }, "routeur enrôlé");
     // Hôtes de connexion du hotspot → cibles admises de l'auto-connexion du portail (ADR 0013 §10).

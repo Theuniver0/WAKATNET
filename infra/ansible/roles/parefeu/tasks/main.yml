@@ -1,29 +1,11 @@
 # Pare-feu de l'interface publique (ADR 0016 §3, revue de sécurité F5), avec retour arrière programmé
-# AVANT le chargement : une erreur (port SSH) se corrige seule en 5 minutes.
-- name: Table publique
-  ansible.builtin.template:
-    src: public.nft.j2
-    dest: /etc/nftables.d/wakatnet-public.nft
-    mode: "0644"
-  register: parefeu_table
+# AVANT le chargement : une erreur (port SSH) se corrige seule en 5 minutes, en mémoire et sur disque.
+- name: Rendu et chargement de la table
+  ansible.builtin.include_tasks: charger.yml
 
-# noqa: no-handler — l'ordre est la garantie (programmer, charger, vérifier par une connexion neuve,
-# annuler) : un gestionnaire ne le tiendrait pas.
-- name: Application avec retour arrière  # noqa: no-handler
-  when: parefeu_table is changed
+- name: Vérification par une connexion neuve, puis annulation  # noqa: no-handler
+  when: parefeu_a_appliquer | bool
   block:
-    - name: Aucun retour arrière d'un passage précédent en attente
-      ansible.builtin.systemd_service:
-        name: wakatnet-parefeu-retour.timer
-        state: stopped
-      failed_when: false
-    - name: Retour arrière programmé dans 5 minutes
-      ansible.builtin.command:
-        argv: [systemd-run, --unit=wakatnet-parefeu-retour, --collect, --on-active=300, /usr/sbin/nft, delete, table, inet, wakatnet_public]
-      changed_when: true
-    - name: Charger la table
-      ansible.builtin.command: nft -f /etc/nftables.d/wakatnet-public.nft
-      changed_when: true
     - name: Connexion neuve au nœud
       ansible.builtin.meta: reset_connection
     - name: Le nœud répond par une connexion neuve
@@ -32,3 +14,8 @@
       ansible.builtin.systemd_service:
         name: wakatnet-parefeu-retour.timer
         state: stopped
+    - name: Sauvegarde du fichier précédent effacée (la nouvelle table est validée)
+      when: parefeu_sauvegarde | length > 0
+      ansible.builtin.file:
+        path: "{{ parefeu_sauvegarde }}"
+        state: absent

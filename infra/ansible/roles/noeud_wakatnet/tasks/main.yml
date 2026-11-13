@@ -7,13 +7,21 @@
     checksum: "sha256:{{ node_sha256 }}"
     mode: "0644"
 
+# La version installée décide, pas la présence d'un fichier : une montée de node_version est installée.
+- name: Version de Node installée
+  ansible.builtin.command: /usr/local/bin/node --version
+  register: noeud_wakatnet_node_actuel
+  changed_when: false
+  failed_when: false
+
 - name: Installer Node (le paquet de la distribution ne retire pas les types TypeScript, ADR 0010)
+  when: noeud_wakatnet_node_actuel.stdout | default('') != "v" ~ node_version
   ansible.builtin.unarchive:
     src: "/var/cache/node-v{{ node_version }}-linux-x64.tar.xz"
     dest: /usr/local
     remote_src: true
     extra_opts: [--strip-components=1]
-    creates: "/usr/local/lib/node_modules/npm/package.json"
+  register: noeud_wakatnet_node
 
 - name: Lien /usr/bin/node (chemin des unités)
   ansible.builtin.file:
@@ -33,15 +41,62 @@
     - { chemin: /var/lib/wakatnet, proprietaire: postgres, mode: "0755" }
     - { chemin: /var/log/wakatnet, proprietaire: root, mode: "0750" }
 
-- name: Code du dépôt (infra, API, paquet de paiement)
-  ansible.builtin.copy:
-    src: "{{ wakatnet_depot }}/{{ item }}"
-    dest: "{{ wakatnet_racine }}/{{ item }}"
-    mode: preserve
-  loop: [infra/, apps/api/src/, apps/api/prisma/, apps/api/package.json, apps/api/prisma.config.ts, apps/api/tsconfig.json,
-         packages/payments/, package.json, package-lock.json]
+# Code copié depuis une archive des seuls fichiers que Git connaît (suivis, ou nouveaux et non ignorés) : un
+# fichier ignoré (*.key, *.pem, clients.local.conf, .env, node_modules) n'arrive jamais sur le nœud, même
+# présent dans la copie de travail du poste de contrôle. Deux archives : un changement d'infra/ seul ne
+# redémarre pas l'API ni ne réinstalle ses dépendances.
+- name: Répertoire temporaire des archives, sur le poste de contrôle
+  delegate_to: localhost
+  become: false
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: .wakatnet
+  register: noeud_wakatnet_tmp
+  changed_when: false
+
+- name: Archives du code, sans fichier ignoré par Git
+  delegate_to: localhost
+  become: false
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      cd {{ wakatnet_depot | quote }}
+      git ls-files -z --cached --others --exclude-standard -- {{ item.chemins | map('quote') | join(' ') }} \
+        | while IFS= read -r -d '' f; do [ -f "$f" ] && printf '%s\0' "$f"; done \
+        | tar --null -T - --owner=0 --group=0 --numeric-owner -cf {{ (noeud_wakatnet_tmp.path ~ '/' ~ item.nom ~ '.tar') | quote }}
+    executable: /bin/bash
+  loop:
+    - { nom: infra, chemins: [infra] }
+    - { nom: code, chemins: [apps/api/src, apps/api/prisma, apps/api/package.json, apps/api/prisma.config.ts,
+                             apps/api/tsconfig.json, packages/payments, package.json, package-lock.json] }
+  loop_control:
+    label: "{{ item.nom }}"
+  changed_when: false
+
+- name: Scripts et fichiers d'infra du dépôt
+  ansible.builtin.unarchive:
+    src: "{{ noeud_wakatnet_tmp.path }}/infra.tar"
+    dest: "{{ wakatnet_racine }}"
+    owner: root
+    group: root
+  register: noeud_wakatnet_infra
+
+- name: Code de l'API et du paquet de paiement
+  ansible.builtin.unarchive:
+    src: "{{ noeud_wakatnet_tmp.path }}/code.tar"
+    dest: "{{ wakatnet_racine }}"
+    owner: root
+    group: root
   register: noeud_wakatnet_code
   notify: [Installer les dépendances de l'API, Générer le client Prisma]
+
+- name: Archives effacées du poste de contrôle
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ noeud_wakatnet_tmp.path }}"
+    state: absent
+  changed_when: false
 
 - name: Dépendances et client Prisma à jour avant d'activer les unités
   ansible.builtin.meta: flush_handlers
@@ -52,10 +107,15 @@
   loop: [api.env, coa.env, maint.env, sante.env, wg-agent.env, pg-roles.env]
   register: noeud_wakatnet_env
 
+# Propriétaire root, et lisible par root seul : 0600, ou 0640 avec le groupe root (un 0640 d'un autre groupe
+# donnerait les secrets à ses membres).
 - name: Exiger les fichiers d'environnement, réservés à root
   ansible.builtin.assert:
-    that: item.stat.exists and item.stat.pw_name == "root" and item.stat.mode in ["0600", "0640"]
-    fail_msg: "{{ item.item }} absent ou trop ouvert dans /etc/wakatnet (root, 0600)."
+    that:
+      - item.stat.exists
+      - item.stat.pw_name == "root"
+      - item.stat.mode == "0600" or (item.stat.mode == "0640" and item.stat.gr_name == "root")
+    fail_msg: "{{ item.item }} absent ou trop ouvert dans /etc/wakatnet (root:root, 0600)."
   loop: "{{ noeud_wakatnet_env.results }}"
   loop_control:
     label: "{{ item.item }}"
@@ -127,9 +187,11 @@
 
 # Le code et le schéma vont ensemble : une API restée sur l'ancien code appellerait des fonctions retirées par
 # une migration (relecture de la migration 0031). Redémarrée APRÈS les migrations ; quelques secondes d'erreurs
-# sur la connexion et le paiement restent possibles entre la migration et le redémarrage.
+# sur la connexion et le paiement restent possibles entre la migration et le redémarrage. Seuls le code de
+# l'API (apps/, packages/, fichiers de paquets), Node et le schéma la redémarrent ; pas un changement d'infra/.
 - name: API redémarrée sur le nouveau code et le nouveau schéma
-  when: wakatnet_role == "primaire" and (noeud_wakatnet_code.changed or noeud_wakatnet_migrations.changed)
+  when: wakatnet_role == "primaire" and (noeud_wakatnet_code.changed or noeud_wakatnet_node.changed
+        or noeud_wakatnet_migrations.changed)
   ansible.builtin.systemd_service:
     name: wakatnet-api.service
     state: restarted

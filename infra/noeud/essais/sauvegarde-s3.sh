@@ -46,7 +46,11 @@ server {
 }
 NG
 nginx
-for i in $(seq 50); do curl -sk https://127.0.0.1:9000/ >/dev/null 2>&1 && break; sleep 0.2; done
+# -f : une 502 de nginx (moto pas encore prêt derrière lui) n'est pas une réussite. Sans lui, la boucle
+# s'arrêtait dès nginx, et CreateBucket tombait sur 502 au premier démarrage d'une image neuve (CI).
+pret=0
+for i in $(seq 150); do curl -skf https://127.0.0.1:9000/ >/dev/null 2>&1 && { pret=1; break; }; sleep 0.2; done
+[ "$pret" = 1 ] || { echo "ÉCHEC : serveur S3 de test (moto) pas prêt en 30 s" >&2; tail -20 /var/log/moto.log >&2; exit 1; }
 cat > /root/s3.py <<'PY'
 import boto3, sys, urllib3
 urllib3.disable_warnings()
@@ -101,7 +105,10 @@ printf 'repo1-storage-port=9000\nrepo1-storage-verify-tls=n\nrepo1-s3-uri-style=
 umask 077
 printf '[global]\nrepo1-cipher-pass=%s\nrepo1-s3-key=cle-factice\nrepo1-s3-key-secret=secret-factice\n' \
   "$(head -c 32 /dev/urandom | base64 | tr -d '=+/\n')" > /etc/pgbackrest/conf.d/secret.conf
-chown -R postgres:postgres /etc/pgbackrest /var/log/pgbackrest /var/spool/pgbackrest
+chown -R postgres:postgres /var/log/pgbackrest /var/spool/pgbackrest
+# Configuration comme en production (rôle pgbackrest, audit du 13/11/2026) : à root, lisible par postgres seulement.
+chown -R root:postgres /etc/pgbackrest && chmod 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
+chmod 0640 /etc/pgbackrest/pgbackrest.conf /etc/pgbackrest/conf.d/secret.conf
 su postgres -c "/usr/lib/postgresql/$V/bin/pg_ctl -D /srv/a -l /tmp/pg.log -w start >/dev/null"
 SH
 pg pgbackrest --stanza=wakatnet stanza-create

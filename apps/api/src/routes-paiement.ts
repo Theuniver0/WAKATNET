@@ -24,9 +24,24 @@ export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique
       if (e instanceof FournisseurInconnu) return rep.code(422).send({ erreur: e.message });
       throw e;
     }
+    const ouvert = () => rep.code(409).send({ erreur: "changement de compte marchand impossible tant que des paiements sont ouverts (24 h au plus)" });
     // ADR 0020 : le compte est vérifié chez le fournisseur avant d'être enregistré (jeton, callbacks signés).
+    // Audit du 13/11/2026 (migration 0037) : AVANT tout appel au fournisseur, le refus pour paiements ouverts (409),
+    // puis la limite de 5 vérifications par heure et par propriétaire (sinon de faux jetons feraient appeler le
+    // fournisseur en boucle). compte_marchand_enregistrer refait le contrôle des paiements sous verrou.
     try {
-      await creerFournisseur(fournisseur, valides, null).verifierCompte?.();
+      const f = creerFournisseur(fournisseur, valides, null);
+      const verifier = typeof f.verifierCompte === "function";
+      const avant = await enTantQue(base, req.tenantId, async (tx) => {
+        const [r] = await tx.$queryRaw<{ s: string }[]>`SELECT app.compte_marchand_avant_verification(${verifier}) AS s`;
+        return r.s;
+      });
+      if (avant === "paiements_ouverts") return ouvert();
+      if (avant === "trop_de_verifications") {
+        return rep.code(429).send({ erreur: "trop de vérifications de compte marchand : réessayez dans une heure" });
+      }
+      if (avant !== "ok") throw new Error(`compte marchand : contrôle inattendu ${avant}`);
+      await f.verifierCompte?.();
     } catch (e) {
       if (e instanceof CompteInvalide) return rep.code(422).send({ erreur: e.message });
       if (e instanceof FournisseurIndisponible) return rep.code(503).send({ erreur: "fournisseur injoignable : réessayez dans quelques minutes" });
@@ -40,9 +55,7 @@ export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique
         return r.w;
       });
     } catch (e) {
-      if (/paiements encore ouverts/.test(String(e))) {
-        return rep.code(409).send({ erreur: "changement de compte marchand impossible tant que des paiements sont ouverts (24 h au plus)" });
-      }
+      if (/paiements encore ouverts/.test(String(e))) return ouvert();
       throw e;
     }
     return { fournisseur, url_webhook: `${config.urlPublique}/webhooks/${fournisseur}/${webhook}` };

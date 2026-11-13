@@ -1,0 +1,63 @@
+# WAKATNET — retour arrière du pare-feu public DÉCLENCHÉ (essais/essai.sh, étape 10 ; audit du 13/11/2026).
+# Après l'étape 9 (table validée, port SSH 22) : une table fautive (port SSH 2222) est rendue et chargée par
+# le rôle, comme en production, mais la connexion neuve « ne répond pas » : rien n'annule le retour arrière.
+# À l'échéance, la mémoire ET le disque doivent revenir à la table validée, sans sauvegarde laissée.
+# Avec le connecteur Docker, le pare-feu ne coupe pas la connexion d'Ansible : la perte est simulée en
+# n'incluant que charger.yml (sans la vérification ni l'annulation de main.yml).
+- name: Retour arrière du pare-feu public, déclenché
+  hosts: noeud_a
+  become: true
+  vars:
+    parefeu_port_ssh: 2222
+    parefeu_retour_delai: 15
+  tasks:
+    - name: Fichier validé à l'étape 9
+      ansible.builtin.stat:
+        path: /etc/nftables.d/wakatnet-public.nft
+        checksum_algorithm: sha256
+      register: essai_avant
+
+    - name: Table fautive rendue et chargée, retour arrière programmé, jamais annulé
+      ansible.builtin.include_role:
+        name: parefeu
+        tasks_from: charger.yml
+
+    - name: La table fautive est chargée, sa sauvegarde attend
+      ansible.builtin.command: nft list table inet wakatnet_public
+      register: essai_fautive
+      changed_when: false
+      failed_when: "'2222' not in essai_fautive.stdout or parefeu_sauvegarde | length == 0"
+
+    # Le script remet le fichier en place PUIS recharge la table (nft -f, atomique) : quand la mémoire a
+    # changé, le disque l'a fait avant elle.
+    - name: Attendre l'échéance du retour arrière (15 s), table en mémoire
+      ansible.builtin.command: nft list table inet wakatnet_public
+      register: essai_apres
+      changed_when: false
+      failed_when: false
+      until: "'2222' not in essai_apres.stdout"
+      retries: 30
+      delay: 2
+
+    - name: Fichier sur disque après le retour arrière
+      ansible.builtin.stat:
+        path: /etc/nftables.d/wakatnet-public.nft
+        checksum_algorithm: sha256
+      register: essai_fichier
+
+    - name: Sauvegardes restantes
+      ansible.builtin.find:
+        paths: /etc/nftables.d
+        patterns: ["wakatnet-public.nft.*~"]
+      register: essai_sauvegardes
+
+    - name: Mémoire et disque revenus à la table validée
+      ansible.builtin.assert:
+        that:
+          - "'2222' not in essai_apres.stdout"
+          - "'22, 80, 443' in essai_apres.stdout"
+          - essai_fichier.stat.exists
+          - essai_fichier.stat.checksum == essai_avant.stat.checksum
+          - essai_sauvegardes.matched == 0
+        fail_msg: "retour arrière incomplet : {{ essai_apres.stdout }}"
+        success_msg: "retour arrière déclenché : table validée rétablie en mémoire et sur disque"

@@ -62,9 +62,14 @@ const entete = (h: Record<string, Entete>, nom: string): string | undefined => {
   return Array.isArray(v) ? v.join(", ") : v;
 };
 
-/** Vérifie la signature d'un callback (RFC 9421) et le Content-Digest du corps. Lève SignatureInvalide. */
-export function verifierSignature(enTetes: Record<string, Entete>, corps: Buffer, requete: RequeteWebhook,
-                                  cles: ClePublique[], maintenantS: number): void {
+/** Signature lue et contrôlée sans clé : base de signature (RFC 9421 §2.5) prête, valeur et keyid. */
+export type SignatureControlee = { base: Buffer; valeur: Buffer; keyid: string | undefined };
+
+/** Tout ce qui se contrôle SANS clé publique (audit du 13/11/2026 : un callback forgé grossièrement ne doit déclencher
+ *  aucun appel sortant) : Content-Digest égal au corps, forme de Signature-Input et Signature, composants exigés,
+ *  algorithme, fenêtre de `created`, `expires` s'il est présent, composants disponibles. Lève SignatureInvalide. */
+export function controlerSansCle(enTetes: Record<string, Entete>, corps: Buffer, requete: RequeteWebhook,
+                                 maintenantS: number): SignatureControlee {
   // 1. Content-Digest : chaque condensat connu présent est recalculé ; au moins un.
   const digest = entete(enTetes, "content-digest");
   if (!digest) throw new SignatureInvalide("Content-Digest absent");
@@ -96,6 +101,13 @@ export function verifierSignature(enTetes: Record<string, Entete>, corps: Buffer
   if (!Number.isSafeInteger(cree) || cree < maintenantS - SIGNATURE_AGE_MAX_S || cree > maintenantS + SIGNATURE_AVANCE_MAX_S) {
     throw new SignatureInvalide("signature hors de sa fenêtre de validité");
   }
+  // RFC 9421 §2.3 : `expires`, s'il est présent, est une borne que le signataire impose (audit du 13/11/2026). Même
+  // tolérance d'horloge que `created` (relecture R4, I-2) : un renvoi un peu tardif n'est pas refusé, sinon la
+  // confirmation attend la vérification périodique (jusqu'à 7 min) et le client rachète.
+  if (params.has("expires")) {
+    const expire = Number(params.get("expires"));
+    if (!Number.isSafeInteger(expire) || expire + SIGNATURE_AVANCE_MAX_S < maintenantS) throw new SignatureInvalide("signature expirée");
+  }
 
   // 3. Base de signature (RFC 9421 §2.5) : composants dérivés de la requête reçue, en-têtes tels que reçus.
   const lignes: string[] = [];
@@ -110,28 +122,35 @@ export function verifierSignature(enTetes: Record<string, Entete>, corps: Buffer
     lignes.push(`"${c}": ${valeur}`);
   }
   lignes.push(`"@signature-params": ${parametresSignature}`);
-  const base = Buffer.from(lignes.join("\n"), "utf8");
+  return { base: Buffer.from(lignes.join("\n"), "utf8"), valeur: Buffer.from(ms[1], "base64"), keyid: params.get("keyid") };
+}
 
-  // 4. ECDSA P-256 / SHA-256. pawaPay rend la signature en DER (exemple de la doc) ; la RFC prévoit r||s (64 octets) :
-  // les deux sont acceptés. Clé désignée par keyid si elle est connue, sinon toute clé publique de pawaPay.
-  const valeurSig = Buffer.from(ms[1], "base64");
-  const keyid = params.get("keyid");
-  const candidates = cles.some((k) => k.id === keyid) ? cles.filter((k) => k.id === keyid) : cles;
+/** 4. ECDSA P-256 / SHA-256. pawaPay rend la signature en DER (exemple de la doc) ; la RFC prévoit r||s (64 octets) :
+ *  les deux sont acceptés. Clé désignée par keyid si elle est connue, sinon toute clé publique de pawaPay. */
+function verifierAvecCles(s: SignatureControlee, cles: ClePublique[]): void {
+  const candidates = cles.some((k) => k.id === s.keyid) ? cles.filter((k) => k.id === s.keyid) : cles;
   for (const k of candidates) {
     let cle: KeyObject;
     try { cle = createPublicKey(k.key); } catch { continue; }
     if (cle.asymmetricKeyType !== "ec" || cle.asymmetricKeyDetails?.namedCurve !== "prime256v1") continue;
-    const dsaEncoding = valeurSig.length === 64 ? "ieee-p1363" : "der";
-    if (verifierCrypto("sha256", base, { key: cle, dsaEncoding }, valeurSig)) return;
+    const dsaEncoding = s.valeur.length === 64 ? "ieee-p1363" : "der";
+    if (verifierCrypto("sha256", s.base, { key: cle, dsaEncoding }, s.valeur)) return;
   }
   throw new SignatureInvalide("signature invalide");
 }
 
+/** Vérifie la signature d'un callback (RFC 9421) et le Content-Digest du corps. Lève SignatureInvalide. */
+export function verifierSignature(enTetes: Record<string, Entete>, corps: Buffer, requete: RequeteWebhook,
+                                  cles: ClePublique[], maintenantS: number): void {
+  verifierAvecCles(controlerSansCle(enTetes, corps, requete, maintenantS), cles);
+}
+
 // ------------------------------------------------------------------ adaptateur
 
-/** Clés publiques de pawaPay, en cache une heure par environnement et par jeton. Rotation : relecture seulement si le
- *  keyid du callback est inconnu, au plus une fois toutes les 5 min, une seule requête à la fois (relecture : sinon de
- *  faux callbacks feraient appeler pawaPay à volonté avec le jeton du propriétaire). */
+/** Clés publiques de pawaPay, en cache une heure par environnement et par jeton. Relecture (rotation, ou cache périmé)
+ *  au plus une fois toutes les 5 min, QUELLE QUE SOIT l'issue de la précédente, et une seule requête à la fois : sinon
+ *  de faux callbacks feraient appeler pawaPay à volonté avec le jeton du propriétaire (relecture ; audit du 13/11/2026 :
+ *  après un échec de lecture, le cache périmé relançait une lecture à chaque callback). */
 const CACHE_CLES = new Map<string, { cles: ClePublique[]; jusqua: number; relu: number; enCours?: Promise<ClePublique[]> }>();
 const RELECTURE_MIN_MS = 300_000;
 
@@ -220,23 +239,35 @@ export class PawapayProvider implements FournisseurPaiement {
     const k = `${this.urlBase}|${createHash("sha256").update(this.jeton).digest("hex")}`;
     const c = CACHE_CLES.get(k);
     const t = this.maintenant();
-    const aRelire = !c || c.jusqua <= t
-      || (keyidInconnu !== undefined && !c.cles.some((x) => x.id === keyidInconnu) && t - c.relu >= RELECTURE_MIN_MS);
-    if (!aRelire) return c!.cles;
     if (c?.enCours) return c.enCours;
+    const frais = c !== undefined && c.jusqua > t;
+    const keyidConnu = keyidInconnu === undefined || (c?.cles.some((x) => x.id === keyidInconnu) ?? false);
+    if (frais && keyidConnu) return c.cles;
+    // Lecture récente (réussie ou NON) : pas de nouvelle lecture avant 5 min. Clés fraîches : on vérifie avec elles
+    // (le keyid inconnu essaiera chacune) ; périmées, donc dernière lecture en échec : refus, la vérification
+    // périodique conclura le paiement (ADR 0013).
+    if (c !== undefined && t - c.relu < RELECTURE_MIN_MS) {
+      if (frais) return c.cles;
+      throw new SignatureInvalide("clés publiques de pawaPay indisponibles (nouvelle lecture dans 5 min au plus)");
+    }
+    // Relecture R4 (M-1) : l'erreur est convertie DANS la lecture partagée, pour que les appelants simultanés qui
+    // l'attendent (enCours) reçoivent eux aussi SignatureInvalide (401), et non l'erreur brute du fournisseur (500).
     const lecture = (async () => {
       const { statut, json } = await this.appel("GET", "/v2/public-key/http");
       if (statut !== 200 || !Array.isArray(json)) throw new SignatureInvalide("clés publiques de pawaPay indisponibles");
       return json.filter((x): x is ClePublique => typeof x?.id === "string" && typeof x?.key === "string");
-    })();
+    })().catch((e: unknown) => {
+      throw e instanceof SignatureInvalide ? e : new SignatureInvalide("clés publiques de pawaPay indisponibles");
+    });
     CACHE_CLES.set(k, { cles: c?.cles ?? [], jusqua: c?.jusqua ?? 0, relu: t, enCours: lecture });
     try {
       const cles = await lecture;
       CACHE_CLES.set(k, { cles, jusqua: t + 3_600_000, relu: t });
       return cles;
     } catch (e) {
+      // relu = t : l'échec compte comme une lecture (borne de 5 min) ; jusqua inchangé.
       CACHE_CLES.set(k, { cles: c?.cles ?? [], jusqua: c?.jusqua ?? 0, relu: t });
-      throw e;
+      throw e instanceof SignatureInvalide ? e : new SignatureInvalide("clés publiques de pawaPay indisponibles");
     }
   }
 
@@ -258,22 +289,34 @@ export class PawapayProvider implements FournisseurPaiement {
     }
   }
 
+  /** Référence du fournisseur connue AVANT charge() (audit du 13/11/2026) : le service la note dès la création, pour
+   *  qu'un callback sans clientReferenceId retrouve un paiement resté CREATED (charge() sans réponse). */
+  referenceFournisseurPrevue(reference: string): string {
+    return depositIdDe(reference);
+  }
+
   async parseWebhook(enTetes: Record<string, Entete>, corps: Buffer, requete?: RequeteWebhook): Promise<EvenementWebhook> {
     if (!requete) throw new SignatureInvalide("requête du callback inconnue");
     const maintenantS = Math.floor(this.maintenant() / 1000);
-    const keyid = /;keyid="([^"]*)"/.exec(entete(enTetes, "signature-input") ?? "")?.[1];
-    verifierSignature(enTetes, corps, requete, await this.clesPubliques(keyid), maintenantS);
+    // Tout ce qui ne demande aucune clé d'abord (audit du 13/11/2026) : un callback forgé grossièrement est refusé
+    // sans aucun appel sortant. Les clés ne sont lues que pour un callback bien formé, et la lecture est bornée.
+    const signature = controlerSansCle(enTetes, corps, requete, maintenantS);
     let d: Record<string, unknown>;
     try { d = JSON.parse(corps.toString("utf8")) as Record<string, unknown>; } catch { throw new SignatureInvalide("corps illisible"); }
+    if (d === null || typeof d !== "object") throw new SignatureInvalide("corps illisible");
     const ref = d.clientReferenceId;
     if (typeof d.depositId !== "string" || !/^[0-9a-f-]{36}$/.test(d.depositId) || typeof d.status !== "string") throw new SignatureInvalide("callback incomplet");
+    // Avec clientReferenceId, la référence doit correspondre au depositId.
+    let attendu: string | undefined;
+    if (ref !== undefined) {
+      try { attendu = typeof ref === "string" ? depositIdDe(ref) : ""; } catch { throw new SignatureInvalide("référence inconnue"); }
+      if (attendu !== d.depositId) throw new SignatureInvalide("depositId et référence incohérents");
+    }
+    verifierAvecCles(signature, await this.clesPubliques(signature.keyid));
     const idEvenement = `${d.depositId}:${d.status}`.slice(0, 200);
     // Sans clientReferenceId (la doc du callback n'en garantit pas la présence), le service retrouve le paiement par
-    // depositId. Avec, la référence doit correspondre au depositId.
+    // depositId, noté dès la création (referenceFournisseurPrevue).
     if (ref === undefined) return { idEvenement, reference: "", referenceFournisseur: d.depositId };
-    let attendu: string;
-    try { attendu = typeof ref === "string" ? depositIdDe(ref) : ""; } catch { throw new SignatureInvalide("référence inconnue"); }
-    if (attendu !== d.depositId) throw new SignatureInvalide("depositId et référence incohérents");
     return { idEvenement, reference: ref as string, referenceFournisseur: d.depositId };
   }
 }

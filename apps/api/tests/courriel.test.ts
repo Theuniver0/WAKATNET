@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { ConfigInvalide, lireConfig } from "../src/config.ts";
-import { ExpediteurBrevo, messageAvis, messageVerification } from "../src/courriel.ts";
+import { ExpediteurBrevo, messageAttente, messageAvis, messageVerification } from "../src/courriel.ts";
 
 const CLE = "xkeysib-" + "a".repeat(40);
 
@@ -59,4 +59,12 @@ test("réglage : WAKATNET_COURRIEL=brevo exige une clé valable et une adresse d
   assert.throws(() => lireConfig({ ...base, WAKATNET_COURRIEL: "smtp" }), ConfigInvalide);
   assert.throws(() => lireConfig({ ...base, WAKATNET_COURRIEL: "brevo", WAKATNET_COURRIEL_DE: "a@exemple.bf" }), /WAKATNET_BREVO_CLE/);
   assert.throws(() => lireConfig({ ...base, WAKATNET_COURRIEL: "brevo", WAKATNET_BREVO_CLE: CLE, WAKATNET_COURRIEL_DE: "pas une adresse" }), /WAKATNET_COURRIEL_DE/);
+});
+
+test("audit 13/11/2026 (3) : avis « compte en attente » — mot de passe de la dernière demande, aucun lien, renvoi depuis l'écran de connexion", () => {
+  const m = messageAttente("proprio@exemple.bf", "https://api.exemple.bf/tableau/");
+  assert.equal(m.a, "proprio@exemple.bf");
+  assert.doesNotMatch(m.texte, /verifier\?j=/, "aucun lien de confirmation dans l'avis");
+  assert.match(m.texte, /https:\/\/api\.exemple\.bf\/tableau\/#\/connexion/);
+  assert.match(m.texte, /dernière demande/);
 });

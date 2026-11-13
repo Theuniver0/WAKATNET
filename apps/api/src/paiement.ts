@@ -76,6 +76,14 @@ export class ServicePaiement {
 
     const fournisseur = await this.fournisseurDuProprietaire(r.tenant_id!);
     if (fournisseur === null) return { statut: "sans_compte_marchand" };
+    // Référence du fournisseur déterministe (pawaPay : depositId dérivé de la référence) : notée AVANT charge(), dans
+    // sa propre transaction validée (audit du 13/11/2026). Un callback sans clientReferenceId, arrivé après un charge()
+    // resté sans réponse (paiement CREATED), retrouve ainsi son paiement. Si la note échoue, charge() n'est pas appelé :
+    // aucun argent ne bouge, le paiement CREATED expirera.
+    const prevue = referencePrevue(fournisseur, r.reference!);
+    if (prevue !== null) {
+      await this.base.$executeRaw`SELECT app.paiement_reference_fournisseur_noter(${r.reference!}, ${prevue})`;
+    }
     try {
       const montant = Number(r.montant!);
       if (!Number.isSafeInteger(montant) || montant <= 0) throw new Error("montant du paiement hors des entiers sûrs (A1)");
@@ -156,6 +164,15 @@ export class ServicePaiement {
     const statut = await this.rapprocher(evt.reference, compte.tenant_id, f, "webhook");
     return { code: 200, corps: { ok: true, statut } };
   }
+}
+
+/** Référence du fournisseur connue avant charge(), si l'adaptateur la sait calculer (méthode facultative, hors du
+ *  contrat FournisseurPaiement : seul pawaPay la fournit aujourd'hui). */
+function referencePrevue(f: FournisseurPaiement, reference: string): string | null {
+  const calcul = (f as Partial<{ referenceFournisseurPrevue(reference: string): string }>).referenceFournisseurPrevue;
+  if (typeof calcul !== "function") return null;
+  const v = calcul.call(f, reference);
+  return typeof v === "string" && v.length >= 1 && v.length <= 128 ? v : null;
 }
 
 class DelaiDepasse extends Error {}

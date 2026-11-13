@@ -1,15 +1,17 @@
 # WAKATNET — déploiement des nœuds (ADR 0015 §7). Un nœud à la fois, B d'abord (docs/RUNBOOK.md §5) :
 #   ansible-playbook site.yml --limit noeud_b   puis   --limit noeud_a
+# parefeu juste après socle (audit du 13/11/2026) : l'échec d'un rôle suivant (certbot, secrets absents) ne
+# laisse plus un nœud sans pare-feu public, et les services installés ensuite sont déjà protégés.
 - name: Nœuds WAKATNET
   hosts: noeuds
   become: true
   serial: 1
   roles:
     - socle
+    - parefeu
     - wireguard
     - postgresql
     - freeradius
     - pgbackrest
     - noeud_wakatnet
     - frontal
-    - parefeu

@@ -1,6 +1,8 @@
 # WAKATNET — nginx devant l'API (ADR 0016 §2). Géré par Ansible.
-# Limites par IP source (M1) ; la clé de « payer » n'est posée que pour un POST (l'affichage du formulaire
-# ne consomme pas le budget). Les clients d'un site sortent tous par l'IP WAN de son routeur.
+# Certificat servi : {{ frontal_cert_servi }} (mode {{ frontal_tls }}).
+server_tokens off;
+
+# Limites par IP source (M1). Les clients d'un site sortent tous par l'IP WAN de son routeur.
 # IPv6 : la clé est le /64 (quatre premiers groupes), comme dans l'API (apps/api/src/cle-ip.ts) ; un abonné en
 # reçoit un entier. Une adresse abrégée avant le 4e groupe (« 2001:db8::5 ») donne un préfixe plus court,
 # donc une clé plus large : plus stricte, jamais contournable. IPv4 : l'adresse.
@@ -9,59 +11,87 @@ map $remote_addr $wk_source {
     "~^(?<pcourt>[0-9a-f:]*?)::"                                          $pcourt;
     default                                                                $remote_addr;
 }
-map $request_method $wk_cle_payer { POST $wk_source; default ""; }
+# Paiement : clé (site, source), posée pour un POST seulement (l'affichage du formulaire ne consomme pas le
+# budget). Un client bruyant derrière le NAT d'un hotspot, ou un voisin de CGNAT, ne vide que le budget de CE
+# site, et non plus celui de tous les sites vendus depuis cette IP (revue de sécurité M7). Reste : un voisin de
+# NAT sur le même site partage le budget ; l'API garde ses propres gardes, par (site, source) et par routeur.
+map "$request_method:$uri" $wk_cle_payer {
+    "~^POST:/p/(?<wk_site>[^/]+)/payer$" "$wk_site $wk_source";
+    default                              "";
+}
 limit_req_zone $wk_source    zone=wk_connexion:10m rate=10r/m;
 limit_req_zone $wk_cle_payer zone=wk_payer:10m     rate=30r/m;
 limit_req_zone $wk_source    zone=wk_general:10m   rate=20r/s;
 limit_req_status 429;
+
+# Journal d'accès : chemin masqué comme dans l'API (apps/api/src/app.ts, cheminMasque) : ni jeton
+# d'enrôlement, ni secret de l'URL d'un webhook, ni chaîne de requête (M5). La décision se prend sur $uri,
+# normalisé (%-décodé, « .. » résolu) : un chemin encodé (« /%65nroll/… ») est masqué aussi.
+map $request_uri $wk_chemin_brut {
+    "~^(?<wk_avant_q>[^?]*)" $wk_avant_q;
+    default                  $request_uri;
+}
+map $uri $wk_chemin_journal {
+    "~^/enroll/"                         "/enroll/<jeton>";
+    "~^(?<wk_webhook>/webhooks/[^/]+)/"  "$wk_webhook/<secret>";
+    default                              $wk_chemin_brut;
+}
+log_format wakatnet '$remote_addr [$time_local] $host "$request_method $wk_chemin_journal $server_protocol" '
+                    '$status $body_bytes_sent $request_time "$http_user_agent"';
 
 upstream wakatnet_api {
     server 127.0.0.1:3000;
     keepalive 16;
 }
 
-# Tout nom inconnu : connexion fermée (F10). En TLS, poignée de main refusée, sans certificat.
+# Tout nom inconnu : connexion fermée (F10). En TLS, poignée de main refusée sans certificat (SNI inconnu ou
+# absent) ; avec un SNI connu mais un en-tête Host inconnu, la requête arrive ici : 444 aussi.
 server {
     listen 80 default_server;
     {% if frontal_ipv6 | bool %}listen [::]:80 default_server;{% endif %}
+    access_log {{ frontal_journal_acces }} wakatnet;
     return 444;
 }
-{% if frontal_tls_pret | bool %}
 server {
     listen 443 ssl default_server;
     {% if frontal_ipv6 | bool %}listen [::]:443 ssl default_server;{% endif %}
     ssl_reject_handshake on;
+    access_log {{ frontal_journal_acces }} wakatnet;
+    return 444;
 }
-{% endif %}
 
 # Port 80 : défi ACME, puis redirection vers HTTPS.
 server {
     listen 80;
     {% if frontal_ipv6 | bool %}listen [::]:80;{% endif %}
     server_name {{ frontal_nom_api }} {{ frontal_nom_portail }};
+    access_log {{ frontal_journal_acces }} wakatnet;
     location /.well-known/acme-challenge/ { root /var/www/acme; }
     location / { return 301 https://$host$request_uri; }
 }
-{% if frontal_tls_pret | bool %}
 
 # Pas de HTTP/2 : « http2 on » exige nginx ≥ 1.25.1 (Ubuntu 24.04 : 1.24) ; pages et réponses sont petites.
-# Réglages communs du mandataire : l'IP source REMPLACE tout X-Forwarded-For reçu (pas d'usurpation).
+# Réglages communs du mandataire : l'IP source REMPLACE tout X-Forwarded-For reçu (pas d'usurpation) ;
+# X-Forwarded-Host est réécrit et X-Real-IP retiré, pour qu'aucun en-tête du client ne passe pour celui du proxy.
 # (répétés dans chaque bloc server : nginx n'hérite pas des proxy_set_header d'un niveau à l'autre
 #  quand un niveau en déclare.)
 server {
     listen 443 ssl;
     {% if frontal_ipv6 | bool %}listen [::]:443 ssl;{% endif %}
     server_name {{ frontal_nom_api }};
-    ssl_certificate {{ frontal_certificat }};
-    ssl_certificate_key {{ frontal_cle }};
+    ssl_certificate {{ frontal_cert_servi }};
+    ssl_certificate_key {{ frontal_cle_servie }};
     ssl_protocols TLSv1.2 TLSv1.3;
     add_header Strict-Transport-Security "max-age=31536000" always;
+    access_log {{ frontal_journal_acces }} wakatnet;
     client_max_body_size 64k;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Host $host;
     proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP "";
 
     location ~ ^/v1/(connexion|inscription|totp)$ {
         limit_req zone=wk_connexion burst=5 nodelay;
@@ -78,15 +108,18 @@ server {
     listen 443 ssl;
     {% if frontal_ipv6 | bool %}listen [::]:443 ssl;{% endif %}
     server_name {{ frontal_nom_portail }};
-    ssl_certificate {{ frontal_certificat }};
-    ssl_certificate_key {{ frontal_cle }};
+    ssl_certificate {{ frontal_cert_servi }};
+    ssl_certificate_key {{ frontal_cle_servie }};
     ssl_protocols TLSv1.2 TLSv1.3;
+    access_log {{ frontal_journal_acces }} wakatnet;
     client_max_body_size 64k;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Host $host;
     proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Real-IP "";
 
     location ~ ^/p/[^/]+/payer$ {
         limit_req zone=wk_payer burst=10 nodelay;
@@ -97,7 +130,9 @@ server {
         limit_req zone=wk_general burst=40 nodelay;
         proxy_pass http://wakatnet_api;
     }
-    location = /etat { proxy_pass http://wakatnet_api; }
+    location = /etat {
+        limit_req zone=wk_general burst=40 nodelay;
+        proxy_pass http://wakatnet_api;
+    }
     location / { return 404; }
 }
-{% endif %}

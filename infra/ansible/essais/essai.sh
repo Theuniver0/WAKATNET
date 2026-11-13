@@ -11,8 +11,12 @@
 #   6. FreeRADIUS sans le dépôt de l'éditeur : la 3.2.5 d'Ubuntu est refusée par la garde de version ;
 #   7. B promu, puis PostgreSQL de A redémarré par systemd (redémarrage par l'hébergeur) : la garde contre le
 #      double primaire l'en empêche ; Ansible refuse aussi de déclarer A primaire (revue de sécurité E1) ;
-#   8. nginx devant une fausse API (ADR 0016 §2) : filtrage par Host, limite → 429, X-Forwarded-For non usurpable ;
-#   9. pare-feu public (ADR 0016 §3) : 443 ouvert, PostgreSQL fermé depuis l'autre nœud, retour arrière annulé.
+#   8. nginx devant une fausse API (ADR 0016 §2) : filtrage par Host (444 sur un nom inconnu, même avec un SNI
+#      connu), limite → 429 (connexion et /etat), X-Forwarded-For et X-Forwarded-Host non usurpables ;
+#   9. pare-feu public (ADR 0016 §3) : 443 ouvert, PostgreSQL fermé depuis l'autre nœud, retour arrière annulé ;
+#      second passage sans changement ; table retirée de la mémoire : rechargée au passage suivant ;
+#  10. retour arrière du pare-feu DÉCLENCHÉ (table fautive, jamais validée) : mémoire et disque rétablis.
+# A sert un certificat fourni (frontal_tls=fourni), B un certificat auto-signé (frontal_tls=autosigne, réplique).
 # Les « secrets » de l'essai (mot de passe de réplication, phrase de pgBackRest) sont aléatoires,
 # posés comme Yacouba les posera à la main, et jamais affichés.
 set -euo pipefail
@@ -61,16 +65,16 @@ all:
       hosts:
         noeud_a: { ansible_host: "$A", wakatnet_noeud: A, wakatnet_role: primaire, wk_noeuds_ip: 172.30.77.2,
                    wk_noeuds_pair_ip: 172.30.77.3, wk_noeuds_pair_ip_publique: 172.30.77.3, wg0_ip: 10.213.0.1,
-                   wk_noeuds_pair_cle_publique: "inutilisee" }
+                   wk_noeuds_pair_cle_publique: "inutilisee", frontal_tls: fourni,
+                   frontal_certificat: /etc/wakatnet/tls/cert.pem, frontal_cle: /etc/wakatnet/tls/cle.pem }
         noeud_b: { ansible_host: "$B", wakatnet_noeud: B, wakatnet_role: replique, wk_noeuds_ip: 172.30.77.3,
                    wk_noeuds_pair_ip: 172.30.77.2, wk_noeuds_pair_ip_publique: 172.30.77.2, wg0_ip: 10.213.0.2,
-                   wk_noeuds_pair_cle_publique: "inutilisee" }
+                   wk_noeuds_pair_cle_publique: "inutilisee", frontal_tls: autosigne }
 EOF
 mkdir -p "$TMP/group_vars" && cp "$ANSIBLE/group_vars/noeuds.yml" "$TMP/group_vars/noeuds.yml"
 # Ubuntu 24.04 livre PostgreSQL 16 : pas de dépôt PGDG pour l'essai.
 JOUER=("$BIN/ansible-playbook" -i "$TMP/inventaire.yml" -e "wakatnet_depot=$DEPOT" -e postgresql_depot_pgdg=false
-        -e frontal_tls=fourni -e frontal_nom_api=api.essai -e frontal_nom_portail=portail.essai
-        -e frontal_certificat=/etc/wakatnet/tls/cert.pem -e frontal_cle=/etc/wakatnet/tls/cle.pem -e frontal_ipv6=false
+        -e frontal_nom_api=api.essai -e frontal_nom_portail=portail.essai -e frontal_ipv6=false
         # Ubuntu 24.04 fournit pgBackRest 2.50 (pas de dépôt PGDG ici) ; le contrôle de version reste joué, au seuil
         # du banc. En production : 2.59.2 (ADR 0018). Le dépôt S3 verrouillé a son propre banc : sauvegarde-s3.sh.
         -e pgbackrest_version_min=2.50)
@@ -85,9 +89,10 @@ done
 etape "Secrets posés à la main (simulés, jamais affichés)"
 MDP="$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 for c in "$A" "$B"; do
-  docker exec -i "$c" bash -c 'install -d -o postgres -g postgres -m 0750 /etc/pgbackrest/conf.d && umask 077 &&
-    printf "[global]\nrepo1-cipher-pass=%s\n" "$(head -c 24 /dev/urandom | base64)" > /etc/pgbackrest/conf.d/secret.conf &&
-    chown postgres:postgres /etc/pgbackrest/conf.d/secret.conf'
+  # Comme en production (MISE_EN_PRODUCTION §1) : root:postgres, 0640 ; pgBackRest ne fait que lire.
+  docker exec -i "$c" bash -c 'install -d -o root -g postgres -m 0750 /etc/pgbackrest /etc/pgbackrest/conf.d &&
+    install -o root -g postgres -m 0640 /dev/null /etc/pgbackrest/conf.d/secret.conf &&
+    printf "[global]\nrepo1-cipher-pass=%s\n" "$(head -c 24 /dev/urandom | base64)" > /etc/pgbackrest/conf.d/secret.conf'
 done
 
 etape "1. A primaire"
@@ -154,7 +159,8 @@ docker exec -d "$A" python3 -c '
 import http.server, json
 class H(http.server.BaseHTTPRequestHandler):
     def repondre(self):
-        b = json.dumps({"xff": self.headers.get("X-Forwarded-For"), "host": self.headers.get("Host"), "chemin": self.path}).encode()
+        b = json.dumps({"xff": self.headers.get("X-Forwarded-For"), "xfh": self.headers.get("X-Forwarded-Host"),
+                        "xri": self.headers.get("X-Real-IP"), "host": self.headers.get("Host"), "chemin": self.path}).encode()
         self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(b))); self.end_headers(); self.wfile.write(b)
     do_GET = do_POST = repondre
     def log_message(self, *a): pass
@@ -166,10 +172,24 @@ requete() { docker exec "$B" curl -sk -o /tmp/r.json -w "%{http_code}" --resolve
 [ "$(requete api.essai "https://api.essai/p/ABCDEFGHIJKLMNOP")" = 404 ] || echec "api.essai/p doit être refusé (404)"
 [ "$(requete portail.essai "https://portail.essai/p/ABCDEFGHIJKLMNOP")" = 200 ] || echec "portail.essai/p doit atteindre l'API"
 if docker exec "$B" curl -sk --resolve autre.essai:443:172.30.77.2 https://autre.essai/ -o /dev/null; then echec "nom inconnu servi"; fi
-echo "Host : api et portail cloisonnés ; nom inconnu, poignée de main TLS refusée"
-requete api.essai -H "X-Forwarded-For: 6.6.6.6" "https://api.essai/v1/moi" >/dev/null
+rc=0; docker exec "$B" curl -sk --resolve api.essai:443:172.30.77.2 -H "Host: autre.essai" https://api.essai/v1/moi -o /dev/null || rc=$?
+[ "$rc" = 52 ] || echec "SNI connu, Host inconnu : connexion fermée sans réponse attendue (444, curl 52), obtenu curl $rc"
+rc=0; docker exec "$B" curl -s -H "Host: autre.essai" http://172.30.77.2/ -o /dev/null || rc=$?
+[ "$rc" = 52 ] || echec "port 80, Host inconnu : 444 attendu (curl 52), obtenu curl $rc"
+docker exec "$B" curl -sk -D - -o /dev/null --resolve api.essai:443:172.30.77.2 https://api.essai/v1/moi | grep -qiE '^server: nginx/' \
+  && echec "version de nginx divulguée (server_tokens)"
+echo "Host : api et portail cloisonnés ; nom inconnu : poignée de main TLS refusée, ou 444 avec un SNI connu ; version tue"
+# B (réplique, frontal_tls=autosigne) : 443 servi avec son certificat local, sans certbot ; pas d'API sur B (502).
+docker exec "$B" grep -q "wakatnet-autosigne/cert.pem" /etc/nginx/sites-enabled/wakatnet.conf || echec "B ne sert pas le certificat auto-signé"
+docker exec "$B" sh -c '! command -v certbot >/dev/null' || echec "certbot installé sur la réplique"
+[ "$(docker exec "$A" curl -sk -o /dev/null -w '%{http_code}' --resolve api.essai:443:172.30.77.3 https://api.essai/v1/moi)" = 502 ] \
+  || echec "B doit servir 443 (certificat auto-signé) devant une API arrêtée"
+echo "B : 443 servi avec un certificat auto-signé local, certbot absent"
+requete api.essai -H "X-Forwarded-For: 6.6.6.6" -H "X-Forwarded-Host: piege.essai" -H "X-Real-IP: 6.6.6.6" "https://api.essai/v1/moi" >/dev/null
 docker exec "$B" grep -q '"xff": "172.30.77.3"' /tmp/r.json || { docker exec "$B" cat /tmp/r.json; echec "X-Forwarded-For usurpé"; }
-echo "X-Forwarded-For : l'IP source réelle remplace l'en-tête reçu (6.6.6.6 ignoré)"
+docker exec "$B" grep -q '"xfh": "api.essai"' /tmp/r.json || { docker exec "$B" cat /tmp/r.json; echec "X-Forwarded-Host usurpé"; }
+docker exec "$B" grep -q '"xri": null' /tmp/r.json || { docker exec "$B" cat /tmp/r.json; echec "X-Real-IP du client transmis"; }
+echo "X-Forwarded-For : l'IP source réelle remplace l'en-tête reçu (6.6.6.6 ignoré) ; X-Forwarded-Host réécrit ; X-Real-IP retiré"
 codes=""
 for _ in $(seq 1 12); do codes="$codes $(requete api.essai -X POST "https://api.essai/v1/connexion")"; done
 echo "12 connexions d'affilée :$codes"
@@ -179,6 +199,25 @@ codes=""
 for _ in $(seq 1 15); do codes="$codes $(requete portail.essai "https://portail.essai/p/ABCDEFGHIJKLMNOP/payer")"; done
 grep -q 429 <<<"$codes" && echec "l'affichage du formulaire (GET) ne doit pas consommer le budget de paiement"
 echo "GET /payer ×15 : jamais limité (budget de paiement réservé aux POST)"
+# Budget de paiement par (site, source) : un site vidé ne bloque pas un autre site vendu depuis la même IP (M7).
+# Une seule commande curl par rafale (connexion gardée ouverte) : les requêtes partent en bien moins d'une seconde.
+rafale() { docker exec "$B" curl -sk --resolve portail.essai:443:172.30.77.2 -o /dev/null -w '%{http_code}\n' "$@" | sort | uniq -c | tr -s ' \n' ' '; }
+codes="$(rafale -X POST "https://portail.essai/p/SITEAAAAAAAAAAAA/payer?[1-15]")"
+echo "15 POST /payer sur un site :$codes"
+grep -q " 429" <<<"$codes" || echec "aucune limite de paiement par site"
+codes="$(rafale -X POST "https://portail.essai/p/SITEBBBBBBBBBBBB/payer?[1-3]")"
+echo "puis 3 POST /payer sur un autre site, même source :$codes"
+grep -q " 429" <<<"$codes" && echec "le budget de paiement d'un site ne doit pas bloquer un autre site"
+# En dernier : vide le budget général de B (80 requêtes, au-delà de la rafale de 40).
+codes="$(rafale "https://portail.essai/etat?[1-80]")"
+echo "80 /etat d'affilée sur le portail :$codes"
+grep -q " 429" <<<"$codes" || echec "aucune limite sur /etat du portail"
+grep -q " 200" <<<"$codes" || echec "/etat du portail doit d'abord répondre"
+requete api.essai "https://api.essai/enroll/JETONDESSAI0123456789" >/dev/null || true
+sleep 1
+docker exec "$A" grep -q "JETONDESSAI" /var/log/nginx/access.log && echec "jeton d'enrôlement en clair dans le journal d'accès de nginx"
+docker exec "$A" grep -q '"GET /enroll/<jeton> ' /var/log/nginx/access.log || echec "chemin d'enrôlement masqué absent du journal"
+echo "journal d'accès : /enroll/<jeton>, jeton jamais écrit"
 
 etape "9. Pare-feu public : 443 ouvert, PostgreSQL fermé, retour arrière annulé"
 "${JOUER[@]}" "$ANSIBLE/essais/parefeu.yml" > "$TMP/pf.log" 2>&1 || { tail -30 "$TMP/pf.log"; echec "parefeu"; }
@@ -188,4 +227,22 @@ if docker exec "$B" pg_isready -q -h 172.30.77.2 -t 3; then echec "PostgreSQL de
 docker exec "$A" systemctl list-timers --all --no-pager | grep -q wakatnet-parefeu-retour && echec "retour arrière toujours programmé"
 docker exec "$A" nft list table inet wakatnet_public >/dev/null || echec "table absente"
 echo "443 ouvert ; PostgreSQL fermé sur l'interface publique ; retour arrière annulé après la connexion neuve"
+docker exec "$A" sh -c 'ls /etc/nftables.d/wakatnet-public.nft.*~ 2>/dev/null' && echec "sauvegarde du fichier précédent laissée après validation"
+"${JOUER[@]}" "$ANSIBLE/essais/parefeu.yml" > "$TMP/pf2.log" 2>&1 || { tail -30 "$TMP/pf2.log"; echec "parefeu, second passage"; }
+grep -A3 "PLAY RECAP" "$TMP/pf2.log" | grep -qE "noeud_a .*changed=0 " || { grep -A3 "PLAY RECAP" "$TMP/pf2.log"; echec "le second passage du pare-feu change quelque chose"; }
+docker exec "$A" nft delete table inet wakatnet_public
+"${JOUER[@]}" "$ANSIBLE/essais/parefeu.yml" > "$TMP/pf3.log" 2>&1 || { tail -30 "$TMP/pf3.log"; echec "parefeu, table retirée"; }
+docker exec "$A" nft list table inet wakatnet_public >/dev/null 2>&1 || echec "table retirée de la mémoire, fichier inchangé : non rechargée"
+grep -A3 "PLAY RECAP" "$TMP/pf3.log" | grep -qE "noeud_a .*changed=0 " && echec "table rechargée sans être signalée (changed=0)"
+echo "second passage : changed=0 ; table retirée de la mémoire : rechargée (avec retour arrière) au passage suivant"
+
+etape "10. Pare-feu public : retour arrière déclenché (table fautive jamais validée)"
+"${JOUER[@]}" "$ANSIBLE/essais/parefeu-retour.yml" > "$TMP/pfr.log" 2>&1 || { tail -40 "$TMP/pfr.log"; echec "retour arrière"; }
+grep -q "retour arrière déclenché : table validée rétablie en mémoire et sur disque" "$TMP/pfr.log" || { tail -20 "$TMP/pfr.log"; echec "assertion du retour arrière absente"; }
+docker exec "$A" journalctl -t wakatnet-parefeu --no-pager -n 5 | grep -q "table publique précédente rétablie" || echec "retour arrière non journalisé"
+[ "$(requete api.essai "https://api.essai/v1/moi")" = 200 ] || echec "443 fermé après le retour arrière"
+if docker exec "$B" pg_isready -q -h 172.30.77.2 -t 3; then echec "PostgreSQL de A joignable après le retour arrière"; fi
+"${JOUER[@]}" "$ANSIBLE/essais/parefeu.yml" > "$TMP/pf4.log" 2>&1 || { tail -30 "$TMP/pf4.log"; echec "parefeu après le retour arrière"; }
+grep -A3 "PLAY RECAP" "$TMP/pf4.log" | grep -qE "noeud_a .*changed=0 " || { grep -A3 "PLAY RECAP" "$TMP/pf4.log"; echec "après le retour arrière, Ansible doit retrouver la table validée"; }
+echo "table fautive (SSH 2222) jamais validée : la table validée revient en mémoire et sur disque ; passage suivant sans changement"
 etape "SUCCÈS"

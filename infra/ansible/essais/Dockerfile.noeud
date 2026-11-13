@@ -5,9 +5,11 @@
 # conteneurs, reliés par un réseau privé, ne joignent pas le proxy : les tâches apt d'Ansible
 # trouvent les paquets et un cache récent (cache_valid_time). Le nœud réel est sous Debian 13.
 FROM ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
+# HTTPS seulement derrière le proxy du poste de développement (certificat monté) : l'image de base n'a aucune
+# autorité de certification, et sans proxy (CI) apt reste en http, ses index étant de toute façon signés (GPG).
 RUN --mount=type=secret,id=ca,target=/ca.crt,required=false \
-    sed -i 's#http://#https://#g' /etc/apt/sources.list.d/ubuntu.sources \
- && if [ -s /ca.crt ]; then install -m 0644 /ca.crt /tmp/ca.crt \
+    if [ -s /ca.crt ]; then install -m 0644 /ca.crt /tmp/ca.crt \
+      && sed -i 's#http://#https://#g' /etc/apt/sources.list.d/ubuntu.sources \
       && echo 'Acquire::https::CAInfo "/tmp/ca.crt";' > /etc/apt/apt.conf.d/99ca; fi \
  && apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv sudo python3 \

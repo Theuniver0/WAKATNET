@@ -15,6 +15,7 @@
 #   WAKATNET_PG_REPLICATION_PASSWORD  mot de passe du rôle wk_replication (nœud B, phase 5)
 #   WAKATNET_PG_REWIND_PASSWORD   mot de passe du rôle wk_rewind (retour en réplique, phase 5)
 #   WAKATNET_PG_SANTE_PASSWORD    mot de passe du rôle wk_sante (collecteur de santé, phase 5)
+#   WAKATNET_PG_RAPPROCHEMENT_PASSWORD  mot de passe du rôle wk_rapprochement (outil de rapprochement, lecture seule)
 #
 # Garanties :
 #   - chaque fichier NNNN_*.sql de app/ et radius/ est appliqué une seule fois,
@@ -118,6 +119,7 @@ poser_mot_de_passe wk_wg WAKATNET_PG_WG_PASSWORD
 poser_mot_de_passe wk_replication WAKATNET_PG_REPLICATION_PASSWORD
 poser_mot_de_passe wk_rewind WAKATNET_PG_REWIND_PASSWORD
 poser_mot_de_passe wk_sante WAKATNET_PG_SANTE_PASSWORD
+poser_mot_de_passe wk_rapprochement WAKATNET_PG_RAPPROCHEMENT_PASSWORD
 echo "migrations à jour"
 
 # Test de fumée du chemin critique (ADR 0009 §3) : une migration qui casse un droit ou une

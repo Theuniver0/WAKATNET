@@ -17,29 +17,66 @@
     fail_msg: "{{ pgbackrest_version.stdout }} : il faut {{ pgbackrest_version_min }} ou plus récent (dépôt PGDG), ADR 0018"
     quiet: true
 
-- name: Répertoires
+# Audit du 13/11/2026 (ADR 0018) : la configuration appartient à root. pgBackRest, lancé en postgres, ne fait que
+# la lire (groupe postgres) ; il écrit seulement dans log-path, spool-path et lock-path (/tmp/pgbackrest). Sinon,
+# un postgres compromis pourrait rediriger le dépôt (fichier déposé dans conf.d) ou changer la phrase de passe.
+- name: Répertoires de configuration (root, lisibles par postgres)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: postgres
+    mode: "0750"
+  loop: [/etc/pgbackrest, /etc/pgbackrest/conf.d]
+
+- name: Répertoires de travail (écrits par pgBackRest)
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: postgres
     group: postgres
     mode: "0750"
-  loop: [/etc/pgbackrest/conf.d, /var/log/pgbackrest, /var/spool/pgbackrest]
+  loop: [/var/log/pgbackrest, /var/spool/pgbackrest]
 
 - name: Configuration (sans secret)
   ansible.builtin.template:
     src: pgbackrest.conf.j2
     dest: /etc/pgbackrest/pgbackrest.conf
-    owner: postgres
+    owner: root
     group: postgres
     mode: "0640"
 
-- name: Fichier de secrets de pgBackRest (créé à la main, postgres 0600)
+- name: Fichier de secrets de pgBackRest (créé à la main, root:postgres 0640)
   ansible.builtin.stat:
     path: /etc/pgbackrest/conf.d/secret.conf
   register: pgbackrest_secret
 
 - name: Exiger le fichier de secrets
   ansible.builtin.assert:
-    that: pgbackrest_secret.stat.exists and pgbackrest_secret.stat.mode == "0600" and pgbackrest_secret.stat.pw_name == "postgres"
-    fail_msg: "/etc/pgbackrest/conf.d/secret.conf absent ou mal protégé (repo1-cipher-pass, clés S3 ; copie hors site obligatoire)."
+    that:
+      - pgbackrest_secret.stat.exists
+      - pgbackrest_secret.stat.isreg
+      - pgbackrest_secret.stat.pw_name == "root"
+      - pgbackrest_secret.stat.gr_name == "postgres"
+      - pgbackrest_secret.stat.mode == "0640"
+    fail_msg: >-
+      /etc/pgbackrest/conf.d/secret.conf absent ou mal protégé : il faut un fichier ordinaire root:postgres 0640
+      (repo1-cipher-pass, clés S3 ; copie hors site de la phrase de passe obligatoire). Voir docs/MISE_EN_PRODUCTION.md §1.
+    quiet: true
+
+# pgBackRest lit tous les *.conf de conf.d : un fichier de plus peut rediriger le dépôt ou remplacer la clé.
+- name: Contenu de conf.d
+  ansible.builtin.find:
+    paths: /etc/pgbackrest/conf.d
+    file_type: any
+    hidden: true
+  register: pgbackrest_conf_d
+
+- name: Exiger que conf.d ne contienne que secret.conf
+  ansible.builtin.assert:
+    that: pgbackrest_conf_d.files | map(attribute='path') | map('basename') | list == ['secret.conf']
+    fail_msg: >-
+      /etc/pgbackrest/conf.d contient autre chose que secret.conf
+      ({{ pgbackrest_conf_d.files | map(attribute='path') | list | join(', ') }}) : à traiter comme un incident
+      de sécurité (redirection possible du dépôt), RUNBOOK §7.
+    quiet: true

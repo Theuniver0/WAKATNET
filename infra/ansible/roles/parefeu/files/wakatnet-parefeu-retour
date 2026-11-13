@@ -1,0 +1,18 @@
+#!/bin/sh
+# WAKATNET — retour arrière du pare-feu public (rôle Ansible parefeu, ADR 0016 §3). Géré par Ansible.
+# Lancé par la minuterie transitoire wakatnet-parefeu-retour, quand Ansible n'a pas pu l'annuler (aucune
+# connexion neuve au nœud après le chargement de la table). La mémoire ET le disque reviennent en arrière :
+# sinon le fichier fautif resterait en place, Ansible le croirait appliqué, et le prochain démarrage le
+# rechargerait.
+#   Avec SAUVEGARDE (fichier précédent, copie faite par Ansible) : il est remis en place et rechargé.
+#   Sans argument (aucune table avant ce passage), ou si le fichier précédent ne se charge pas : la table et
+#   son fichier sont retirés.
+F=/etc/nftables.d/wakatnet-public.nft
+if [ -n "${1:-}" ] && [ -f "$1" ] && mv -f "$1" "$F" && nft -f "$F"; then
+  logger -t wakatnet-parefeu "retour arrière : table publique précédente rétablie ($F)"
+  exit 0
+fi
+rm -f "$F"
+nft delete table inet wakatnet_public 2>/dev/null
+logger -t wakatnet-parefeu "retour arrière : table publique retirée, $F effacé"
+exit 0

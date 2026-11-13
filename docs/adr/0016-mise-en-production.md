@@ -52,7 +52,7 @@ nginx est retenu, comparé à Caddy :
   - **Budget propre aux routeurs** (migration 0032, M7) : `wg-agent` note l'IP publique de chaque routeur, point de terminaison de son pair sur `wg0` après une poignée de main de moins de 3 min. WireGuard ne la change que sur un paquet authentifié par la clé du routeur. Une demande qui vient de l'IP d'un routeur actif du site, vue il y a moins de 10 min, a son propre budget de 30 par minute, hors plafond. Les autres sources gardent les règles ci-dessus. Le rôle `wk_wg`, qui ne faisait que lire, écrit désormais ces IP, par une seule fonction, sans effet sur une réplique. Règle de santé `ip_routeurs` : sur le primaire, plus aucune IP notée.
   - **Reste de M7** : un voisin de NAT ou de CGNAT, qui partage l'IP publique du routeur, partage aussi son budget et peut le vider. Quand le routeur n'est pas reconnu (double WAN, CGNAT qui sépare TCP et UDP, clients en IPv6, `wg-agent` arrêté), le hotspot retombe sur les règles de 0031.
 - **IP réelle** : nginx pose `X-Forwarded-For` ; l'API fait confiance au seul proxy local (`trustProxy: 127.0.0.1`, `WAKATNET_TRUST_PROXY`). L'API **refuse de démarrer en production** sans lui : toutes les requêtes viendraient de 127.0.0.1, et les limites par source retomberaient en silence sur une seule source.
-- **Ce qui est gardé** : la source n'est jamais gardée en clair, mais en HMAC (clé `WAKATNET_CLE_HMAC`, renouvelée chaque jour UTC) ; une heure pour les paiements, un jour pour les connexions. Le journal d'accès de nginx garde, lui, les IP en clair (rotation du paquet, environ 14 jours) : à décrire au registre de traitement (`docs/CONFORMITE.md`).
+- **Ce qui est gardé** : la source n'est jamais gardée en clair, mais en HMAC (clé `WAKATNET_CLE_HMAC`, renouvelée chaque jour UTC ; l'API refuse de démarrer en production sans elle) ; une heure pour les paiements, un jour pour les connexions. Le journal d'accès de nginx garde, lui, les IP en clair (rotation du paquet, environ 14 jours) : à décrire au registre de traitement (`docs/CONFORMITE.md`).
 
 ## 3. Pare-feu de l'interface publique (F5)
 
@@ -81,3 +81,37 @@ nginx est retenu, comparé à Caddy :
 - minuterie de retour arrière programmée puis annulée.
 
 Certbot réel et DNS restent à jouer sur les nœuds.
+
+## Audit du 13/11/2026
+
+### Frontal, pare-feu public, unité de l'API
+
+- **Renouvellement TLS** (élevé) : certbot n'avait pas de `--deploy-hook`. nginx ne relisait donc jamais le certificat renouvelé, et servait l'ancien jusqu'à son expiration.
+  - Correctif : `--deploy-hook "systemctl reload nginx"` à l'obtention.
+  - Pour les nœuds déjà installés, le crochet `/etc/letsencrypt/renewal-hooks/deploy/wakatnet-nginx.sh` est déposé par Ansible.
+- **TLS par nœud** (élevé) : `letsencrypt` était le mode par défaut de tous les nœuds. Sur B, le défi ACME échoue, puisque le DNS pointe vers A. Le passage s'arrêtait dans `frontal`, avant `parefeu` : la réplique restait sans pare-feu public, et ne pouvait plus être mise à jour. Correctifs :
+  - `frontal_tls` se règle par nœud, et vaut `autosigne` par défaut : un certificat auto-signé local, sans certbot ;
+  - l'inventaire met `letsencrypt` sur le seul nœud visé par le DNS. À la bascule, B passe en `letsencrypt` (RUNBOOK §3) ;
+  - un nœud `letsencrypt` sans certificat sert aussi l'auto-signé pendant le défi : il n'y a plus de configuration « port 80 seul » ;
+  - `parefeu` passe juste après `socle` dans `site.yml`.
+- **Retour arrière du pare-feu** (moyen) : il ne retirait la table qu'en mémoire. Au passage suivant, Ansible répondait « ok » sans pare-feu actif, et le prochain démarrage rechargeait le fichier fautif. Correctifs :
+  - le script `wakatnet-parefeu-retour` remet aussi le fichier précédent en place (sauvegarde du gabarit) et le recharge. Sans fichier précédent, il efface le fichier et la table ;
+  - à chaque passage, Ansible vérifie que la table est chargée, et la recharge, avec retour arrière, si elle manque ;
+  - le banc déclenche désormais le retour arrière (étape 10), au lieu de seulement l'annuler.
+- **nginx** :
+  - `return 444` aussi dans le serveur TLS par défaut : un SNI connu suivi d'un `Host` inconnu y aboutissait ;
+  - `server_tokens off` ;
+  - `X-Forwarded-Host` réécrit et `X-Real-IP` retiré ;
+  - `/etat` du portail limité (zone `general`) ;
+  - zone `payer` indexée sur (site, source) : un client derrière le NAT d'un hotspot, ou un voisin de CGNAT, ne vide plus que le budget de ce site, et plus celui de tous les sites vendus depuis cette IP. Reste de M7 : le voisin de NAT **sur le même site** ;
+  - journal d'accès au format `wakatnet` : chemin masqué comme dans l'API (`/enroll/<jeton>`, `/webhooks/<fournisseur>/<secret>`, sans chaîne de requête). La décision se prend sur `$uri`, normalisé, et couvre donc un chemin encodé ;
+  - les deux rendus du gabarit sont validés (`nginx -t`).
+- **DHCP** : seules les réponses d'un serveur (`udp sport 67 dport 68`, IPv4) sont admises, et non plus tout paquet vers le port 68.
+- **Unité de l'API** : `SystemCallFilter=@system-service`, avec `SystemCallErrorNumber=EPERM`, ainsi que `ProtectProc=invisible`, `ProcSubset=pid`, `ProtectClock`, `ProtectHostname` et `UMask=0077`. L'exposition passe de 3,1 à 1,5 (`systemd-analyze security --offline=true`). Les appels de Node 22 relevés par strace sont tous dans `@system-service`.
+  - Un appel hors liste rend EPERM au lieu de tuer le processus. Node retombe alors sans erreur hors de io_uring et des clés de protection mémoire (essai avec EPERM injecté).
+  - Non prouvé : sur un processeur doté de PKU, sous le systemd de Debian 13.
+- **Rôle `noeud_wakatnet`** :
+  - Node est réinstallé quand `node --version` diffère de `node_version` (le marqueur ne dépendait pas de la version) ;
+  - le code arrive par deux archives des fichiers connus de Git : aucun fichier ignoré (`*.key`, `*.pem`, `clients.local.conf`, `node_modules`) n'est copié ;
+  - un changement d'`infra/` seul ne redémarre plus l'API ;
+  - les fichiers d'environnement doivent être en 0600, ou en 0640 avec le groupe `root`.

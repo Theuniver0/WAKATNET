@@ -31,6 +31,18 @@ LockPersonality=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ProtectClock=yes
+ProtectHostname=yes
+# /proc réduit aux processus de l'unité : ni /proc/sys, ni /proc/meminfo, ni /proc/cpuinfo (os.cpus() rend une
+# liste vide ; ni l'API ni ses dépendances ne l'appellent, vérifié le 13/11/2026).
+ProtectProc=invisible
+ProcSubset=pid
+UMask=0077
+# Appels système : relevés par strace sur Node 22 (HTTP, fetch, scrypt, fs, DNS, worker, zlib, WebAssembly), tous
+# dans @system-service. Un appel hors liste rend EPERM au lieu de tuer le processus : libuv retombe alors sur son
+# pool de threads (io_uring) et V8 sur la protection classique (pkey_*), comme vérifié avec EPERM injecté.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 # Pas de MemoryDenyWriteExecute : le JIT de Node en a besoin.
 
 [Install]

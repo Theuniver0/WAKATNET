@@ -1,5 +1,5 @@
 # WAKATNET — pgBackRest (ADR 0015 §5). Géré par Ansible ; modèle : infra/pgbackrest/pgbackrest.conf.
-# Secrets dans /etc/pgbackrest/conf.d/secret.conf (postgres, 0600), jamais ici.
+# Secrets dans /etc/pgbackrest/conf.d/secret.conf (root:postgres, 0640), jamais ici.
 [global]
 repo1-type=s3
 repo1-s3-endpoint={{ pgbackrest_s3_endpoint }}

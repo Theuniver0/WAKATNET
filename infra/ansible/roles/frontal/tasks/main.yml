@@ -1,7 +1,14 @@
 # nginx devant l'API (ADR 0016 §2) : TLS, filtrage par Host, limites par IP. L'API n'écoute qu'en local.
-- name: Paquets nginx et certbot
+# certbot ne tourne QUE sur le nœud vers lequel pointe le DNS (frontal_tls=letsencrypt, par nœud dans
+# l'inventaire) ; la réplique sert un certificat auto-signé jusqu'à la bascule (RUNBOOK §3).
+- name: Mode TLS connu
+  ansible.builtin.assert:
+    that: frontal_tls in ["letsencrypt", "autosigne", "fourni"]
+    fail_msg: "frontal_tls={{ frontal_tls }} : attendu letsencrypt, autosigne ou fourni."
+
+- name: Paquets nginx, openssl et certbot
   ansible.builtin.apt:
-    name: "{{ ['nginx'] + (['certbot'] if frontal_tls == 'letsencrypt' else []) }}"
+    name: "{{ ['nginx', 'openssl'] + (['certbot'] if frontal_tls == 'letsencrypt' else []) }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -18,27 +25,76 @@
     state: directory
     mode: "0755"
 
-- name: Le certificat existe-t-il ?
+- name: Le certificat (Let's Encrypt ou fourni) existe-t-il ?
   ansible.builtin.stat:
     path: "{{ frontal_certificat }}"
   register: frontal_cert
 
-# Premier passage en Let's Encrypt : port 80 seul (défi ACME), certificat obtenu, puis configuration complète.
+- name: Le certificat fourni doit exister
+  ansible.builtin.assert:
+    that: frontal_cert.stat.exists
+    fail_msg: "frontal_tls=fourni : {{ frontal_certificat }} absent."
+  when: frontal_tls == "fourni"
+
+# Réplique (autosigne), ou nœud letsencrypt avant son premier certificat : nginx sert 443 avec un certificat
+# local, et le port 80 répond au défi ACME. Aucun passage ne s'arrête faute de certificat.
+- name: Certificat auto-signé local
+  when: frontal_tls != "fourni" and not frontal_cert.stat.exists
+  block:
+    - name: Répertoire du certificat auto-signé
+      ansible.builtin.file:
+        path: "{{ frontal_autosigne_dir }}"
+        state: directory
+        mode: "0700"
+    - name: Certificat auto-signé pour les deux noms
+      ansible.builtin.shell:
+        cmd: >-
+          umask 077 && openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN={{ frontal_nom_api }}"
+          -addext "subjectAltName=DNS:{{ frontal_nom_api }},DNS:{{ frontal_nom_portail }}"
+          -keyout {{ frontal_autosigne_dir }}/cle.pem -out {{ frontal_autosigne_dir }}/cert.pem
+        creates: "{{ frontal_autosigne_dir }}/cert.pem"
+
+- name: Certificat servi
+  ansible.builtin.set_fact:
+    frontal_cert_servi: "{{ frontal_certificat if frontal_cert.stat.exists else frontal_autosigne_dir ~ '/cert.pem' }}"
+    frontal_cle_servie: "{{ frontal_cle if frontal_cert.stat.exists else frontal_autosigne_dir ~ '/cle.pem' }}"
+
 - name: Configuration nginx de WAKATNET
   ansible.builtin.template:
     src: wakatnet.conf.j2
     dest: /etc/nginx/sites-enabled/wakatnet.conf
     mode: "0644"
-    # Fichier de contexte http : validé dans une configuration minimale qui l'inclut, avant d'être mis en place.
-    validate: >-
-      bash -c 'printf "events {}\nhttp { include /etc/nginx/mime.types; include %s; }\n" > /tmp/wakatnet-nginx-essai.conf
-      && nginx -t -q -c /tmp/wakatnet-nginx-essai.conf'
-  vars:
-    frontal_tls_pret: "{{ frontal_cert.stat.exists }}"
+    validate: "{{ frontal_nginx_valider }}"
   notify: Recharger nginx
+
+- name: Service nginx actif au démarrage
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
 
 - name: Appliquer la configuration avant le défi ACME
   ansible.builtin.meta: flush_handlers
+
+# Renouvellement (minuterie du paquet certbot) : nginx doit relire le certificat, sinon il sert l'ancien
+# jusqu'à son expiration. Le crochet du répertoire vaut pour les nœuds déjà installés, dont la configuration de
+# renouvellement n'a pas de --deploy-hook.
+- name: Répertoire des crochets de renouvellement
+  when: frontal_tls == "letsencrypt"
+  ansible.builtin.file:
+    path: /etc/letsencrypt/renewal-hooks/deploy
+    state: directory
+    mode: "0755"
+
+- name: Crochet de renouvellement, rechargement de nginx
+  when: frontal_tls == "letsencrypt"
+  ansible.builtin.copy:
+    dest: /etc/letsencrypt/renewal-hooks/deploy/wakatnet-nginx.sh
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      # WAKATNET — géré par Ansible (rôle frontal) : nginx relit le certificat renouvelé.
+      exec systemctl reload nginx
 
 - name: Obtenir le certificat (certbot, webroot)
   when: frontal_tls == "letsencrypt" and not frontal_cert.stat.exists
@@ -50,25 +106,17 @@
     - name: Certificat pour les deux noms
       ansible.builtin.command:
         argv: [certbot, certonly, --webroot, -w, /var/www/acme, --cert-name, wakatnet, --non-interactive, --agree-tos,
+               --deploy-hook, "systemctl reload nginx",
                -m, "{{ frontal_courriel_acme }}", -d, "{{ frontal_nom_api }}", -d, "{{ frontal_nom_portail }}"]
         creates: "{{ frontal_certificat }}"
+    - name: Certificat Let's Encrypt servi
+      ansible.builtin.set_fact:
+        frontal_cert_servi: "{{ frontal_certificat }}"
+        frontal_cle_servie: "{{ frontal_cle }}"
     - name: Configuration complète, certificat obtenu
       ansible.builtin.template:
         src: wakatnet.conf.j2
         dest: /etc/nginx/sites-enabled/wakatnet.conf
         mode: "0644"
-      vars:
-        frontal_tls_pret: true
+        validate: "{{ frontal_nginx_valider }}"
       notify: Recharger nginx
-
-- name: Le certificat fourni doit exister
-  ansible.builtin.assert:
-    that: frontal_cert.stat.exists
-    fail_msg: "frontal_tls=fourni : {{ frontal_certificat }} absent."
-  when: frontal_tls == "fourni"
-
-- name: Service nginx actif au démarrage
-  ansible.builtin.systemd_service:
-    name: nginx
-    enabled: true
-    state: started

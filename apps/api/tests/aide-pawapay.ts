@@ -15,6 +15,8 @@ export class FauxPawapay {
   prochaineReponse: { statut: number; corps: unknown } | null = null;
   /** Configuration active rendue par GET /v2/active-conf (callbacks signés activés par défaut). */
   callbacksSignes = true;
+  /** Clés publiques en panne : GET /v2/public-key/http répond 500 (audit du 13/11/2026, relecture bornée). */
+  clesEnPanne = false;
   /** Montant rendu par GET (pawaPay rend « 100.00 » pour « 100 » demandé). */
   formatMontant = (m: string) => `${m}.00`;
   cle: { privee: KeyObject; id: string; pem: string };
@@ -48,6 +50,7 @@ export class FauxPawapay {
     this.requetes.push({ methode: req.method!, chemin, autorisation: req.headers.authorization, corps });
     const json = (statut: number, v: unknown) => rep.writeHead(statut, { "content-type": "application/json" }).end(JSON.stringify(v));
     if (req.headers.authorization !== "Bearer jeton-de-test-pawapay-0123456789") return json(401, { failureReason: { failureCode: "NO_AUTHENTICATION" } });
+    if (req.method === "GET" && chemin === "/v2/public-key/http" && this.clesEnPanne) return json(500, { failureReason: { failureCode: "UNKNOWN_ERROR" } });
     if (req.method === "GET" && chemin === "/v2/public-key/http") return json(200, [{ id: this.cle.id, key: this.cle.pem }]);
     if (req.method === "GET" && chemin === "/v2/active-conf") {
       return json(200, { companyName: "Essai", signatureConfiguration: { signedRequestsOnly: false, signedCallbacks: this.callbacksSignes },
@@ -89,7 +92,7 @@ export class FauxPawapay {
  *  content-digest content-type ; alg ecdsa-p256-sha256 ; signature DER en base64 ; étiquette sig-pp. */
 export function callbackSigne(corps: string, o: { autorite: string; chemin: string; cle: { privee: KeyObject; id: string };
                                                  cree?: number; dsa?: "der" | "ieee-p1363"; alg?: string;
-                                                 composants?: string[] }): Record<string, string> {
+                                                 composants?: string[]; expires?: number | null }): Record<string, string> {
   const cree = o.cree ?? Math.floor(Date.now() / 1000);
   const date = new Date(cree * 1000).toISOString();
   const digest = `sha-512=:${createHash("sha512").update(corps).digest("base64")}:`;
@@ -97,7 +100,7 @@ export function callbackSigne(corps: string, o: { autorite: string; chemin: stri
   const composants = o.composants ?? ["@method", "@authority", "@path", "signature-date", "content-digest", "content-type"];
   const valeurs: Record<string, string> = { "@method": "POST", "@authority": o.autorite, "@path": o.chemin,
                                             "signature-date": date, "content-digest": digest, "content-type": type };
-  const params = `(${composants.map((c) => `"${c}"`).join(" ")});alg="${o.alg ?? "ecdsa-p256-sha256"}";keyid="${o.cle.id}";created=${cree};expires=${cree + 60}`;
+  const params = `(${composants.map((c) => `"${c}"`).join(" ")});alg="${o.alg ?? "ecdsa-p256-sha256"}";keyid="${o.cle.id}";created=${cree}${o.expires === null ? "" : `;expires=${o.expires ?? cree + 60}`}`;
   const base = [...composants.map((c) => `"${c}": ${valeurs[c]}`), `"@signature-params": ${params}`].join("\n");
   const sig = sign("sha256", Buffer.from(base), { key: o.cle.privee, dsaEncoding: o.dsa ?? "der" }).toString("base64");
   return { "content-type": type, "content-digest": digest, "signature-date": date, signature: `sig-pp=:${sig}:`, "signature-input": `sig-pp=${params}` };
