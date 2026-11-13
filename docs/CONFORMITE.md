@@ -172,10 +172,16 @@ Ce que fait la plateforme aujourd'hui. Le juriste et la CIL valident ou font cha
 | Journal d'accès de nginx, IP en clair (T10) | rotation du paquet Debian, environ 14 jours | ADR 0016 §2 |
 | Sauvegardes (T9) | 4 complètes hebdomadaires, verrou de 30 jours, versions effacées 31 jours après | ADR 0018 |
 
-**Aucune purge n'est codée pour les données suivantes : à trancher avant G-PILOTE.**
-- **Sessions RADIUS** (T3 : MAC, IP, octets, durées). `radius.session` n'est ni purgée ni partitionnée (le commentaire de radius 0005 parle d'un partitionnement mensuel « futur »). La durée du registre (« [N] mois, puis agrégats ») n'est donc pas appliquée.
-- **Corps bruts des webhooks** (T2, `payment_event`). Avec pawaPay, ils contiennent le numéro du payeur en clair, qui survit donc à la purge de 6 mois. C'est le constat F4 de la revue de phase 5, toujours ouvert.
-- **Journal d'audit** (T7) : conservé sans limite. C'est cohérent avec « ajout seul », mais la durée « [N] ans » du registre n'existe pas dans le code.
+**Durées décidées par Yacouba le 13/11/2026, appliquées par la migration 0040** (`radius.purge_conservation`, lancée chaque jour par `wakatnet-purge` ; à valider par le juriste et la CIL, §6) :
+
+| Donnée (traitement) | Durée appliquée | Ce qui reste |
+|---|---|---|
+| Sessions RADIUS fermées (T3) : MAC, IP | **12 mois** après le début de la session | la ligne, ses durées et ses octets : le décompte d'un ticket (un forfait limité en temps d'usage n'a pas de date de fin) ; les sessions vivantes ne sont jamais touchées |
+| Accounting en quarantaine et anomalies (T3) : données brutes, MAC comprise | **12 mois**, puis supprimées | rien |
+| Corps bruts des webhooks (T2, `payment_event`) : avec pawaPay, le numéro du payeur en clair | **6 mois**, puis vidés (comme le numéro du payeur) | l'identifiant d'événement (dédoublonnage), la date et le paiement ; F4 est ainsi fermé |
+| Journal d'audit (T7) | **5 ans**, puis supprimé | rien. À noter : le registre propose « durée comptable » (10 ans) pour le grand livre (T8), qui n'est pas purgé ; le journal d'audit reste plus court |
+
+Point à confirmer avec le juriste : si la loi impose de conserver les **données de connexion** plus de 12 mois (obligation d'un fournisseur d'accès public, §6), allonger la durée des sessions dans la migration suivante. Un raccourcissement se fait de même.
 
 Conflit à arbitrer : la purge des données personnelles (T1 à T3) et l'immuabilité du grand livre (T8). Proposition technique : le grand livre ne référence que des identifiants internes ; le numéro du payeur vit dans `payment` et peut être pseudonymisé à échéance sans toucher aux écritures [À CONFIRMER].
 

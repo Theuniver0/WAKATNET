@@ -167,3 +167,57 @@ def test_script_et_unites_de_purge():
                         "/depot/infra/systemd/wakatnet-purge.timer"], capture_output=True, text=True, timeout=60)
     erreurs = [l for l in (v.stdout + v.stderr).splitlines() if l.strip() and "/usr/local/sbin/wakatnet-purge" not in l]
     assert erreurs == [], erreurs
+
+
+def test_purge_conservation_durees_du_13_11_2026():
+    """Migration 0040 (docs/CONFORMITE.md §7 bis) : sessions fermées anonymisées à 12 mois (compteurs gardés, sessions
+    vivantes jamais touchées), quarantaine et anomalies d'accounting supprimées à 12 mois, corps des webhooks vidés à
+    6 mois, journal d'audit supprimé à 5 ans. Ce qui est plus jeune reste intact."""
+    code = nouveau_ticket()
+    marque = uuid.uuid4().hex
+    with admin() as c:
+        voucher, tenant = c.execute("SELECT id, tenant_id FROM app.voucher WHERE code = %s", (code,)).fetchone()
+        routeur = c.execute("SELECT id FROM app.router ORDER BY id LIMIT 1").fetchone()[0]
+
+        def session(age_jours, ferme):
+            debut = c.execute("SELECT now() - make_interval(days => %s)", (age_jours,)).fetchone()[0]
+            return c.execute("""INSERT INTO radius.session (started_at, router_id, router_epoch, acct_session_id, tenant_id,
+                                  voucher_id, calling_station, framed_ip, duree_s, interim_s, dernier_evenement_le, arrete_le)
+                                VALUES (%s, %s, 1, %s, %s, %s, '02-AA-BB-CC-DD-EE', '10.5.50.9', 1234, 60, %s,
+                                        CASE WHEN %s THEN %s ELSE NULL END) RETURNING id""",
+                             (debut, routeur, uuid.uuid4().hex, tenant, voucher, debut, ferme, debut)).fetchone()[0]
+        s_vieille, s_ouverte, s_jeune = session(400, True), session(400, False), session(300, True)
+        for jours in (400, 300):
+            c.execute("""INSERT INTO radius.acct_quarantaine (recu_le, fonction, motif, donnees)
+                         VALUES (now() - make_interval(days => %s), 'essai', %s, '{"mac": "02-AA"}')""", (jours, marque))
+            c.execute("""INSERT INTO radius.acct_anomalie (recu_le, motif, session_id, session_started_at, donnees)
+                         VALUES (now() - make_interval(days => %s), %s, 0, now(), '{}')""", (jours, marque))
+        for jours, ident in ((200, marque + "-vieux"), (150, marque + "-jeune")):
+            c.execute("""INSERT INTO app.payment_event (fournisseur, id_evenement, tenant_id, recu_le, corps)
+                         VALUES ('mock', %s, %s, now() - make_interval(days => %s), '\\x7b226e756d65726f223a2237307d'::bytea)""",
+                      (ident, tenant, jours))
+        for ans, objet in ((6, marque + "-vieux"), (4, marque + "-jeune")):
+            c.execute("""INSERT INTO app.audit_log (le, acteur, action, objet)
+                         VALUES (now() - make_interval(years => %s), 'essai', 'essai_conservation', %s)""", (ans, objet))
+
+    with en_tant_que_maint() as c:
+        assert c.execute("SELECT radius.purge_conservation()").fetchone()[0] >= 5   # session, quarantaine, anomalie, corps, audit
+        assert c.execute("SELECT radius.purge_conservation()").fetchone()[0] == 0, "idempotente"
+
+    with admin() as c:
+        etat = {i: (anonyme, duree) for i, anonyme, duree in c.execute(
+            """SELECT id, calling_station IS NULL AND framed_ip IS NULL, duree_s FROM radius.session WHERE id = ANY(%s)""",
+            ([s_vieille, s_ouverte, s_jeune],)).fetchall()}
+        assert etat[s_vieille] == (True, 1234), "fermée depuis 12 mois : anonymisée, compteur gardé"
+        assert etat[s_ouverte] == (False, 1234), "session vivante : jamais touchée"
+        assert etat[s_jeune] == (False, 1234), "moins de 12 mois : intacte"
+        assert c.execute("SELECT count(*) FROM radius.acct_quarantaine WHERE motif = %s", (marque,)).fetchone()[0] == 1
+        assert c.execute("SELECT count(*) FROM radius.acct_anomalie WHERE motif = %s", (marque,)).fetchone()[0] == 1
+        corps = dict(c.execute("SELECT id_evenement, length(corps) FROM app.payment_event WHERE id_evenement LIKE %s",
+                               (marque + "%",)).fetchall())
+        assert corps == {marque + "-vieux": 0, marque + "-jeune": 14}, corps
+        assert [r[0] for r in c.execute("SELECT objet FROM app.audit_log WHERE action = 'essai_conservation' AND objet LIKE %s",
+                                         (marque + "%",)).fetchall()] == [marque + "-jeune"]
+        journal = c.execute("""SELECT acteur, details FROM app.audit_log WHERE action = 'purge_conservation'
+                                ORDER BY id DESC LIMIT 1""").fetchone()
+    assert journal[0] == "wk_maint" and journal[1]["sessions_anonymisees"] >= 1 and journal[1]["corps_webhook_vides"] >= 1

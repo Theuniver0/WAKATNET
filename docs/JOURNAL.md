@@ -1206,3 +1206,20 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - p1b : le spool attend tant qu'aucun primaire n'est joignable ;
   - p3 : l'événement de A arrive dans B, une seule fois.
 - **Preuve** : `radius/tests/run.sh`, 288 réussis, 19 ignorés, étapes de promotion comprises : SUCCÈS.
+
+## 13/11/2026 — Durées de conservation appliquées (migration 0040)
+
+- **Décidé par Yacouba** :
+  - sessions RADIUS : 12 mois ;
+  - corps des webhooks : 6 mois ;
+  - journal d'audit : 5 ans.
+
+  Ces durées sont à valider par le juriste et la CIL (`docs/CONFORMITE.md` §6 et §7 bis).
+- **Fait** : `radius.purge_conservation`, appelée chaque jour par `wakatnet-purge` (rôle `wk_maint`), par lots, et journalisée.
+  - **Sessions fermées** : la MAC et l'IP sont effacées, mais la ligne reste. Supprimer la ligne fausserait le décompte d'un ticket limité seulement en temps d'usage, qui n'a pas de date de fin, et lui rendrait du temps gratuit. Les sessions vivantes ne sont jamais touchées.
+  - **Quarantaine et anomalies d'accounting** (MAC brute, oubliées du relevé du §7 bis) : supprimées à 12 mois.
+  - **Corps des webhooks** : vidés à 6 mois. F4 est fermé.
+  - **Journal d'audit** : supprimé à 5 ans.
+- **Preuves** :
+  - `radius/tests/run.sh` complet, migration 0040 appliquée : 288 réussis. Seul le nouveau test échouait, à cause de deux erreurs dans le test lui-même : il attendait 6 lignes au lieu de 5, et lisait un enregistrement SQL rendu en chaînes. Après correction, `run.sh -k "conservation or droits or purge"` : 18 réussis ;
+  - `apps/api/tests/run.sh` : 224/224.

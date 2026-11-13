@@ -28,6 +28,8 @@ ATTENDU = {
     "radius.close_ghost_sessions()": {"wk_maint"},
     "radius.marquer_spool_vide(p_epoch text)": {"wk_maint"},
     "radius.purge_auth_log(p_lot integer)": {"wk_maint"},
+    # Migration 0040 : durées de conservation (CONFORMITE §7 bis).
+    "radius.purge_conservation(p_lot integer)": {"wk_maint"},
     # Ticket 09 : seul wk_coa lit le secret d'un routeur à partir d'une session (coa_target).
     "radius.sessions_to_cut(p_limite integer)": {"wk_coa"},
     "radius.coa_target(p_session bigint)": {"wk_coa"},
@@ -174,7 +176,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.verification_annuler"), ("wk_api", "app.verification_consommer"), ("wk_api", "app.verification_creer"),
                       ("wk_api", "app.voucher_importer"),
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
-                      ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"),
+                      ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"), ("wk_maint", "radius.purge_conservation"),
                       ("wk_radius", "radius.authorize"), ("wk_radius", "radius.client_lookup"), ("wk_radius", "radius.post_auth"),
                       ("wk_rapprochement", "app.rapprochement_commissions"), ("wk_rapprochement", "app.rapprochement_paiements"),
                       ("wk_sante", "app.sante"), ("wk_wg", "app.wg_pairs"), ("wk_wg", "app.wg_points_noter")]
