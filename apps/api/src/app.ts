@@ -52,7 +52,7 @@ export function resumeErreur(err: unknown): { type: string; code?: string; sqlst
 
 export function construire(config: Config, base: Base,
                            options: { journal?: boolean; flux?: NodeJS.WritableStream; service?: ServicePaiement; expediteur?: Expediteur } = {}): FastifyInstance {
-  const service = options.service ?? (config.cles ? new ServicePaiement(base, config.cles) : null);
+  const service = options.service ?? (config.cles ? new ServicePaiement(base, config.cles, config.urlPublique) : null);
   const app = Fastify({
     logger: options.journal === false ? false : {
       ...(options.flux ? { stream: options.flux } : {}),
