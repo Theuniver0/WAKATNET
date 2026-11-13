@@ -1,14 +1,19 @@
 #!/bin/bash
 # WAKATNET — essai RÉEL des rôles Ansible sur deux nœuds jetables (phase 5, ticket 06 ; ADR 0015 §7).
-#   WAKATNET_ANSIBLE_BIN=/chemin/vers/venv/bin infra/ansible/essais/essai.sh
+#   WAKATNET_ANSIBLE_BIN=/chemin/vers/venv/bin [WAKATNET_ESSAI_OS=debian13] infra/ansible/essais/essai.sh
 # Exige Docker et ansible (paquet « ansible » 14, pour le connecteur community.docker de l'ESSAI
-# seulement : site.yml n'utilise que ansible.builtin). Deux conteneurs Ubuntu 24.04 avec systemd :
+# seulement : site.yml n'utilise que ansible.builtin). Deux conteneurs avec systemd :
+#   - WAKATNET_ESSAI_OS=ubuntu2404 (défaut) : paquets de la distribution, seuils de version abaissés au banc ;
+#   - WAKATNET_ESSAI_OS=debian13 : la cible de production (ADR 0004), PostgreSQL 16 et pgBackRest du dépôt PGDG
+#     déclaré par le rôle, seuils de PRODUCTION. Clé PGDG prise dans le paquet Debian postgresql-common, empreinte
+#     contrôlée (Dockerfile.noeud-debian13). Exige deb.debian.org et apt.postgresql.org à la construction.
 #   1. A primaire (socle, postgresql, pgbackrest) ;
 #   2. B déclaré réplique sur une installation neuve, SANS demande explicite : refusé (clôture) ;
 #   3. B avec postgresql_reconstruire_replique=true : réplique en flux sur le slot noeud_b ;
 #   4. second passage sur A et B : aucun changement (idempotence) ;
 #   5. A redéclaré réplique : refusé, A reste primaire et en marche ;
-#   6. FreeRADIUS sans le dépôt de l'éditeur : la 3.2.5 d'Ubuntu est refusée par la garde de version ;
+#   6. FreeRADIUS sans le dépôt de l'éditeur : la version de la distribution (Ubuntu 24.04 : 3.2.5 ; Debian 13 :
+#      3.2.7) est refusée par la garde de version ;
 #   7. B promu, puis PostgreSQL de A redémarré par systemd (redémarrage par l'hébergeur) : la garde contre le
 #      double primaire l'en empêche ; Ansible refuse aussi de déclarer A primaire (revue de sécurité E1) ;
 #   8. nginx devant une fausse API (ADR 0016 §2) : filtrage par Host (444 sur un nom inconnu, même avec un SNI
@@ -32,16 +37,31 @@ trap nettoyer EXIT
 etape() { printf '\n=== %s ===\n' "$*"; }
 echec() { echo "ÉCHEC : $*" >&2; exit 1; }
 
-etape "Image des nœuds d'essai (Ubuntu 24.04, systemd, paquets préinstallés)"
+OS="${WAKATNET_ESSAI_OS:-ubuntu2404}"
+case "$OS" in
+  ubuntu2404) FICHIER="$ICI/Dockerfile.noeud" FREERADIUS_DISTRIB=3.2.5
+              # Ubuntu 24.04 livre PostgreSQL 16 : pas de dépôt PGDG ; pgBackRest 2.50 : contrôle de version joué au
+              # seuil du banc. En production : 2.59.2 (ADR 0018). Le dépôt S3 verrouillé a son banc : sauvegarde-s3.sh.
+              VARIANTE=(-e postgresql_depot_pgdg=false -e pgbackrest_version_min=2.50) ;;
+  debian13)   FICHIER="$ICI/Dockerfile.noeud-debian13" FREERADIUS_DISTRIB=3.2.7
+              # Production telle quelle : dépôt PGDG déclaré par le rôle, seuil pgBackRest d'ADR 0018. La clé passée au
+              # rôle est celle de l'image (vérifiée à la construction), ressortie après le build.
+              VARIANTE=(-e postgresql_pgdg_cle_locale="$TMP/pgdg.asc") ;;
+  *) echo "WAKATNET_ESSAI_OS inconnu : $OS (ubuntu2404 ou debian13)" >&2; exit 2 ;;
+esac
+IMAGE="wakatnet-noeud-essai-$OS:local"
+
+etape "Image des nœuds d'essai ($OS, systemd, paquets préinstallés)"
 CA=()
 [ -s /root/.ccr/ca-bundle.crt ] && CA=("--secret" "id=ca,src=/root/.ccr/ca-bundle.crt")
-docker build -q --network host "${CA[@]}" -f "$ICI/Dockerfile.noeud" -t wakatnet-noeud-essai:local --build-arg https_proxy "$ICI" >/dev/null
+docker build -q --network host "${CA[@]}" -f "$FICHIER" -t "$IMAGE" --build-arg https_proxy "$ICI" >/dev/null
+[ "$OS" = debian13 ] && docker run --rm --entrypoint cat "$IMAGE" /usr/share/keyrings/pgdg.asc > "$TMP/pgdg.asc"
 
 etape "Deux nœuds sur un réseau privé"
 docker network create --subnet 172.30.77.0/24 "$RESEAU" >/dev/null
 for n in "$A:172.30.77.2" "$B:172.30.77.3"; do
   docker run -d --name "${n%%:*}" --network "$RESEAU" --ip "${n##*:}" --privileged --cgroupns=host \
-    -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock wakatnet-noeud-essai:local >/dev/null
+    -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /run/lock "$IMAGE" >/dev/null
 done
 # Les nœuds d'essai n'ont pas Internet : la liste des paquets vient de l'image. Plus vieille qu'une heure (image en
 # cache), le module apt (cache_valid_time: 3600) voudrait la rafraîchir et échouerait. On la date de maintenant.
@@ -72,12 +92,8 @@ all:
                    wk_noeuds_pair_cle_publique: "inutilisee", frontal_tls: autosigne }
 EOF
 mkdir -p "$TMP/group_vars" && cp "$ANSIBLE/group_vars/noeuds.yml" "$TMP/group_vars/noeuds.yml"
-# Ubuntu 24.04 livre PostgreSQL 16 : pas de dépôt PGDG pour l'essai.
-JOUER=("$BIN/ansible-playbook" -i "$TMP/inventaire.yml" -e "wakatnet_depot=$DEPOT" -e postgresql_depot_pgdg=false
-        -e frontal_nom_api=api.essai -e frontal_nom_portail=portail.essai -e frontal_ipv6=false
-        # Ubuntu 24.04 fournit pgBackRest 2.50 (pas de dépôt PGDG ici) ; le contrôle de version reste joué, au seuil
-        # du banc. En production : 2.59.2 (ADR 0018). Le dépôt S3 verrouillé a son propre banc : sauvegarde-s3.sh.
-        -e pgbackrest_version_min=2.50)
+JOUER=("$BIN/ansible-playbook" -i "$TMP/inventaire.yml" -e "wakatnet_depot=$DEPOT" "${VARIANTE[@]}"
+        -e frontal_nom_api=api.essai -e frontal_nom_portail=portail.essai -e frontal_ipv6=false)
 export ANSIBLE_CONFIG="$ANSIBLE/ansible.cfg" ANSIBLE_ROLES_PATH="$ANSIBLE/roles"
 
 etape "Certificat TLS auto-signé de l'essai (frontal_tls=fourni)"
@@ -140,7 +156,7 @@ echo "refusé (attendu) ; A toujours primaire, en marche"
 etape "6. FreeRADIUS sans le dépôt de l'éditeur : version refusée"
 if "${JOUER[@]}" "$ANSIBLE/essais/freeradius.yml" > "$TMP/fr.log" 2>&1; then echec "FreeRADIUS de la distribution accepté"; fi
 grep -oE "FreeRADIUS [0-9.]+ refusé[^\"]*" "$TMP/fr.log" | head -1
-grep -q "FreeRADIUS 3.2.5 refusé" "$TMP/fr.log" || { tail -20 "$TMP/fr.log"; echec "refus de version attendu"; }
+grep -q "FreeRADIUS $FREERADIUS_DISTRIB refusé" "$TMP/fr.log" || { tail -20 "$TMP/fr.log"; echec "refus de version attendu"; }
 
 etape "7. B promu, A redémarré par systemd : la garde refuse un second primaire"
 docker exec -u postgres "$B" psql -X -q -tA -c "SELECT pg_promote(true, 60)" >/dev/null
@@ -173,7 +189,12 @@ requete() { docker exec "$B" curl -sk -o /tmp/r.json -w "%{http_code}" --resolve
 [ "$(requete portail.essai "https://portail.essai/p/ABCDEFGHIJKLMNOP")" = 200 ] || echec "portail.essai/p doit atteindre l'API"
 if docker exec "$B" curl -sk --resolve autre.essai:443:172.30.77.2 https://autre.essai/ -o /dev/null; then echec "nom inconnu servi"; fi
 rc=0; docker exec "$B" curl -sk --resolve api.essai:443:172.30.77.2 -H "Host: autre.essai" https://api.essai/v1/moi -o /dev/null || rc=$?
-[ "$rc" = 52 ] || echec "SNI connu, Host inconnu : connexion fermée sans réponse attendue (444, curl 52), obtenu curl $rc"
+# Côté client, la fermeture sans réponse se lit curl 52 (Ubuntu 24.04) ou curl 56 (Debian 13 : OpenSSL 3.5 signale
+# « unexpected eof » faute de close_notify) ; la preuve qui ne dépend pas du client est le 444 du journal de nginx.
+case "$rc" in 52|56) ;; *) echec "SNI connu, Host inconnu : connexion fermée sans réponse attendue (444, curl 52 ou 56), obtenu curl $rc" ;; esac
+sleep 1
+docker exec "$A" grep -qE ' autre\.essai "GET /v1/moi HTTP/1\.1" 444 0 ' /var/log/nginx/access.log \
+  || echec "SNI connu, Host inconnu : 444 absent du journal de nginx"
 rc=0; docker exec "$B" curl -s -H "Host: autre.essai" http://172.30.77.2/ -o /dev/null || rc=$?
 [ "$rc" = 52 ] || echec "port 80, Host inconnu : 444 attendu (curl 52), obtenu curl $rc"
 docker exec "$B" curl -sk -D - -o /dev/null --resolve api.essai:443:172.30.77.2 https://api.essai/v1/moi | grep -qiE '^server: nginx/' \

@@ -2,7 +2,7 @@
 
 - **Références** : ADR 0004, 0015, 0016 ; `infra/ansible/README.md` ; `docs/RUNBOOK.md`.
 - **Qui** : Yacouba, à la main, étape par étape. Chaque étape se vérifie avant la suivante. L'agent ne se connecte à aucune machine de production.
-- **État** : procédure **prouvée sur des conteneurs Ubuntu 24.04** (`infra/ansible/essais/essai.sh`, dix étapes). Elle n'a **pas** été jouée sur Debian 13 ni sur un vrai VPS.
+- **État** : procédure **prouvée sur des conteneurs Debian 13** (13/11/2026 : `WAKATNET_ESSAI_OS=debian13 infra/ansible/essais/essai.sh`, dix étapes, PostgreSQL 16 et pgBackRest 2.60 du dépôt PGDG, seuils de production) et sur Ubuntu 24.04. Elle n'a **pas** été jouée sur une VM ni sur un vrai VPS : le module WireGuard du noyau, FreeRADIUS de l'éditeur et le rôle `noeud_wakatnet` (Node depuis nodejs.org) ne s'exercent pas en conteneur.
 
 ## 0. Avant de commencer
 
@@ -12,7 +12,7 @@
 | Nom de domaine : `api.` et `portail.` (le portail sur une IP dédiée, si l'hébergeur le permet) | ADR 0013 §10, ADR 0016 §2 |
 | Accès console de chaque VPS (en cas de coupure SSH) | RUNBOOK §6 |
 | Compte **Backblaze B2** (double authentification, distinct du compte Hetzner) ; bucket privé, région EU Central, **Object Lock activé à la création**, rétention par défaut **conformité 30 jours**, cycle de vie « versions masquées effacées après 31 jours » ; clés d'application créées comme au §1 (« Clés B2 »), jamais la clé maîtresse sur un nœud | ADR 0018, REVUE_SECURITE M8 |
-| Clé PGDG et clé de l'éditeur de FreeRADIUS téléchargées **et vérifiées** (empreinte) dans `infra/ansible/cles/` | ADR 0004 point 5 |
+| Clé PGDG et clé de l'éditeur de FreeRADIUS téléchargées **et vérifiées** (empreinte) dans `infra/ansible/cles/`. PGDG : `B97B 0AFC AA1A 47F0 44F2 44A0 7FCC 7D46 ACCC 4CF8`, la même que celle que Debian 13 livre dans `postgresql-common` (`/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc`), second canal de vérification | ADR 0004 point 5 |
 | Bot Telegram et salon d'alertes | ADR 0015 §6 |
 | Compte **Brevo** (double authentification) ; sous-domaine expéditeur `notif.DOMAINE` authentifié (SPF, DKIM selon la console Brevo, DMARC `p=quarantine`) ; clé API dans `/etc/wakatnet/api.env` : `WAKATNET_COURRIEL=brevo`, `WAKATNET_BREVO_CLE`, `WAKATNET_COURRIEL_DE=ne-pas-repondre@notif.DOMAINE` ; si Brevo le permet, clé limitée aux IP de A et B ; **suivi des ouvertures et des clics désactivé** | ADR 0019 |
 

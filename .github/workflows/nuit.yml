@@ -20,9 +20,14 @@ defaults:
 
 jobs:
   ansible:
-    name: ansible
+    # ubuntu2404 : paquets de la distribution ; debian13 : la cible de production, dépôt PGDG et seuils réels.
+    name: ansible (${{ matrix.os }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu2404, debian13]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,7 +39,23 @@ jobs:
           "$RUNNER_TEMP/ansible/bin/pip" install -q "ansible==14.0.0"
           echo "WAKATNET_ANSIBLE_BIN=$RUNNER_TEMP/ansible/bin" >> "$GITHUB_ENV"
       - name: Essai réel des rôles sur deux nœuds jetables
+        env:
+          WAKATNET_ESSAI_OS: ${{ matrix.os }}
         run: infra/ansible/essais/essai.sh
+
+  unite-api:
+    name: unite-api
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.23.4"
+      - name: Unité systemd de l'API sous Debian 13 (filtre d'appels système, sonde)
+        run: infra/systemd/essais/unite-api.sh
 
   sauvegarde:
     name: sauvegarde

@@ -45,8 +45,12 @@ Dans le dépôt de contrôle, non versionnés : `inventaire.yml` (copie de `inve
 
 ```bash
 WAKATNET_ANSIBLE_BIN=/chemin/du/venv/bin infra/ansible/essais/essai.sh
+WAKATNET_ANSIBLE_BIN=/chemin/du/venv/bin WAKATNET_ESSAI_OS=debian13 infra/ansible/essais/essai.sh
 ```
 
-Le banc lance deux conteneurs Ubuntu 24.04 avec systemd, et rejoue les gardes, la réplication et l'idempotence.
-- **Non couvert par l'essai** : `wireguard` (module du noyau), `noeud_wakatnet` (téléchargement de Node) et le dépôt PGDG.
-- **Debian 13** reste à rejouer sur une VM avant G-PILOTE (ADR 0004 point 5).
+Le banc lance deux conteneurs avec systemd, et rejoue les gardes, la réplication et l'idempotence.
+- **`debian13`** : la cible de production. PostgreSQL 16 et pgBackRest viennent du dépôt PGDG déclaré par le rôle, avec les seuils de production. La clé PGDG est celle du paquet Debian `postgresql-common`, empreinte contrôlée : les clés de `cles/` restent hors du dépôt. Exige `deb.debian.org` et `apt.postgresql.org` à la construction de l'image.
+- **`ubuntu2404`** (défaut) : paquets de la distribution, seuil de pgBackRest abaissé au banc.
+- **Non couvert par l'essai** : `wireguard` (module du noyau), `noeud_wakatnet` (téléchargement de Node), FreeRADIUS de l'éditeur.
+- **VM Debian 13** : reste à jouer avant G-PILOTE pour ces trois rôles (ADR 0004 point 5).
+- L'unité systemd de l'API a son propre essai sous Debian 13 : `infra/systemd/essais/unite-api.sh`.

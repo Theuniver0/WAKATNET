@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+# WAKATNET — nœud d'ESSAI Debian 13 (la cible de production, ADR 0004) pour les rôles Ansible. TEST SEULEMENT.
+#   WAKATNET_ESSAI_OS=debian13 infra/ansible/essais/essai.sh
+# Mêmes sources que la production : Debian 13 et le dépôt PGDG (PostgreSQL 16, pgBackRest), déclaré exactement
+# comme le rôle postgresql le déclare (même chemin de clé, même fichier deb822) : le rôle trouve sa source en place.
+# Clé PGDG : les clés de cles/ ne sont pas versionnées (infra/ansible/README.md). Le banc prend celle que Debian
+# livre dans postgresql-common (paquet signé par l'archive Debian) et en contrôle l'empreinte ; essai.sh la
+# ressort de l'image pour la passer au rôle (postgresql_pgdg_cle_locale).
+# Les conteneurs n'ont pas Internet : tout est installé ici, à la construction (réseau de l'hôte).
+FROM debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+ARG PGDG_EMPREINTE=B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+# HTTPS seulement derrière le proxy du poste de développement (certificat monté) ; sans proxy (CI), apt reste en
+# http pour Debian, dont les index sont signés (GPG). PGDG est toujours en https, comme dans le rôle.
+RUN --mount=type=secret,id=ca,target=/ca.crt,required=false \
+    if [ -s /ca.crt ]; then install -m 0644 /ca.crt /tmp/ca.crt \
+      && sed -i 's#http://#https://#g' /etc/apt/sources.list.d/debian.sources \
+      && echo 'Acquire::https::CAInfo "/tmp/ca.crt";' > /etc/apt/apt.conf.d/99ca; fi \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates postgresql-common gpg \
+ && install -m 0644 /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc /usr/share/keyrings/pgdg.asc \
+ && gpg --show-keys --with-colons /usr/share/keyrings/pgdg.asc | awk -F: '$1=="fpr"{print $10; exit}' \
+      | grep -qx "$PGDG_EMPREINTE" \
+ && printf '%s\n' 'Types: deb' 'URIs: https://apt.postgresql.org/pub/repos/apt' 'Suites: trixie-pgdg' \
+      'Components: main' 'Signed-By: /usr/share/keyrings/pgdg.asc' > /etc/apt/sources.list.d/pgdg.sources \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends systemd systemd-sysv sudo python3 \
+      postgresql-16 postgresql-client-16 freeradius freeradius-postgresql pgbackrest nftables wireguard-tools \
+      unattended-upgrades logrotate curl xz-utils nginx openssl \
+ && rm -f /etc/apt/apt.conf.d/99ca /tmp/ca.crt
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

@@ -109,7 +109,8 @@ Certbot réel et DNS restent à jouer sur les nœuds.
 - **DHCP** : seules les réponses d'un serveur (`udp sport 67 dport 68`, IPv4) sont admises, et non plus tout paquet vers le port 68.
 - **Unité de l'API** : `SystemCallFilter=@system-service`, avec `SystemCallErrorNumber=EPERM`, ainsi que `ProtectProc=invisible`, `ProcSubset=pid`, `ProtectClock`, `ProtectHostname` et `UMask=0077`. L'exposition passe de 3,1 à 1,5 (`systemd-analyze security --offline=true`). Les appels de Node 22 relevés par strace sont tous dans `@system-service`.
   - Un appel hors liste rend EPERM au lieu de tuer le processus. Node retombe alors sans erreur hors de io_uring et des clés de protection mémoire (essai avec EPERM injecté).
-  - Non prouvé : sur un processeur doté de PKU, sous le systemd de Debian 13.
+  - **Prouvé sous le systemd de Debian 13** (257, le 13/11/2026) : `infra/systemd/essais/unite-api.sh` lance le vrai fichier d'unité, avec une sonde à la place de l'API. HTTP, fetch, scrypt, fs, DNS, worker, zlib et WebAssembly passent ; seccomp est actif (`Seccomp: 2`) ; exposition 1,5. Contrôle négatif : avec `~@process` en plus, la sonde ne démarre pas et l'essai échoue. Banc de nuit `unite-api`.
+  - Non prouvé : sur un processeur doté de PKU (le poste de développement n'en a pas ; l'essai affiche ce qu'a le runner).
 - **Rôle `noeud_wakatnet`** :
   - Node est réinstallé quand `node --version` diffère de `node_version` (le marqueur ne dépendait pas de la version) ;
   - le code arrive par deux archives des fichiers connus de Git : aucun fichier ignoré (`*.key`, `*.pem`, `clients.local.conf`, `node_modules`) n'est copié ;
