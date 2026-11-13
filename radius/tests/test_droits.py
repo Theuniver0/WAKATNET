@@ -70,6 +70,14 @@ ATTENDU = {
     "app.paiements_expirer()": {"wk_api"},
     "app.frais_papier_prelever(p_limite integer)": {"wk_api"},
     "app.numeros_purger()": {"wk_api"},
+    # Migration 0041 (SPEC §8.2) : alerte « crédits bas » remontée au propriétaire (bandeau, e-mail).
+    "app.credits_alerte()": {"wk_api"},
+    "app.alertes_credits_a_notifier(p_lot integer)": {"wk_api"},
+    "app.alerte_credits_notifiee(p_audit bigint)": {"wk_api"},
+    # Migration 0042 (ADR 0023) : étape 3 « entretien » de l'enrôlement.
+    "app.entretien_jeton_poser(p_router bigint, p_empreinte bytea)": {"wk_api"},
+    "app.entretien_lire(p_empreinte bytea)": {"wk_api"},
+    "app.entretien_jeton_renouveler(p_router bigint, p_empreinte bytea)": {"wk_api"},
     "app.site_hotes_depuis_inventaire(p_router bigint)": {"wk_api"},
     # Phase 4 (ADR 0014) : comptes et sessions par fonctions ; super_admin_creer réservé à la main.
     "app.connexion_lire(p_email text)": {"wk_api"},
@@ -158,9 +166,9 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
                       ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_acces"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
-                      ("wk_api", "app.admin_regler"), ("wk_api", "app.avis_compte_existant"), ("wk_api", "app.compte_marchand_avant_verification"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
-                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"), ("wk_api", "app.courriel_reserver"),
-                      ("wk_api", "app.enrolement_autorise"), ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.frais_papier_prelever"),
+                      ("wk_api", "app.admin_regler"), ("wk_api", "app.alerte_credits_notifiee"), ("wk_api", "app.alertes_credits_a_notifier"), ("wk_api", "app.avis_compte_existant"), ("wk_api", "app.compte_marchand_avant_verification"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
+                      ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"), ("wk_api", "app.courriel_reserver"), ("wk_api", "app.credits_alerte"),
+                      ("wk_api", "app.enrolement_autorise"), ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.entretien_jeton_poser"), ("wk_api", "app.entretien_jeton_renouveler"), ("wk_api", "app.entretien_lire"), ("wk_api", "app.frais_papier_prelever"),
                       ("wk_api", "app.inscription_demander"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"), ("wk_api", "app.paiement_etat"),

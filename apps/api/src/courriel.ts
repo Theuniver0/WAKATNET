@@ -73,6 +73,22 @@ export function messageAttente(a: string, urlTableau: string): Courriel {
   };
 }
 
+/** Alerte « crédits bas » (SPEC §8.2, migration 0041) : solde sous 20 % du dernier rechargement. Aucune donnée de
+ *  client : le solde seul. */
+export function messageCreditsBas(a: string, soldeXof: number, urlTableau: string): Courriel {
+  return {
+    a,
+    sujet: "WAKATNET : vos crédits sont bas",
+    texte: [
+      "Bonjour,",
+      "",
+      `Le solde de vos crédits WAKATNET est de ${soldeXof.toLocaleString("fr-FR")} F, sous 20 % de votre dernier rechargement.`,
+      "Les commissions des ventes en ligne et les frais des tickets papier y sont prélevés. Au-delà du découvert autorisé, la vente en ligne est suspendue.",
+      `Rechargez auprès de Telecom Universel, et suivez votre solde ici : ${urlTableau}#/argent`,
+    ].join("\n"),
+  };
+}
+
 /** Message de vérification de l'adresse d'un propriétaire. */
 export function messageVerification(a: string, lien: string): Courriel {
   return {

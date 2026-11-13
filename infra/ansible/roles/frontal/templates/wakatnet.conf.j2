@@ -35,6 +35,7 @@ map $request_uri $wk_chemin_brut {
 }
 map $uri $wk_chemin_journal {
     "~^/enroll/"                         "/enroll/<jeton>";
+    "~^/entretien/"                      "/entretien/<jeton>";
     "~^(?<wk_webhook>/webhooks/[^/]+)/"  "$wk_webhook/<secret>";
     default                              $wk_chemin_brut;
 }

@@ -3,9 +3,10 @@
 // Ticket : .scratch/phase-2-multi-proprietaires/issues/04-scripts-routeros.md
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chaine, commande, desinstallation, etape1, etape2, ValeurInterdite, type Inventaire } from "../src/routeros.ts";
+import { chaine, commande, desinstallation, entretien, etape1, etape2, ValeurInterdite, type Inventaire } from "../src/routeros.ts";
 import { NOEUDS } from "./aide-sans-base.ts";
 
+const PORTAIL = { hote: "portail.wakatnet.invalid", ips: ["203.0.113.10", "198.51.100.20"] };
 const PIEGE = 'p"] ; /system reset-configuration ; :put [ "$x?\\';
 
 function inventaire(profil = "hsprof1"): Inventaire {
@@ -18,7 +19,7 @@ function inventaire(profil = "hsprof1"): Inventaire {
   };
 }
 
-const E2 = () => etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire() });
+const E2 = () => etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL });
 
 /**
  * Découpe les chaînes "…" d'une ligne RouterOS ; échoue si un guillemet reste ouvert.
@@ -55,7 +56,7 @@ test("chaine : échappe \\ \" $ ? et refuse les caractères de contrôle", () =>
 
 test("un nom de profil piégé reste une seule chaîne, dans chaque script", () => {
   const inv = inventaire(PIEGE);
-  for (const s of [etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inv }), desinstallation(inv)]) {
+  for (const s of [etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inv, portail: PORTAIL }), desinstallation(inv)]) {
     const avec = lignesUtiles(s).filter((l) => l.includes("reset-configuration"));
     assert.ok(avec.length > 0);
     for (const l of avec) assert.ok(chaines(l).includes(PIEGE), l);
@@ -152,9 +153,68 @@ test("commande à coller : deux lignes, URL échappée, vérification du certifi
 });
 
 test("valeurs serveur invalides : refus de générer", () => {
-  const base = { overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire() };
+  const base = { overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL };
   assert.throws(() => etape2({ ...base, overlayIp: "10.213.1.7; /x" }), ValeurInterdite);
   assert.throws(() => etape2({ ...base, secret: 'a"b'.padEnd(32, "x") }), ValeurInterdite);
   assert.throws(() => etape2({ ...base, noeuds: [] }), ValeurInterdite);
   assert.throws(() => etape2({ ...base, inventaire: { ...inventaire(), coa_port: 0 } }), ValeurInterdite);
+  assert.throws(() => etape2({ ...base, portail: { ...PORTAIL, ips: ["203.0.113.10; /x"] } }), ValeurInterdite);
+  assert.throws(() => etape2({ ...base, portail: { ...PORTAIL, hote: "*.portail.invalid" } }), ValeurInterdite);
+  assert.throws(() => etape2({ ...base, portail: { ...PORTAIL, hote: 'p"] ; /system reset-configuration' } }), ValeurInterdite);
+});
+
+test("walled garden (SPEC §6.2 étape 2, §7.1) : portail joignable avant connexion, HTTPS par IP dédiée, idempotent, posé AVANT l'activation, retiré à la désinstallation", () => {
+  const l = lignesUtiles(E2());
+  const http = l.filter((x) => x.includes("/ip hotspot walled-garden add"));
+  assert.equal(http.length, 1);
+  assert.match(http[0], /find where comment="wakatnet portail http"\]\] = 0\) do=\{ \/ip hotspot walled-garden add dst-host="portail\.wakatnet\.invalid" action=allow/);
+  const https = l.filter((x) => x.includes("/ip hotspot walled-garden ip add"));
+  assert.deepEqual(https.map((x) => /dst-address=([0-9.]+) protocol=tcp dst-port=443/.exec(x)?.[1]), ["203.0.113.10", "198.51.100.20"]);
+  for (const x of https) assert.match(x, /^:if \(\[:len \[\/ip hotspot walled-garden ip find where comment="wakatnet portail [0-9.]+"\]\] = 0\)/, "idempotent");
+  const premiereActivation = l.findIndex((x) => x.includes("use-radius=yes"));
+  assert.ok(l.findIndex((x) => x.includes("walled-garden")) < premiereActivation, "walled garden posé avant use-radius (R5)");
+  const d = lignesUtiles(desinstallation(inventaire()));
+  assert.ok(d.includes('/ip hotspot walled-garden remove [find where comment~"^wakatnet"]'));
+  assert.ok(d.includes('/ip hotspot walled-garden ip remove [find where comment~"^wakatnet"]'));
+  // Sans IP dédiée : l'entrée HTTP seule (le HTTPS dépendrait de LABO-14) ; la production l'interdit (config.ts).
+  const sansIp = lignesUtiles(etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: { ...PORTAIL, ips: [] } }));
+  assert.equal(sansIp.filter((x) => x.includes("walled-garden ip add")).length, 0);
+});
+
+test("étape 3, entretien (ADR 0023) : pair d'un nœud déplacé mis à jour, nœud ajouté, règles remises à jour ; planificateur désactivable, retiré à la désinstallation", () => {
+  const url = `https://api.wakatnet.invalid/entretien/${"A".repeat(43)}`;
+  const avec = lignesUtiles(etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL, urlEntretien: url }));
+  const planif = avec.filter((x) => x.includes("/system scheduler"));
+  assert.equal(planif.length, 1);
+  const [evenement] = chaines(planif[0]).filter((c) => c.includes("/tool fetch"));
+  assert.ok(evenement, "on-event : une seule chaîne, bien échappée");
+  assert.match(evenement, /\/tool fetch url="https:\/\/api\.wakatnet\.invalid\/entretien\/A{43}" check-certificate=yes /,
+               "relecture n° 1 : certificat vérifié avant d'importer");
+  assert.match(planif[0], /policy=read,write,test,sensitive /, "relecture n° 1 : sans le droit « policy »");
+  assert.match(planif[0], /else=\{ \/system scheduler set \[find where name="wakatnet-entretien"\] interval=6h on-event=/);
+  assert.ok(!/set [^}]*disabled=no/.test(planif[0]), "un planificateur désactivé par le propriétaire le reste");
+  assert.ok(avec.findIndex((x) => x.includes("/system scheduler")) < avec.findIndex((x) => x.includes("use-radius=yes")));
+  assert.equal(lignesUtiles(E2()).filter((x) => x.includes("/system scheduler")).length, 0, "sans URL : pas de planificateur");
+  assert.throws(() => etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL,
+                               urlEntretien: 'https://x.invalid/entretien/a"; /system reset-configuration' }), ValeurInterdite);
+  const nouveau = { ...NOEUDS[0], nom: "C", cle: "C".repeat(42) + "A=", endpoint: "192.0.2.30", overlay: "10.213.0.3" };
+  const deplace = [...NOEUDS.map((n, i) => (i === 1 ? { ...n, endpoint: "198.51.100.77" } : n)), nouveau];
+  const s = entretien({ overlayIp: "10.213.1.7", noeuds: deplace, portail: PORTAIL, coaPort: 3799, listenPort: 13231 });
+  const l = lignesUtiles(s);
+  for (const x of l) chaines(x);
+  assert.ok(l.some((x) => /peers set \[find where interface="wg-wakatnet" public-key="[^"]+"\] endpoint-address=198\.51\.100\.77/.test(x)), "IP du nœud déplacé");
+  assert.ok(l.some((x) => /filter set \[find where comment="wakatnet WireGuard noeud [^"]+"\] chain=input src-address=198\.51\.100\.77/.test(x)), "règle WireGuard remise à jour");
+  assert.ok(l.some((x) => x.includes(`public-key="${nouveau.cle}"`) && x.includes("peers add") && x.includes("endpoint-address=192.0.2.30")), "nœud ajouté : pair");
+  assert.ok(l.some((x) => /\/radius add service=hotspot address=10\.213\.0\.3 src-address=10\.213\.1\.7 secret=\$wkSecret /.test(x)), "nœud ajouté : RADIUS, secret relu sur le routeur");
+  assert.ok(!s.includes("S".repeat(32)) && !/secret="/.test(s), "relecture n° 7 : aucun secret dans l'entretien");
+  assert.ok(!s.includes("use-radius") && !s.includes("/system scheduler") && !s.includes("remove [find where comment") && !s.includes("/radius incoming"),
+            "jamais l'activation, le planificateur, un retrait par commentaire, ni le CoA (relecture n° 5)");
+  // Relecture n° 5 : une ancienne IP du portail est retirée ; seules les entrées « wakatnet portail <ip> » sont visées.
+  const retrait = l.find((x) => x.startsWith(":foreach i in=[/ip hotspot walled-garden ip find where comment~\"^wakatnet portail \"]"))!;
+  assert.ok(retrait.includes('$c != "wakatnet portail 203.0.113.10" && $c != "wakatnet portail 198.51.100.20"'), retrait);
+  assert.ok(!lignesUtiles(entretien({ overlayIp: "10.213.1.7", noeuds: NOEUDS, portail: { ...PORTAIL, ips: [] }, coaPort: 3799, listenPort: 13231 }))
+    .some((x) => x.includes("walled-garden ip remove")), "liste vide : rien n'est retiré");
+  assert.match(l.at(-3)!, /\/file remove \[find where name="wakatnet-entretien\.rsc"\]/);
+  assert.ok(l.findIndex((x) => x.includes(":set wkSecret")) < l.findIndex((x) => x.includes("/radius add")), "secret relu avant usage");
+  assert.ok(lignesUtiles(desinstallation(inventaire())).includes('/system scheduler remove [find where comment~"^wakatnet"]'));
 });

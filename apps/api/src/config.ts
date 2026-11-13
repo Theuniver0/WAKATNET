@@ -21,6 +21,10 @@ export type Config = {
   urlPublique: string;
   /** Origine publique du portail (IP dédiée, ADR 0013 §10). */
   urlPortail: string;
+  /** IPv4 publiques dédiées du portail (WAKATNET_PORTAIL_IPS, séparées par des virgules) : walled garden HTTPS de
+   *  chaque routeur (SPEC §6.2, §7.1). Exigées en production : sans elles, un client non connecté n'atteint pas le
+   *  portail et ne peut rien acheter. */
+  portailIps?: string[];
   /** Nœuds de la plateforme (WAKATNET_NOEUDS, JSON) ; vide : l'enrôlement répond 503. */
   noeuds: Noeud[];
   /** Clés de chiffrement des comptes marchands et du HMAC des numéros (ADR 0013 §8, §9) ;
@@ -65,12 +69,27 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPortail)) {
     throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");
   }
+  // Même règle que le walled garden des routeurs (routeros.ts, hoteDns) : vérifiée au démarrage, sinon l'étape 2 échouerait
+  // APRÈS la consommation du jeton d'enrôlement (relecture de sécurité n° 2).
+  const hotePortail = new URL(urlPortail).hostname;
+  if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(hotePortail) || hotePortail.length > 253) {
+    throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : nom d'hôte DNS complet attendu (portail.domaine)");
+  }
+  const portailIps = (env.WAKATNET_PORTAIL_IPS ?? "").split(",").map((x) => x.trim()).filter((x) => x !== "");
+  for (const a of portailIps) {
+    if (!/^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/.test(a)) {
+      throw new ConfigInvalide("WAKATNET_PORTAIL_IPS : adresses IPv4 séparées par des virgules");
+    }
+  }
   const dossierTableau = env.WAKATNET_TABLEAU_DIR || undefined;
   const trustProxy = env.WAKATNET_TRUST_PROXY || undefined;
   if (trustProxy !== undefined && !/^[0-9a-f.:/,]+$/i.test(trustProxy)) throw new ConfigInvalide("WAKATNET_TRUST_PROXY : adresses IP séparées par des virgules");
   // Sans lui, derrière nginx, toutes les requêtes viennent de 127.0.0.1 : les limites par source (M2, M7)
   // retomberaient en silence sur une seule source. Refusé en production (relecture de la migration 0031).
   if (trustProxy === undefined && env.NODE_ENV === "production") throw new ConfigInvalide("WAKATNET_TRUST_PROXY requis en production (ADR 0016 §2)");
+  if (portailIps.length === 0 && env.NODE_ENV === "production") {
+    throw new ConfigInvalide("WAKATNET_PORTAIL_IPS exigée en production : IP dédiée du portail, ouverte dans le walled garden des routeurs");
+  }
   // ADR 0019 : WAKATNET_COURRIEL=brevo exige la clé (EnvironmentFile, jamais en argument) et l'expéditeur.
   let courriel: Config["courriel"];
   if (env.WAKATNET_COURRIEL) {
@@ -81,7 +100,7 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
     courriel = { fournisseur: "brevo", cle, de, nom: env.WAKATNET_COURRIEL_NOM || "WAKATNET" };
   }
   const etatsNoeuds = (env.WAKATNET_ETATS_NOEUDS ?? "/var/lib/wakatnet/sante/etat.json").split(",").filter(Boolean);
-  return { urlBase, urlPublique, urlPortail, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(courriel ? { courriel } : {}), ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
+  return { urlBase, urlPublique, urlPortail, portailIps, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(courriel ? { courriel } : {}), ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

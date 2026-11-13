@@ -66,6 +66,7 @@ model router {
   enrole_le            DateTime?          @db.Timestamptz(6)
   ip_publique          String?            @db.Inet
   ip_vue_le            DateTime?          @db.Timestamptz(6)
+  entretien_empreinte  Bytes?             @unique
   enrollment_token     enrollment_token[]
   site                 site               @relation(fields: [tenant_id, site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 

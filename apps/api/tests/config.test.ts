@@ -18,6 +18,7 @@ test("URL de base absente, URL publique invalide : refus de démarrer", () => {
 test("le jeton d'enrôlement est masqué dans le chemin journalisé", () => {
   assert.equal(cheminMasque("/enroll/abcDEF123-_"), "/enroll/***");
   assert.equal(cheminMasque("/enroll/abc?x=1"), "/enroll/***");
+  assert.equal(cheminMasque("/entretien/abcDEF123-_"), "/entretien/***", "jeton d'entretien (ADR 0023) jamais journalisé");
   // Revue de sécurité M5 : aucune chaîne de requête dans le journal (page demandée par le client du hotspot).
   assert.equal(cheminMasque("/p/ABCDEFGHIJKLMNOP?l=http%3A%2F%2F10.5.50.1%2Flogin&o=http%3A%2F%2Fexemple.bf%2F"), "/p/ABCDEFGHIJKLMNOP");
   assert.equal(cheminMasque("/v1/sites"), "/v1/sites");
@@ -44,7 +45,7 @@ test("WAKATNET_TRUST_PROXY (ADR 0016 §2) : adresses seulement ; absent, aucune 
   assert.throws(() => lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "true" }), ConfigInvalide);
   // En production, son absence ramènerait toutes les requêtes à une seule source (M2, M7) : refusé.
   assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", ...CLES }), /WAKATNET_TRUST_PROXY requis en production/);
-  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", ...CLES }).trustProxy, "127.0.0.1");
+  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES }).trustProxy, "127.0.0.1");
 });
 
 test("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources resteraient en clair (T10, ADR 0016 §2)", () => {
@@ -55,5 +56,21 @@ test("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources rester
   assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_HMAC: "" }), /WAKATNET_CLE_HMAC requise en production/);
   assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_MARCHANDS: CLES.WAKATNET_CLE_MARCHANDS }),
                 /WAKATNET_CLE_HMAC/);
-  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", ...CLES }).cles?.hmac.length === 32);
+  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES }).cles?.hmac.length === 32);
+});
+
+test("WAKATNET_PORTAIL_IPS (walled garden, SPEC §7.1) : IPv4 séparées par des virgules ; exigée en production", () => {
+  assert.deepEqual(lireConfig({ ...URL, WAKATNET_PORTAIL_IPS: " 203.0.113.10, 198.51.100.20 " }).portailIps, ["203.0.113.10", "198.51.100.20"]);
+  assert.deepEqual(lireConfig(URL).portailIps, []);
+  for (const mauvais of ["203.0.113.256", "portail.x", "203.0.113.10/24", "2001:db8::1"]) {
+    assert.throws(() => lireConfig({ ...URL, WAKATNET_PORTAIL_IPS: mauvais }), ConfigInvalide, mauvais);
+  }
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", ...CLES }), /WAKATNET_PORTAIL_IPS exigée en production/);
+});
+
+test("relecture n° 2 : nom d'hôte du portail vérifié au démarrage (règle du walled garden)", () => {
+  for (const mauvais of ["https://portail", "https://-x.bf", "https://portail.:8443", "https://a..b"]) {
+    assert.throws(() => lireConfig({ ...URL, WAKATNET_PORTAIL_URL_PUBLIQUE: mauvais }), ConfigInvalide, mauvais);
+  }
+  assert.equal(lireConfig({ ...URL, WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.wakatnet.bf:8443" }).urlPortail, "https://portail.wakatnet.bf:8443");
 });

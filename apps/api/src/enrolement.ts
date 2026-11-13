@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import type { Base } from "./base.ts";
 import { enTantQue } from "./base.ts";
 import type { Config } from "./config.ts";
-import { commande, desinstallation, etape1, etape2, type Hotspot, type Inventaire } from "./routeros.ts";
+import { commande, desinstallation, entretien, etape1, etape2, planificateur, type Hotspot, type Inventaire } from "./routeros.ts";
 import { estIdentifiant } from "./identifiant.ts";
 
 export const DUREE_JETON_MIN = 30;
@@ -162,6 +162,24 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
     return { id: fait.id.toString(), actif: false };
   });
 
+  // Propriétaire : nouveau jeton d'entretien pour SON routeur (ADR 0023, relecture de sécurité n° 3) : rotation après une
+  // fuite, ou routeur enrôlé avant l'étape 3. Rend la ligne à coller dans le terminal du routeur ; l'ancien jeton cesse
+  // aussitôt de valoir.
+  app.post<{ Params: { id: string } }>("/v1/routers/:id/entretien", async (req, rep) => {
+    if (!estIdentifiant(req.params.id)) return rep.code(404).send({ erreur: "routeur inconnu" });
+    const j = randomBytes(32).toString("base64url");
+    const ok = await enTantQue(base, req.tenantId, async (tx) => {
+      const [{ ok }] = await tx.$queryRaw<{ ok: boolean }[]>`SELECT app.entretien_jeton_renouveler(${BigInt(req.params.id)}, ${empreinte(j)}) AS ok`;
+      if (ok) {
+        await tx.audit_log.create({ data: { tenant_id: req.tenantId, acteur: `utilisateur:${req.utilisateur?.id ?? "?"}`,
+                                            action: "entretien_jeton_renouvele", objet: `router:${req.params.id}`, details: {} } });
+      }
+      return ok;
+    });
+    if (!ok) return rep.code(404).send({ erreur: "routeur inconnu, révoqué ou déclaré à la main" });
+    return { commande: planificateur(`${config.urlPublique}/entretien/${j}`).join("\n") };
+  });
+
   // Propriétaire : script de désinstallation propre à SON routeur, valeurs d'origine relevées à
   // l'enrôlement (R6, ADR 0012 §4). Ticket 04.
   app.get<{ Params: { id: string } }>("/v1/routers/:id/uninstall.rsc", async (req, rep) => {
@@ -224,8 +242,33 @@ export function routesRouteur(app: FastifyInstance, config: Config, base: Base):
     } catch (e) {
       req.log.warn({ err: e, routeur: ligne.router_id!.toString() }, "hôtes du hotspot non relevés");
     }
+    // Étape 3 (ADR 0023) : jeton d'entretien propre au routeur, posé une fois ; son empreinte seule est gardée. Jamais
+    // bloquant : sans lui, le routeur est enrôlé sans script planifié (réenrôlement pour l'obtenir).
+    let urlEntretien: string | undefined;
+    try {
+      const j = randomBytes(32).toString("base64url");
+      const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.entretien_jeton_poser(${ligne.router_id!}, ${empreinte(j)}) AS ok`;
+      if (ok) urlEntretien = `${config.urlPublique}/entretien/${j}`;
+    } catch (e) {
+      req.log.warn({ err: e, routeur: ligne.router_id!.toString() }, "jeton d'entretien non posé");
+    }
     return rep.type("text/plain; charset=utf-8").send(etape2({
       overlayIp: ligne.overlay_ip!, secret: ligne.secret!, noeuds: config.noeuds, inventaire: inscription.inventaire,
+      portail: { hote: new URL(config.urlPortail).hostname, ips: config.portailIps ?? [] },
+      ...(urlEntretien ? { urlEntretien } : {}),
+    }));
+  });
+
+  // Étape 3, entretien (SPEC §6.2, ADR 0023) : tiré par le script planifié du routeur. Routeur actif seulement ; un jeton
+  // inconnu ou un routeur révoqué reçoivent 404, et le routeur garde sa configuration.
+  app.get<{ Params: { jeton: string } }>("/entretien/:jeton", async (req, rep) => {
+    if (!JETON.test(req.params.jeton) || config.noeuds.length === 0) return rep.code(404).send({ erreur: "inconnu" });
+    const [r] = await base.$queryRaw<{ router_id: bigint; overlay_ip: string; coa_port: number; listen_port: number | null }[]>`
+      SELECT router_id, overlay_ip, coa_port, listen_port FROM app.entretien_lire(${empreinte(req.params.jeton)})`;
+    if (!r || r.listen_port === null) return rep.code(404).send({ erreur: "inconnu" });
+    return rep.type("text/plain; charset=utf-8").header("cache-control", "no-store").send(entretien({
+      overlayIp: r.overlay_ip, noeuds: config.noeuds, coaPort: r.coa_port, listenPort: r.listen_port,
+      portail: { hote: new URL(config.urlPortail).hostname, ips: config.portailIps ?? [] },
     }));
   });
 }

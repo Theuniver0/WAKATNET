@@ -28,7 +28,9 @@
 3. Le routeur :
    - télécharge son script de raccordement (certificat vérifié) ;
    - crée son tunnel WireGuard vers les deux nœuds de WAKATNET ;
-   - déclare les deux serveurs d'authentification.
+   - déclare les deux serveurs d'authentification ;
+   - ouvre le portail de paiement aux clients **pas encore connectés** (walled garden : deux entrées « wakatnet portail »), sans quoi personne ne pourrait acheter de ticket.
+   - pose un script planifié **`wakatnet-entretien`**, qui récupère toutes les 6 h la configuration WAKATNET à jour (nouveau serveur, nouvelle adresse du portail). Il ne touche qu'aux objets marqués « wakatnet ». Pour l'arrêter : `/system scheduler disable wakatnet-entretien` ; il le restera. Si sa ligne a été montrée à un tiers (export de configuration collé sur un forum), demandez un nouveau jeton depuis la ligne du routeur : l'ancien cesse aussitôt de valoir.
    
    Vos utilisateurs locaux et votre configuration de hotspot existants ne sont pas effacés.
 4. Revenir au tableau de bord : le routeur apparaît dans la liste, avec la date d'enrôlement.

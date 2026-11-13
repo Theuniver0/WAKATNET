@@ -250,3 +250,43 @@ test("désinstallation : propre au routeur, valeurs d'origine ; 404 chez un autr
     assert.equal((await app.inject({ url: `/v1/routers/${manuel}/uninstall.rsc`, headers: entetes(B.tenant) })).statusCode, 409);
   });
 });
+
+test("étape 3, entretien (SPEC §6.2, ADR 0023) : planificateur posé à l'étape 2 ; jeton par routeur (empreinte seule) ; script des objets wakatnet ; révoqué ou inconnu → 404", async () => {
+  await avecApp(async (app) => {
+    const corps = inscription();
+    const r = await poster(app, await nouveauJeton(app), corps);
+    assert.equal(r.statusCode, 200, r.body);
+    const m = /\/entretien\/([A-Za-z0-9_-]{43})/.exec(r.body);
+    assert.ok(m, "URL d'entretien dans le planificateur de l'étape 2");
+    assert.match(r.body, /\/system scheduler add name="wakatnet-entretien" interval=6h/);
+    const [rt] = await sql<{ id: string; e: Buffer }>(URL_ADMIN, "SELECT id::text, entretien_empreinte AS e FROM app.router WHERE wg_public_key = $1", [corps.cle]);
+    assert.deepEqual(rt.e, createHash("sha256").update(m[1]).digest(), "seule l'empreinte du jeton est gardée");
+    // Jeton posé une fois : jamais remplacé.
+    const [{ ok }] = await sql<{ ok: boolean }>(URL_ADMIN, "SELECT app.entretien_jeton_poser($1, $2) AS ok", [rt.id, Buffer.alloc(32, 7)]);
+    assert.equal(ok, false);
+    const e = await app.inject({ url: `/entretien/${m[1]}` });
+    assert.equal(e.statusCode, 200, e.body);
+    assert.match(e.body, /^# WAKATNET - entretien/);
+    assert.match(e.body, /wakatnet portail http/);
+    assert.ok(!e.body.includes("use-radius"), "l'entretien ne touche jamais à l'activation du hotspot");
+    assert.ok(!e.body.includes("/system scheduler"), "l'entretien ne réactive pas un planificateur désactivé");
+    const secret = /secret="([A-Za-z0-9]{32})"/.exec(r.body)![1];
+    assert.ok(!e.body.includes(secret), "relecture n° 7 : le secret RADIUS ne voyage jamais par l'entretien");
+    // Relecture n° 3 : rotation par le propriétaire ; l'ancien jeton cesse aussitôt de valoir ; pas chez un autre.
+    assert.equal((await app.inject({ method: "POST", url: `/v1/routers/${rt.id}/entretien`, headers: entetes(B.tenant) })).statusCode, 404);
+    const rot = await app.inject({ method: "POST", url: `/v1/routers/${rt.id}/entretien`, headers: entetes(A.tenant) });
+    assert.equal(rot.statusCode, 200, rot.body);
+    const m2 = /\/entretien\/([A-Za-z0-9_-]{43})/.exec(rot.json().commande)!;
+    assert.notEqual(m2[1], m[1]);
+    assert.match(rot.json().commande, /check-certificate=yes/);
+    assert.equal((await app.inject({ url: `/entretien/${m[1]}` })).statusCode, 404, "ancien jeton révoqué");
+    assert.equal((await app.inject({ url: `/entretien/${m2[1]}` })).statusCode, 200);
+    const [au] = await sql<{ n: string }>(URL_ADMIN, "SELECT count(*)::text AS n FROM app.audit_log WHERE action = 'entretien_jeton_renouvele' AND objet = $1", [`router:${rt.id}`]);
+    assert.equal(au.n, "1");
+    assert.equal((await app.inject({ url: `/entretien/${"x".repeat(43)}` })).statusCode, 404);
+    assert.equal((await app.inject({ url: "/entretien/court" })).statusCode, 404);
+    await sql(URL_ADMIN, "UPDATE app.router SET actif = false WHERE id = $1", [rt.id]);
+    assert.equal((await app.inject({ url: `/entretien/${m2[1]}` })).statusCode, 404, "routeur révoqué : plus rien");
+    assert.equal((await app.inject({ method: "POST", url: `/v1/routers/${rt.id}/entretien`, headers: entetes(A.tenant) })).statusCode, 404, "révoqué : pas de rotation");
+  });
+});
