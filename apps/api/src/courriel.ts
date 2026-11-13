@@ -55,8 +55,8 @@ export function messageAvis(a: string, urlTableau: string): Courriel {
   };
 }
 
-/** Avis à une adresse inscrite mais pas encore confirmée (audit du 13/11/2026) : une nouvelle demande d'inscription vient
- *  de fixer le mot de passe du compte, et les liens envoyés avant ne valent plus. Aucun lien ici : la titulaire en
+/** Avis à une adresse inscrite mais pas encore confirmée. Depuis le scan de sécurité du 13/11/2026 (F2), une nouvelle
+ *  demande ne change RIEN au compte : le mot de passe se choisit en confirmant. Aucun lien ici : la titulaire en
  *  demande un depuis l'écran de connexion. Un tiers qui provoque cet avis n'épuise pas les liens du compte. */
 export function messageAttente(a: string, urlTableau: string): Courriel {
   return {
@@ -66,7 +66,7 @@ export function messageAttente(a: string, urlTableau: string): Courriel {
       "Bonjour,",
       "",
       "Une demande d'inscription à WAKATNET vient d'être faite avec votre adresse, dont le compte n'est pas encore confirmé.",
-      "Le mot de passe du compte est désormais celui de cette dernière demande, et les liens de confirmation envoyés avant ne valent plus.",
+      "Rien n'a été modifié : vous choisirez votre mot de passe au moment de confirmer votre adresse.",
       `Si c'est vous, demandez un nouveau lien depuis l'écran de connexion (« Je n'ai pas reçu le lien de confirmation ») : ${urlTableau}#/connexion`,
       "Sinon, ignorez ce message : sans confirmation, le compte est fermé au bout de 7 jours.",
     ].join("\n"),

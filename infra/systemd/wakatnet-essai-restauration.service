@@ -9,8 +9,11 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=postgres
-Group=postgres
+# En root, sans autres capacités que celles qu'il faut pour CONFIER chaque étape (scan de sécurité F4) : restauration
+# sous postgres, instance restaurée sous l'utilisateur dédié wakatnet-essai, qui n'a accès à rien.
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL
+StateDirectory=wakatnet-essai
+StateDirectoryMode=0711
 TimeoutStartSec=6h
 Nice=10
 IOSchedulingClass=idle
@@ -21,7 +24,6 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=yes
 PrivateDevices=yes
-CapabilityBoundingSet=
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes

@@ -257,8 +257,9 @@ const inscrireDepuis = (app: App, email: string, source: string, mot_de_passe = 
   app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: source, payload: { nom, email, mot_de_passe } });
 const renvoyer = (app: App, email: string, source = sourceAuHasard()) =>
   app.inject({ method: "POST", url: "/v1/verification/renvoyer", headers: CSRF, remoteAddress: source, payload: { email } });
-const confirmer = (app: App, jeton: string) =>
-  app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton } });
+/** `null` : requête SANS mot de passe (un `undefined` prendrait la valeur par défaut). */
+const confirmer = (app: App, jeton: string, mot_de_passe: string | null = "un-mot-de-passe-long") =>
+  app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton, ...(mot_de_passe === null ? {} : { mot_de_passe }) } });
 const jetonsPour = (exp: ExpediteurMemoire, email: string) =>
   exp.messages.filter((m) => m.a === email).map((m) => /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(m.texte)?.[1]).filter((j): j is string => !!j);
 /** Envois partis en arrière-plan (renvoi du lien) : terminés avant de regarder les messages. */
@@ -326,31 +327,39 @@ test("audit 13/11/2026 (2) : nom de 81 caractères refusé (422) ; une création
   });
 });
 
-test("audit 13/11/2026 (3) : pré-appropriation — l'inscription d'une adresse non confirmée remplace le mot de passe et invalide les liens ouverts", async () => {
+test("scan de sécurité F2 (migration 0043) : une inscription ne change jamais le mot de passe d'un compte en attente ; il se choisit à la confirmation, par le détenteur du lien", async () => {
   const exp = new ExpediteurMemoire();
   await avecApp(async (app) => {
+    // a) Écrasement APRÈS la victime : l'attaquant ne prend plus le compte.
     const victime = adresse();
+    assert.equal((await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-la-victime-1")).statusCode, 202);
+    const [lienVictime] = jetonsPour(exp, victime);
+    const empreinteMdp = async () => (await sql<{ m: string }>(URL_ADMIN, "SELECT mot_de_passe AS m FROM app.utilisateur WHERE email = $1", [victime]))[0].m;
+    const avant = await empreinteMdp();
     const att = await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-l-attaquant-42");
-    const [lienAttaquant] = jetonsPour(exp, victime);
-    assert.ok(lienAttaquant, "lien envoyé à la boîte de la victime");
-    const vic = await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-la-victime-1");
-    assert.deepEqual([att.statusCode, vic.statusCode], [202, 202]);
-    assert.equal(vic.body, att.body, "réponse identique (F9)");
+    assert.equal(att.statusCode, 202, "réponse identique (F9)");
+    assert.equal(await empreinteMdp(), avant, "la seconde inscription ne change pas le mot de passe enregistré");
     const avis = exp.messages.filter((m) => m.a === victime).at(-1)!;
     assert.doesNotMatch(avis.texte, /verifier\?j=/, "l'avis ne porte aucun lien");
-    assert.equal((await confirmer(app, lienAttaquant)).statusCode, 404, "le lien ouvert avant la nouvelle demande ne vaut plus");
+    assert.equal((await confirmer(app, lienVictime, null)).statusCode, 422, "pas de confirmation sans mot de passe");
+    assert.equal((await confirmer(app, lienVictime, "court")).statusCode, 422);
     assert.equal(await verifie(victime), false);
-    await renvoyer(app, victime);
-    await envoisTermines();
-    const lienVictime = jetonsPour(exp, victime).at(-1)!;
-    assert.notEqual(lienVictime, lienAttaquant);
-    assert.equal((await confirmer(app, lienVictime)).statusCode, 200);
+    assert.equal((await confirmer(app, lienVictime, "mdp-choisi-en-confirmant")).statusCode, 200, "le lien reste valable");
     assert.equal((await connecter(app, victime, "mdp-de-l-attaquant-42")).statusCode, 401, "l'attaquant n'entre pas");
-    assert.equal((await connecter(app, victime, "mdp-de-la-victime-1")).statusCode, 200, "la victime entre");
-    // Adresse CONFIRMÉE : une nouvelle inscription ne change plus rien.
-    assert.equal((await inscrireDepuis(app, victime, sourceAuHasard(), "mdp-de-l-attaquant-43")).statusCode, 202);
-    assert.equal((await connecter(app, victime, "mdp-de-l-attaquant-43")).statusCode, 401);
-    assert.equal((await connecter(app, victime, "mdp-de-la-victime-1")).statusCode, 200);
+    assert.equal((await connecter(app, victime, "mdp-de-la-victime-1")).statusCode, 401, "seul le mot de passe choisi en confirmant vaut");
+    assert.equal((await connecter(app, victime, "mdp-choisi-en-confirmant")).statusCode, 200, "la victime entre");
+    // b) Pré-appropriation (attaquant AVANT) : le lien arrive dans la boîte de la victime ; elle y choisit SON mot de passe.
+    const cible = adresse();
+    await inscrireDepuis(app, cible, sourceAuHasard(), "mdp-de-l-attaquant-43");
+    const [lien] = jetonsPour(exp, cible);
+    assert.equal((await inscrireDepuis(app, cible, sourceAuHasard(), "mdp-de-la-cible-1")).statusCode, 202);
+    assert.equal((await confirmer(app, lien, "mdp-de-la-cible-2")).statusCode, 200);
+    assert.equal((await connecter(app, cible, "mdp-de-l-attaquant-43")).statusCode, 401);
+    assert.equal((await connecter(app, cible, "mdp-de-la-cible-2")).statusCode, 200);
+    // Adresse CONFIRMÉE : une nouvelle inscription ne change plus rien, et un lien réutilisé non plus.
+    assert.equal((await inscrireDepuis(app, cible, sourceAuHasard(), "mdp-de-l-attaquant-44")).statusCode, 202);
+    assert.equal((await confirmer(app, lien, "mdp-de-l-attaquant-45")).statusCode, 404);
+    assert.equal((await connecter(app, cible, "mdp-de-la-cible-2")).statusCode, 200);
   }, config(), { expediteur: exp });
 });
 

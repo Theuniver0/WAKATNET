@@ -7,6 +7,7 @@ function Ligne({ p, apres }: { p: Proprietaire; apres: () => void }) {
   const [montant, setMontant] = useState("");
   const [reference, setReference] = useState("");
   const [quota, setQuota] = useState(String(p.quota_routeurs));
+  const [lien, setLien] = useState<string | null>(null);
   const { erreur, info, lancer, occupe } = useAction();
   // Revue de sécurité M4 (ADR 0017) : quota d'enrôlement et validation de l'adresse du propriétaire.
   const regler = () => void lancer(async () => {
@@ -16,10 +17,14 @@ function Ligne({ p, apres }: { p: Proprietaire; apres: () => void }) {
     apres();
     return "Quota enregistré.";
   });
+  // F2 (migration 0043) : la validation rend un lien de confirmation, à remettre au propriétaire APRÈS avoir vérifié son
+  // identité ; il y choisit son mot de passe. Le lien n'est affiché qu'ici, une fois.
   const valider = () => void lancer(async () => {
-    await modifier(`/admin/v1/proprietaires/${p.id}/acces`, { valider_email: true });
-    apres();
-    return "Adresse validée : le propriétaire peut raccorder ses routeurs.";
+    const r = await modifier<{ lien_confirmation: string | null }>(`/admin/v1/proprietaires/${p.id}/acces`, { valider_email: true });
+    setLien(r.lien_confirmation);
+    return r.lien_confirmation
+      ? "Compte validé. Remettez ce lien au propriétaire après avoir vérifié son identité : il y choisira son mot de passe."
+      : "Compte validé ; aucune adresse en attente de confirmation.";
   });
   const recharger = () => void lancer(async () => {
     const m = Number(montant);
@@ -55,6 +60,7 @@ function Ligne({ p, apres }: { p: Proprietaire; apres: () => void }) {
           <button type="button" className="secondaire" onClick={regler} disabled={occupe}>Enregistrer le quota</button>
           {!p.email_verifie ? <button type="button" onClick={valider} disabled={occupe}>Valider l'adresse</button> : null}
         </div>
+        {lien ? <p className="aide">Lien de confirmation (7 jours, usage unique) : <code>{lien}</code></p> : null}
         <Alerte message={erreur} />
         <Info message={info} />
       </td>

@@ -354,7 +354,7 @@ ${msg ? `<p class="erreur">${esc(msg)}</p>` : ""}<form method="post" action="/p/
         SELECT statut, reference FROM app.paiement_retrouver(${req.params.site}, ${hmacNumero(cleHmac, numero)}, ${suf},
                                                             ${empreinte(jetonAppareil(req, rep))})`;
       if (r.statut === "trouve") return rep.redirect(`/p/${req.params.site}/achat/${r.reference}${suffixe(c)}`, 303);
-      if (r.statut === "trop_de_tentatives") return envoyer(rep, formRetrouver(req.params.site, c, "Trop d'essais : patientez 15 minutes."), 429);
+      if (r.statut === "trop_de_tentatives") return envoyer(rep, formRetrouver(req.params.site, c, "Trop d'essais avec ce numéro : réessayez plus tard, ou adressez-vous au vendeur."), 429);
       return envoyer(rep, formRetrouver(req.params.site, c, "Aucun achat trouvé avec ces informations."), 404);
     });
   });

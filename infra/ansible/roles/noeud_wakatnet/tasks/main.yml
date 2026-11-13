@@ -29,6 +29,16 @@
     dest: /usr/bin/node
     state: link
 
+# Scan de sécurité F4 : l'essai mensuel de restauration démarre la base restaurée sous cet utilisateur sans droits
+# (le pg_hba vivant ne lui accorde rien, /etc/pgbackrest et /etc/wakatnet lui sont fermés).
+- name: Utilisateur système de l'essai de restauration
+  ansible.builtin.user:
+    name: wakatnet-essai
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    home: /nonexistent
+
 - name: Répertoires
   ansible.builtin.file:
     path: "{{ item.chemin }}"

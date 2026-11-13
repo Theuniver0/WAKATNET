@@ -8,7 +8,9 @@
 #   3. essai-restauration.sh : RÉUSSI, avec la durée de restauration ;
 #   4. une écriture du grand livre modifiée à la main (déclencheur d'ajout seul retiré par un
 #      administrateur, ADR 0013 M7) : essai-restauration.sh doit ÉCHOUER et nommer la ligne ;
-#   5. le dépôt est chiffré : déclaré tel par pgBackRest, et illisible sans la phrase de passe.
+#   5. le dépôt est chiffré : déclaré tel par pgBackRest, et illisible sans la phrase de passe ;
+#   6. (F4) une sauvegarde piégée (recovery_end_command, search_path de base, et une fonction de pg_catalog qui lance
+#      un programme) : le piège s'exécute, mais sous l'utilisateur isolé, sans rien atteindre ; l'essai réussit.
 set -euo pipefail
 ICI="$(cd "$(dirname "$0")" && pwd)"
 DEPOT="$(cd "$ICI/../../.." && pwd)"
@@ -32,6 +34,8 @@ etape "Configuration (phrase de passe aléatoire, jamais affichée) et base prim
 dans bash -s <<'SH'
 set -euo pipefail
 install -d -o postgres -g postgres -m 0700 /srv/a /srv/depot /var/lib/wakatnet /var/log/pgbackrest
+# Utilisateur de l'instance restaurée (rôle Ansible noeud_wakatnet, scan de sécurité F4).
+useradd --system --shell /usr/sbin/nologin --no-create-home --home-dir /nonexistent wakatnet-essai
 # Configuration comme en production (rôle pgbackrest, audit du 13/11/2026) : à root, lisible par postgres seulement.
 install -d -o root -g postgres -m 0750 /etc/pgbackrest /etc/pgbackrest/conf.d
 # Modèle de production, dépôt S3 remplacé par un répertoire (le reste est inchangé).
@@ -40,7 +44,9 @@ sed -e 's/^repo1-type=s3/repo1-type=posix/' -e '/^repo1-s3-/d' -e 's#^repo1-path
 umask 077
 printf '[global]\nrepo1-cipher-pass=%s\n' "$(head -c 32 /dev/urandom | base64 | tr -d '=+/\n')" > /etc/pgbackrest/conf.d/secret.conf
 chown root:postgres /etc/pgbackrest/conf.d/secret.conf && chmod 0640 /etc/pgbackrest/conf.d/secret.conf
-su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /srv/a -E UTF8 --locale=C.UTF-8 >/dev/null"
+# Accès comme en production (rôle postgresql, pg_hba.conf.j2) : peer pour postgres seulement, mot de passe sinon.
+# Sans cela (trust par défaut d'initdb), l'essai de restauration refuse de tourner (scan de sécurité F4).
+su postgres -c "/usr/lib/postgresql/16/bin/initdb -D /srv/a -E UTF8 --locale=C.UTF-8 --auth-local=peer --auth-host=scram-sha-256 >/dev/null"
 cat >> /srv/a/postgresql.conf <<'CONF'
 wal_level = replica
 archive_mode = on
@@ -76,9 +82,46 @@ pg env WAKATNET_JOUR_COMPLETE=0 bash /depot/infra/noeud/sauvegarder.sh
 pg python3 -c 'import json; e = json.load(open("/var/lib/wakatnet/sauvegarde.json")); assert e["ok"] and e["type"] == "diff", e; print("état :", e)'
 
 etape "Essai de restauration (chronométré)"
-pg env WAKATNET_ESSAI_RACINE=/var/lib/wakatnet/essai-restauration WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json \
-  bash /depot/infra/noeud/essai-restauration.sh
+dans env WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh
 pg cat /var/lib/wakatnet/essai-restauration.json
+
+etape "Sauvegarde piégée (scan de sécurité F4) : son code s'exécute sous l'utilisateur isolé, sans rien atteindre"
+# Ce qu'un attaquant maître de B mettrait dans la dernière sauvegarde : une commande de fin de récupération, un
+# search_path de base qui place une fausse md5() devant pg_catalog, et surtout une fonction DE pg_catalog,
+# unnest(text[]) (préférée à unnest(anyarray) : correspondance exacte), que l'essai appelle. Les deux lancent un
+# programme qui note son utilisateur, tente d'écrire dans la base VIVANTE (peer en postgres) et à côté d'elle. Tout est
+# défait sur la base vivante juste après la sauvegarde. Contre-épreuve (13/11/2026) : l'ancien essai, lancé en postgres,
+# crée bien la table dans la base vivante.
+dans rm -f /tmp/piege-qui /var/lib/wakatnet/piege-execute
+pg psql -X -q -v ON_ERROR_STOP=1 -d wakatnet <<'SQL'
+CREATE SCHEMA IF NOT EXISTS piege;
+CREATE FUNCTION piege.lancer() RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  COPY (SELECT 1) TO PROGRAM 'id -un > /tmp/piege-qui; psql -X -q -h /var/run/postgresql -U postgres -d wakatnet -c "CREATE TABLE IF NOT EXISTS public.piege_vivant ()" >/dev/null 2>&1; touch /var/lib/wakatnet/piege-execute 2>/dev/null; true';
+END $f$;
+-- Appelée par l'ancien essai (search_path de la base), puis par le nouveau (pg_catalog, correspondance exacte).
+CREATE FUNCTION piege.md5(text) RETURNS text LANGUAGE plpgsql AS $f$ BEGIN PERFORM piege.lancer(); RETURN 'piege'; END $f$;
+CREATE FUNCTION pg_catalog.unnest(text[]) RETURNS SETOF text LANGUAGE plpgsql AS $f$
+BEGIN
+  PERFORM piege.lancer();
+  RETURN QUERY SELECT $1[i] FROM pg_catalog.generate_subscripts($1, 1) i;
+END $f$;
+ALTER DATABASE wakatnet SET search_path = piege, pg_catalog;
+ALTER SYSTEM SET recovery_end_command = 'touch /var/lib/wakatnet/piege-execute';
+SQL
+pg pgbackrest --stanza=wakatnet backup --type=incr
+pg psql -X -q -v ON_ERROR_STOP=1 -d wakatnet -c "SET client_min_messages = warning" -c "DROP FUNCTION pg_catalog.unnest(text[])" -c "DROP SCHEMA piege CASCADE" -c "ALTER DATABASE wakatnet RESET search_path" \
+  -c "ALTER SYSTEM RESET recovery_end_command" -c "SELECT pg_reload_conf()" >/dev/null
+dans rm -f /tmp/piege-qui
+dans env WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh
+# Témoin positif : le piège s'est bien exécuté, et sous l'utilisateur isolé.
+[ "$(dans cat /tmp/piege-qui 2>/dev/null)" = wakatnet-essai ] \
+  || { echo "ÉCHEC : le piège de pg_catalog ne s'est pas exécuté (ou pas sous wakatnet-essai) : le banc ne prouve rien"; exit 1; }
+if dans test -e /var/lib/wakatnet/piege-execute; then echo "ÉCHEC : le code de la sauvegarde a écrit à côté de la base vivante"; exit 1; fi
+if [ "$(pg psql -X -tA -d wakatnet -c "SELECT to_regclass('public.piege_vivant') IS NOT NULL")" = t ]; then
+  echo "ÉCHEC : le code de la sauvegarde a écrit dans la base VIVANTE"; exit 1
+fi
+echo "piège exécuté sous wakatnet-essai, sans accès à la base vivante ni à son répertoire ; recovery_end_command ignoré"
 
 etape "Atteinte au grand livre après la sauvegarde : l'essai doit la détecter"
 ID="$(pg psql -X -q -tA -d wakatnet -c "SELECT max(id) FROM ledger.ecriture WHERE transaction_id IN
@@ -90,8 +133,7 @@ UPDATE ledger.ecriture SET debit = credit, credit = debit WHERE transaction_id =
 ALTER TABLE ledger.ecriture ENABLE TRIGGER ajout_seul;
 SQL
 set +e
-SORTIE="$(pg env WAKATNET_ESSAI_RACINE=/var/lib/wakatnet/essai-restauration WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json \
-            bash /depot/infra/noeud/essai-restauration.sh 2>&1)"
+SORTIE="$(dans env WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh 2>&1)"
 CODE=$?
 set -e
 printf '%s\n' "$SORTIE" | tail -3

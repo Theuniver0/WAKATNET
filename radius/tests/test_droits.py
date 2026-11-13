@@ -86,7 +86,10 @@ ATTENDU = {
     # Migration 0033 (revue M4, ADR 0017) : vérification de l'adresse, quota d'enrôlement, réglages du super-admin.
     "app.session_email_verifie(p_empreinte bytea)": {"wk_api"},
     "app.verification_creer(p_utilisateur bigint, p_empreinte bytea)": {"wk_api"},
-    "app.verification_consommer(p_empreinte bytea)": {"wk_api"},
+    # Migration 0043 (F2) : la confirmation exige le mot de passe ; l'ancienne n'est plus offerte à l'API.
+    "app.verification_consommer(p_empreinte bytea)": set(),
+    "app.verification_confirmer(p_empreinte bytea, p_mot_de_passe text)": {"wk_api"},
+    "app.admin_lien_confirmation(p_tenant bigint, p_empreinte bytea, p_admin bigint)": {"wk_api"},
     "app.enrolement_autorise(p_utilisateur bigint)": {"wk_api"},
     "app.admin_acces(p_tenant bigint, p_quota integer, p_valider_email boolean, p_admin bigint)": {"wk_api"},
     # Migration 0034 (ADR 0019) : inscription sans session, avis, renvoi du lien.
@@ -165,7 +168,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                                WHERE ns.nspname IN ('app', 'radius', 'ledger') AND has_function_privilege(r.rolname, p.oid, 'EXECUTE')
                                ORDER BY 1, 2""").fetchall()
     assert lignes == [("wk_acct", "radius.acct_interim"), ("wk_acct", "radius.acct_on_off"), ("wk_acct", "radius.acct_start"),
-                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_acces"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
+                      ("wk_acct", "radius.acct_stop"), ("wk_api", "app.admin_acces"), ("wk_api", "app.admin_lien_confirmation"), ("wk_api", "app.admin_proprietaires"), ("wk_api", "app.admin_recharger"),
                       ("wk_api", "app.admin_regler"), ("wk_api", "app.alerte_credits_notifiee"), ("wk_api", "app.alertes_credits_a_notifier"), ("wk_api", "app.avis_compte_existant"), ("wk_api", "app.compte_marchand_avant_verification"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
                       ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"), ("wk_api", "app.courriel_reserver"), ("wk_api", "app.credits_alerte"),
                       ("wk_api", "app.enrolement_autorise"), ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.entretien_jeton_poser"), ("wk_api", "app.entretien_jeton_renouveler"), ("wk_api", "app.entretien_lire"), ("wk_api", "app.frais_papier_prelever"),
@@ -181,7 +184,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),
                       ("wk_api", "app.stats_ventes_papier"), ("wk_api", "app.synthese_argent"), ("wk_api", "app.tenant_courant"),
                       ("wk_api", "app.totp_reserver"), ("wk_api", "app.totp_reussi"), ("wk_api", "app.totp_secret"), ("wk_api", "app.totp_valider"),
-                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.verification_annuler"), ("wk_api", "app.verification_consommer"), ("wk_api", "app.verification_creer"),
+                      ("wk_api", "app.utilisateur_desactiver"), ("wk_api", "app.verification_annuler"), ("wk_api", "app.verification_confirmer"), ("wk_api", "app.verification_creer"),
                       ("wk_api", "app.voucher_importer"),
                       ("wk_coa", "radius.coa_target"), ("wk_coa", "radius.mark_cut"), ("wk_coa", "radius.sessions_to_cut"),
                       ("wk_maint", "radius.close_ghost_sessions"), ("wk_maint", "radius.marquer_spool_vide"), ("wk_maint", "radius.purge_auth_log"), ("wk_maint", "radius.purge_conservation"),

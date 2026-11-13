@@ -113,6 +113,9 @@ try {
   await page.goto(`${TABLEAU}#/verifier?j=${jetonVerif}`);
   await titre(page, "Confirmer votre adresse e-mail");
   await auditer(page, "Confirmer votre adresse e-mail");
+  // F2 (migration 0043) : le mot de passe se choisit à la confirmation.
+  await page.getByLabel("Choisissez votre mot de passe").fill(MDP_TEST);
+  await page.getByLabel("Retapez le mot de passe").fill(MDP_TEST);
   await page.getByRole("button", { name: "Confirmer mon adresse" }).click();
   await page.getByText(/Adresse confirmée/).waitFor();
   await page.getByRole("button", { name: "Se connecter" }).click();

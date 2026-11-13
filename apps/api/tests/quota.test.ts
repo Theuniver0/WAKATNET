@@ -1,10 +1,10 @@
 // Revue de sécurité M4 (ADR 0017, migration 0033) : quota d'enrôlement et vérification de l'adresse e-mail.
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { envoisEnCours } from "../src/auth.ts";
 import { ExpediteurMemoire } from "../src/courriel.ts";
-import { avecApp, config, entetes, proprietaire, routeur, session, sql, URL_ADMIN } from "./aide.ts";
+import { avecApp, config, entetes, entetesJeton, proprietaire, routeur, session, sql, URL_ADMIN } from "./aide.ts";
 
 type App = Parameters<Parameters<typeof avecApp>[0]>[0];
 const CSRF = { "x-wakatnet-requete": "1" };
@@ -71,9 +71,27 @@ test("adresse non vérifiée : raccordement refusé (403), le reste du compte ma
     assert.equal(envoi.statusCode, 503);
     assert.match(envoi.json().erreur, /Telecom Universel valide votre adresse/);
     const h = await admin();
-    assert.equal((await app.inject({ method: "PUT", url: `/admin/v1/proprietaires/${p.tenant}/acces`, headers: h, payload: { valider_email: true } })).statusCode, 200);
-    assert.equal((await app.inject({ url: "/v1/moi", headers: entetes(p.tenant) })).json().email_verifie, true);
-    assert.equal((await commande(app, p)).statusCode, 201);
+    // F2 (migration 0043) : la validation rend un lien, remis au propriétaire ; l'adresse n'est confirmée qu'à son usage.
+    const val = await app.inject({ method: "PUT", url: `/admin/v1/proprietaires/${p.tenant}/acces`, headers: h, payload: { valider_email: true } });
+    assert.equal(val.statusCode, 200);
+    const j = /#\/verifier\?j=([A-Za-z0-9_-]{43})$/.exec(val.json().lien_confirmation)![1];
+    assert.equal((await app.inject({ url: "/v1/moi", headers: entetes(p.tenant) })).json().email_verifie, false, "pas confirmée d'office");
+    // Relecture des correctifs : compte de plus de 7 jours, validé, lien remis mais pas encore utilisé → la purge des
+    // adresses non confirmées (déclenchée par n'importe quelle inscription) l'épargne, et le lien reste utilisable.
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET cree_le = now() - interval '8 days' WHERE tenant_id = $1", [p.tenant]);
+    const declencheur = `purge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@exemple.bf`;
+    assert.equal((await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: "10.77.9.9",
+      payload: { nom: "Déclencheur de purge", email: declencheur, mot_de_passe: "un-mot-de-passe-long" } })).statusCode, 202);
+    const [{ actif }] = await sql<{ actif: boolean }>(URL_ADMIN, "SELECT bool_and(actif) AS actif FROM app.utilisateur WHERE tenant_id = $1", [p.tenant]);
+    assert.equal(actif, true, "compte validé : non purgé");
+    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: j, mot_de_passe: "choisi-par-le-proprietaire" } })).statusCode, 200);
+    // Relecture des correctifs : mot de passe neuf → les sessions ouvertes avant sont closes.
+    assert.equal((await app.inject({ url: "/v1/moi", headers: entetes(p.tenant) })).statusCode, 401, "ancienne session close");
+    const jeton = randomBytes(32).toString("base64url");
+    await sql(URL_ADMIN, "SELECT app.session_ouvrir((SELECT id FROM app.utilisateur WHERE tenant_id = $1 AND role = 'proprietaire' ORDER BY id LIMIT 1), $2)",
+              [p.tenant, createHash("sha256").update(jeton).digest()]);
+    assert.equal((await app.inject({ url: "/v1/moi", headers: entetesJeton(jeton) })).json().email_verifie, true);
+    assert.equal((await app.inject({ method: "POST", url: `/v1/sites/${p.site}/enrollments`, headers: entetesJeton(jeton) })).statusCode, 201);
   });
 });
 
@@ -92,9 +110,9 @@ test("ADR 0019 : inscription → lien → confirmation → connexion → raccord
     assert.equal(n, 1, "le jeton n'est gardé qu'en empreinte");
     const connecter = () => app.inject({ method: "POST", url: "/v1/connexion", headers: CSRF, remoteAddress: "10.77.0.1", payload: { email, mot_de_passe: "un-mot-de-passe-long" } });
     assert.equal((await connecter()).statusCode, 401, "pas de connexion avant confirmation");
-    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: "A".repeat(43) } })).statusCode, 404);
-    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: lien[1] } })).statusCode, 200);
-    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: lien[1] } })).statusCode, 404, "usage unique");
+    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: "A".repeat(43), mot_de_passe: "un-mot-de-passe-long" } })).statusCode, 404);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: lien[1], mot_de_passe: "un-mot-de-passe-long" } })).statusCode, 200);
+    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton: lien[1], mot_de_passe: "un-mot-de-passe-long" } })).statusCode, 404, "usage unique");
     const c = await connecter();
     assert.equal(c.statusCode, 200);
     const h = { cookie: String([c.headers["set-cookie"]].flat()[0]).split(";")[0], ...CSRF };
@@ -199,7 +217,7 @@ test("vérification par lien : expiré refusé ; 3 liens par heure, 5 en tout ; 
     assert.deepEqual([(await envoyer()).statusCode, (await envoyer()).statusCode, (await envoyer()).statusCode, (await envoyer()).statusCode], [202, 202, 202, 429]);
     const jeton = /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(exp.messages[0].texte)![1];
     await sql(URL_ADMIN, "UPDATE app.verification_email SET expire_le = now() - interval '1 minute' WHERE empreinte = $1", [createHash("sha256").update(jeton).digest()]);
-    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton } })).statusCode, 404, "expiré");
+    assert.equal((await app.inject({ method: "POST", url: "/v1/verification/confirmer", headers: CSRF, payload: { jeton, mot_de_passe: "un-mot-de-passe-long" } })).statusCode, 404, "expiré");
     // Une heure plus tard : 2 liens encore, puis plus rien, même des heures après (5 en tout).
     await sql(URL_ADMIN, "UPDATE app.verification_email v SET cree_le = v.cree_le - interval '2 hours' WHERE v.utilisateur_id IN (SELECT id FROM app.utilisateur WHERE tenant_id = $1)", [p.tenant]);
     assert.deepEqual([(await envoyer()).statusCode, (await envoyer()).statusCode, (await envoyer()).statusCode], [202, 202, 429]);

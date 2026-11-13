@@ -2,13 +2,15 @@
 // Ticket : .scratch/phase-4-exploitation/issues/06-super-admin.md
 // Toutes les routes exigent un super-admin dont la session a validé son TOTP (garde « admin »).
 // Chaque action est inscrite au journal d'audit par la fonction SQL appelée.
+import { createHash, randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { garde } from "./auth.ts";
 import type { Base } from "./base.ts";
 import { periode } from "./exploitation.ts";
 import { estIdentifiant } from "./identifiant.ts";
 
-export function routesAdmin(app: FastifyInstance, base: Base): void {
+/** `urlTableau` : adresse du tableau de bord, pour le lien de confirmation remis par le super-admin (F2). */
+export function routesAdmin(app: FastifyInstance, base: Base, urlTableau = ""): void {
   app.register(async (adm) => {
     adm.addHook("onRequest", garde(base, "admin"));
 
@@ -57,6 +59,14 @@ export function routesAdmin(app: FastifyInstance, base: Base): void {
           SELECT app.admin_acces(${BigInt(req.params.id)}, ${(quota_routeurs as number | undefined) ?? null}::integer,
                                  ${valider_email === true}, ${req.utilisateur!.id}) AS ok`;
         if (!ok) return rep.code(404).send({ erreur: "propriétaire inconnu" });
+        // F2 (migration 0043) : la validation ne confirme plus l'adresse d'office. Elle rend un lien de confirmation à
+        // remettre au propriétaire après vérification de son identité ; il y choisit son mot de passe.
+        if (valider_email === true) {
+          const jeton = randomBytes(32).toString("base64url");
+          const [{ l }] = await base.$queryRaw<{ l: boolean }[]>`
+            SELECT app.admin_lien_confirmation(${BigInt(req.params.id)}, ${createHash("sha256").update(jeton).digest()}, ${req.utilisateur!.id}) AS l`;
+          return { ok: true, lien_confirmation: l ? `${urlTableau}#/verifier?j=${jeton}` : null };
+        }
         return { ok: true };
       });
 

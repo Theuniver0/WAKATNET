@@ -221,3 +221,46 @@ def test_purge_conservation_durees_du_13_11_2026():
         journal = c.execute("""SELECT acteur, details FROM app.audit_log WHERE action = 'purge_conservation'
                                 ORDER BY id DESC LIMIT 1""").fetchone()
     assert journal[0] == "wk_maint" and journal[1]["sessions_anonymisees"] >= 1 and journal[1]["corps_webhook_vides"] >= 1
+
+
+# --- Scan de sécurité du 13/11/2026, F3 (migration 0044) ----------------------
+
+def _ticket_importe(code):
+    """Ticket de la plateforme passé en ticket importé (forme Mikhmon, 0017) sous le code donné."""
+    t = nouveau_ticket()
+    with admin() as c:
+        c.execute("UPDATE app.voucher SET code = %s, origine = 'import' WHERE tenant_id = 1 AND code = %s", (code, t))
+    return code
+
+
+def test_f3_routeur_sous_attaque_codes_faibles_refuses_quelle_que_soit_la_mac():
+    """La MAC est choisie par le client : changer de MAC contournait le blocage. Pendant une attaque (alerte
+    « echecs_routeur » des 5 dernières minutes), les codes de forme faible (hors forme de la plateforme, ou tout en
+    chiffres : tickets Mikhmon importés) sont refusés pour TOUTE MAC ; les codes de la plateforme restent servis.
+    Chaîne réelle : 100 échecs de 100 MAC différentes, comptés par post_auth, posent l'alerte."""
+    long_ = nouveau_ticket()
+    court = _ticket_importe("K" + uuid.uuid4().hex[:5].upper())                 # 6 caractères
+    chiffres = _ticket_importe("".join("23456789"[b % 8] for b in uuid.uuid4().bytes[:8]))  # forme de la plateforme
+    r1 = "(SELECT id FROM app.router WHERE shortname = 'r1')"
+    with admin() as c:
+        c.execute(f"DELETE FROM radius.alerte WHERE type = 'echecs_routeur' AND router_id = {r1}")
+    try:
+        assert decider(court, _mac()) == ("Accept", None), "sans attaque : le ticket importé est servi"
+        assert decider(chiffres, _mac()) == ("Accept", None)
+        with en_tant_que_radius() as c:                      # une MAC neuve par essai : jamais bloqué par MAC
+            for _ in range(100):
+                c.execute("SELECT radius.post_auth('ZZZZZZZZ', %s, %s, 'Reject', 'ticket_inconnu')",
+                          (R1, "0F" + uuid.uuid4().hex[:10].upper()))
+        for _ in range(3):                                   # trois MAC neuves : aucune n'y échappe
+            assert decider(court, _mac()) == ("Reject", "trop_de_tentatives")
+            assert decider(chiffres, _mac()) == ("Reject", "trop_de_tentatives"), "8 chiffres : forme faible"
+        assert decider(long_, _mac()) == ("Accept", None), "code de la plateforme : toujours servi"
+        assert decider("ZZZZZZZQ", _mac()) == ("Reject", "ticket_inconnu"), "code inconnu de forme forte : cause inchangée"
+        assert decider(court, _mac(), src=R2) == ("Accept", None), "un autre routeur n'est pas touché"
+        with admin() as c:
+            c.execute(f"UPDATE radius.alerte SET at = now() - interval '301 seconds' WHERE type = 'echecs_routeur' AND router_id = {r1}")
+        assert decider(court, _mac()) == ("Accept", None), "attaque finie depuis plus de 5 min : levé"
+    finally:
+        with admin() as c:
+            c.execute(f"DELETE FROM radius.alerte WHERE type = 'echecs_routeur' AND router_id = {r1}")
+            c.execute(f"DELETE FROM radius.auth_log WHERE router_id = {r1} AND mac LIKE '0F%%'")
