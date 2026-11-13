@@ -1245,3 +1245,26 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - une VM Debian 13 (module WireGuard, `noeud_wakatnet`, FreeRADIUS de l'éditeur) ;
   - un processeur avec PKU ;
   - `actionlint` : son installation par le registre Go a été refusée dans la session. GitHub validera `nuit.yml` à son premier run.
+
+## 13/11/2026 — Second adaptateur réel : CinetPay (ADR 0022)
+
+- **Demande** : « Ajoute cinetpay ».
+- **Choix** : API v1 en paiement direct. Elle entre dans le contrat `FournisseurPaiement` sans changer l'architecture ; la v2, à page hébergée, imposerait une redirection depuis le portail captif. Source : le SDK officiel `cinetpay-js` 0.1.1, la v1 n'ayant aucune page de documentation et `docs.cinetpay.com` étant bloqué par le réseau de la session.
+- **Fait** :
+  - `packages/payments/src/cinetpay.ts` ;
+  - les branches `cinetpay` de `fournisseurs.ts` : clé `sk_test_` ou `sk_live_` liée à l'environnement, gardes G-ARGENT et bac à sable ;
+  - `ServicePaiement` connaît l'adresse publique (notify_url) ;
+  - choix du fournisseur dans le tableau de bord ;
+  - faux serveur et 10 tests ;
+  - ADR 0022.
+- **Trouvé** : le statut v1, tel que le SDK le lit, ne contient pas le montant. A8 est gardé : sans montant au statut, c'est un écart sans ticket. La production CinetPay reste donc verrouillée (`MONTANT_AU_STATUT_CONFIRME = false`) tant que le bac à sable n'a pas tranché.
+- **Relecture par un second agent** (règle 4) : aucun ticket possible sans paiement. Dix constats ; sept corrigés et testés, l'un en partie, deux reportés au bac à sable (ADR 0022, section Preuves).
+- **Preuves** (état final) :
+  - `apps/api/tests/run.sh` : 234/234, dont 10 tests CinetPay (234 = 224 existants + 10), typage compris ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS, axe-core sans violation sur 14 écrans, compte marchand compris ;
+  - typage du tableau de bord : `tsc` sans erreur.
+- **Non prouvé** :
+  - aucun appel au vrai CinetPay (hôtes non joignables, clés absentes) ;
+  - l'e2e ne joue l'écran du compte marchand qu'avec pawaPay, pas avec CinetPay ;
+  - le format du relevé CinetPay pour le rapprochement ;
+  - l'agrément de CinetPay au Burkina (`CONFORMITE.md` §4).

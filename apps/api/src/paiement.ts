@@ -28,10 +28,13 @@ export class ServicePaiement {
 
   private readonly base: Base;
   private readonly cles: Cles;
+  /** Adresse publique de l'API (WAKATNET_API_URL_PUBLIQUE) : URL de notification que CinetPay exige à chaque paiement. */
+  private readonly urlPublique: string | null;
 
-  constructor(base: Base, cles: Cles) {
+  constructor(base: Base, cles: Cles, urlPublique: string | null = null) {
     this.base = base;
     this.cles = cles;
+    this.urlPublique = urlPublique;
   }
 
   // ---------------------------------------------------------------- compte marchand
@@ -42,7 +45,9 @@ export class ServicePaiement {
   private fournisseurDe(tenantId: bigint, l: { fournisseur: string; cles: Buffer; webhook_id?: string }): FournisseurPaiement {
     const cles = JSON.parse(dechiffrer(this.cles.marchands, l.cles, `tenant:${tenantId}`).toString("utf8")) as ClesMarchand;
     const livrer = this.livreur && l.webhook_id ? this.livreur(l.fournisseur, l.webhook_id) : null;
-    return creerFournisseur(l.fournisseur, cles, livrer);
+    const urls = this.urlPublique && l.webhook_id
+      ? { webhook: `${this.urlPublique}/webhooks/${l.fournisseur}/${l.webhook_id}`, retour: this.urlPublique } : {};
+    return creerFournisseur(l.fournisseur, cles, livrer, urls);
   }
 
   async fournisseurDuProprietaire(tenantId: bigint): Promise<FournisseurPaiement | null> {
@@ -90,7 +95,8 @@ export class ServicePaiement {
       const res = await avecDelai(fournisseur.charge({
         reference: r.reference!, montant, devise: "XOF", operateur: e.operateur, numero, otp: e.otp,
       }), DELAI_CHARGE_MS);
-      const s = await this.transition(r.reference!, "PENDING", res.referenceFournisseur, null, null, "charge");
+      // Référence du fournisseur vide (CinetPay, rejeu) : rien n'est écrit, celle déjà notée reste.
+      const s = await this.transition(r.reference!, "PENDING", res.referenceFournisseur || null, null, null, "charge");
       return { statut: "cree", reference: r.reference!, statutPaiement: s };
     } catch (err) {
       if (err instanceof PaiementRefuse) {
@@ -161,6 +167,9 @@ export class ServicePaiement {
     const [p] = await this.base.$queryRaw<{ statut: string }[]>`
       SELECT statut FROM app.paiement_du_proprietaire(${evt.reference}, ${compte.tenant_id})`;
     if (!p) return { code: 200, corps: { ok: true, ignore: "paiement inconnu de ce compte" } };
+    // État final : aucun appel au fournisseur (relecture CinetPay n° 8 : un webhook rejoué ne fait plus appeler le
+    // fournisseur avec les clés du marchand). FAILED et EXPIRED restent vérifiés : un succès tardif délivre le ticket.
+    if (["SUCCEEDED", "MISMATCH", "REFUNDED"].includes(p.statut)) return { code: 200, corps: { ok: true, statut: p.statut } };
     const statut = await this.rapprocher(evt.reference, compte.tenant_id, f, "webhook");
     return { code: 200, corps: { ok: true, statut } };
   }
