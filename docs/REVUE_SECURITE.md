@@ -140,4 +140,4 @@ Remarques sans scénario réaliste, notées sans suite immédiate :
   - durée de `/renvoyer` pour un compte sans session : quasi nulle désormais ;
   - réinitialisation des compteurs à minuit UTC ;
   - détournement du point de terminaison WireGuard par un acteur placé sur le chemin (documenté) ;
-  - blocage de « J'ai payé » par un voisin qui connaît le numéro (portail, antérieur à f8e350d).
+  - blocage de « J'ai payé » par un voisin qui connaît le numéro (portail, antérieur à f8e350d). **Laissé exprès** : le plafond de 5 essais par numéro et par quart d'heure est l'anti-devinette du suffixe à 4 caractères (65 536 possibilités), soit environ 5 % de chances sur les 7 jours de validité. Le budget par source proposé (avec un plafond de 20 par numéro) porterait ce risque de vol de ticket à environ 20 %. Le blocage, lui, ne fait perdre aucun argent : le code reste sur l'appareil d'achat. L'arbitrage revient à Yacouba.
