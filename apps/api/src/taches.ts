@@ -4,6 +4,7 @@
 // Une erreur sur un paiement (fournisseur en panne, P8) est journalisée sans arrêter le tour ;
 // le paiement est replanifié 5 min plus tard. Sortie 1 si une erreur a eu lieu.
 import type { Base } from "./base.ts";
+import { messageCreditsBas, type Expediteur } from "./courriel.ts";
 import type { ServicePaiement } from "./paiement.ts";
 
 export type Bilan = { expires: number; verifies: number; erreurs: number; frais: number; purges: number };
@@ -38,6 +39,26 @@ export async function tour(base: Base, service: ServicePaiement, journal: (m: st
   return { expires, verifies, erreurs, frais, purges };
 }
 
+/** Alertes « crédits bas » (SPEC §8.2, migration 0041) : un e-mail par alerte, à l'adresse vérifiée du propriétaire.
+ *  Inscrite comme envoyée seulement après un envoi accepté ; un échec est réessayé au tour suivant (7 jours au plus). */
+export async function notifierAlertesCredits(base: Base, expediteur: Expediteur, urlTableau: string,
+                                             journal: (m: string) => void = () => {}): Promise<{ envoyees: number; erreurs: number }> {
+  const l = await base.$queryRaw<{ audit_id: bigint; email: string; solde_xof: bigint }[]>`
+    SELECT audit_id, email, solde_xof FROM app.alertes_credits_a_notifier(20)`;
+  let envoyees = 0, erreurs = 0;
+  for (const a of l) {
+    try {
+      await expediteur.envoyer(messageCreditsBas(a.email, Number(a.solde_xof), urlTableau));
+      await base.$executeRaw`SELECT app.alerte_credits_notifiee(${a.audit_id})`;
+      envoyees++;
+    } catch {
+      erreurs++;                                                          // ni l'adresse ni le message au journal
+      journal(`alerte crédits bas ${a.audit_id} : envoi échoué, réessayé au tour suivant`);
+    }
+  }
+  return { envoyees, erreurs };
+}
+
 // Point d'entrée (pas lors d'un import par les tests).
 if (import.meta.url === `file://${process.argv[1]}`) {
   const { lireConfig } = await import("./config.ts");
@@ -52,7 +73,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (replique) { console.log("tâches : réplique (pg_is_in_recovery), rien à faire sur ce nœud"); process.exit(0); }
     const b = await tour(base, new ServicePaiement(base, config.cles, config.urlPublique), (m) => console.log(m));
     console.log(`tour : ${b.expires} expiré(s), ${b.verifies} vérifié(s), ${b.erreurs} erreur(s), ${b.frais} frais papier, ${b.purges} numéro(s) purgé(s)`);
-    process.exitCode = b.erreurs > 0 ? 1 : 0;
+    let erreursCourriel = 0;
+    if (config.courriel) {
+      const { ExpediteurBrevo } = await import("./courriel.ts");
+      const n = await notifierAlertesCredits(base, new ExpediteurBrevo(config.courriel), `${config.urlPublique}/tableau/`, (m) => console.log(m));
+      if (n.envoyees + n.erreurs > 0) console.log(`alertes crédits bas : ${n.envoyees} envoyée(s), ${n.erreurs} en échec`);
+      erreursCourriel = n.erreurs;
+    }
+    process.exitCode = b.erreurs + erreursCourriel > 0 ? 1 : 0;
   } finally {
     await base.$disconnect();
   }

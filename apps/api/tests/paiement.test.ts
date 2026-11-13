@@ -351,6 +351,8 @@ test("rechargement : idempotent sur sa référence ; alerte « crédits bas » u
     const v = await vendeur(app, "rechargement", { recharge: 0, prix: 1000 });
     for (let i = 0; i < 3; i++) await sql(URL_ADMIN, "SELECT app.credits_recharger($1, 500, $2)", [v.tenant, `ref-idem-${v.tenant}`]);
     assert.equal(await credits(v.tenant), 500n, "trois appels, un seul rechargement");
+    const alerte = async () => (await app.inject({ method: "GET", url: "/v1/argent/alerte", headers: entetes(v.tenant) })).json();
+    assert.deepEqual(await alerte(), { bas: false, solde_xof: 500, dernier_rechargement_xof: 500 });
     // 1 vente à 1 000 F : commission 100 F, solde 400 F = 80 % : pas d'alerte ; 4 ventes de plus : 0 F.
     for (let i = 0; i < 5; i++) {
       const r = await creer(app, v, "00");
@@ -360,6 +362,33 @@ test("rechargement : idempotent sur sa référence ; alerte « crédits bas » u
     assert.equal(await credits(v.tenant), 0n);
     const a = await sql(URL_ADMIN, "SELECT 1 FROM app.audit_log WHERE tenant_id = $1 AND action = 'alerte_credits_bas'", [v.tenant]);
     assert.equal(a.length, 1);
+    // SPEC §8.2 (migration 0041) : l'alerte parvient au propriétaire : bandeau, puis un e-mail, une seule fois.
+    assert.deepEqual(await alerte(), { bas: true, solde_xof: 0, dernier_rechargement_xof: 500 });
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now() WHERE tenant_id = $1 AND role = 'proprietaire'", [v.tenant]);
+    const [{ email }] = await sql<{ email: string }>(URL_ADMIN, "SELECT email FROM app.utilisateur WHERE tenant_id = $1 AND role = 'proprietaire'", [v.tenant]);
+    const { notifierAlertesCredits } = await import("../src/taches.ts");
+    const { ouvrirBase } = await import("../src/base.ts");
+    const { config } = await import("./aide.ts");
+    const base = ouvrirBase(config().urlBase);
+    try {
+      const pour = async (envoyer: (c: { a: string; sujet: string; texte: string }) => Promise<void>) => {
+        const n = await notifierAlertesCredits(base, { envoyer }, "https://api.test.invalid/tableau/");
+        return n;
+      };
+      const enPanne = await pour(async () => { throw new Error("Brevo injoignable"); });
+      assert.equal(enPanne.erreurs >= 1, true, "échec d'envoi : réessayé au tour suivant");
+      const recus: { a: string; sujet: string; texte: string }[] = [];
+      await pour(async (c) => { recus.push(c); });
+      const miens = recus.filter((c) => c.a === email);
+      assert.equal(miens.length, 1, "un e-mail à l'adresse vérifiée du propriétaire");
+      assert.match(miens[0].sujet, /crédits sont bas/);
+      assert.match(miens[0].texte, /0 F/);
+      const encore: { a: string }[] = [];
+      await pour(async (c) => { encore.push(c); });
+      assert.equal(encore.filter((c) => c.a === email).length, 0, "une seule fois par alerte");
+    } finally {
+      await base.$disconnect();
+    }
   });
 });
 

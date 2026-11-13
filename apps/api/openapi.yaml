@@ -133,6 +133,8 @@ paths:
     get: { summary: "Statistiques par point de vente et par auteur (P ; G : son point de vente ; V : ses lots)", responses: { "200": { description: Statistiques } } }
   /v1/argent/synthese:
     get: { summary: "Ventes, commissions, frais, rechargements, solde de crédits (P) ; ?debut&fin=AAAA-MM-JJ", responses: { "200": { description: Synthèse }, "422": { description: Période invalide } } }
+  /v1/argent/alerte:
+    get: { summary: "Alerte « crédits bas » : solde sous 20 % du dernier rechargement (P ; SPEC §8.2, migration 0041)", responses: { "200": { description: "bas, solde_xof, dernier_rechargement_xof" } } }
   /v1/argent/releve.csv:
     get: { summary: "Relevé CSV (UTF-8 BOM, « ; ») ; numéro masqué seulement (P)", responses: { "200": { description: CSV, content: { text/csv: {} } }, "422": { description: Période invalide } } }
   /v1/argent/releve.pdf:
@@ -212,6 +214,8 @@ paths:
         "404": { description: Routeur inconnu ou d'un autre propriétaire }
         "401": { description: Identité absente ou invalide }
         "403": { description: Propriétaire suspendu }
+  /v1/routers/{id}/entretien:
+    post: { summary: "Nouveau jeton d'entretien (ADR 0023) : rend la ligne du planificateur à coller ; l'ancien cesse de valoir (P)", parameters: [{ name: id, in: path, required: true, schema: { type: string } }], responses: { "200": { description: Ligne RouterOS }, "404": { description: Routeur inconnu, révoqué ou déclaré à la main } } }
   /v1/routers/{id}/uninstall.rsc:
     get:
       summary: Script de désinstallation propre au routeur (valeurs d'origine relevées)
@@ -274,6 +278,15 @@ paths:
   /p/{site}/retrouver:
     get: { summary: Formulaire de récupération, security: [], responses: { "200": { description: Page HTML } } }
     post: { summary: Récupération par numéro et référence (tentatives limitées), security: [], responses: { "303": { description: Trouvé }, "404": { description: Introuvable }, "429": { description: Trop de tentatives } } }
+  /entretien/{jeton}:
+    parameters:
+      - $ref: "#/components/parameters/jeton"
+    get:
+      summary: "Étape 3, entretien (SPEC §6.2, ADR 0023) : script des objets wakatnet, tiré par le planificateur du routeur"
+      security: []
+      responses:
+        "200": { description: Script RouterOS, content: { text/plain: {} } }
+        "404": { description: Jeton inconnu ou routeur révoqué (réponse identique) }
   /enroll/{jeton}:
     parameters:
       - $ref: "#/components/parameters/jeton"

@@ -28,7 +28,7 @@ declare module "fastify" {
 /** Chemin journalisable : le jeton d'enrôlement (ADR 0012 §3) n'apparaît jamais dans un journal, ni la
  *  chaîne de requête (revue de sécurité M5 : page demandée par le client du hotspot, recherches). */
 export function cheminMasque(url: string): string {
-  return url.split("?")[0].replace(/^\/enroll\/[^/?#]*/, "/enroll/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
+  return url.split("?")[0].replace(/^\/(enroll|entretien)\/[^/?#]*/, "/$1/***").replace(/^(\/webhooks\/[^/?#]+)\/[^/?#]*/, "$1/***");
 }
 
 /** Ce qu'on journalise d'une erreur interne (audit du 13/11/2026) : classe, code, code SQLSTATE et nom de la contrainte.

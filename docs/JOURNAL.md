@@ -1268,3 +1268,41 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - l'e2e ne joue l'écran du compte marchand qu'avec pawaPay, pas avec CinetPay ;
   - le format du relevé CinetPay pour le rapprochement ;
   - l'agrément de CinetPay au Burkina (`CONFORMITE.md` §4).
+
+## 13/11/2026 — Manques de la revue Spec corrigés
+
+- **Demande** : « corrige les manquants ». Il s'agit de la revue Spec du dépôt entier (point fixe `8b8928c`), relue par un second agent.
+- **Fait** :
+  - **Walled garden** (§6.2 étape 2, §7.1), qui bloquait le parcours d'achat sur un vrai routeur.
+    - L'étape 2 ouvre le portail aux clients non connectés : HTTPS par l'IP dédiée (`WAKATNET_PORTAIL_IPS`, exigée en production), et HTTP par nom d'hôte.
+    - La désinstallation retire ces entrées.
+  - **Étape 3 « entretien »** (§6.2, ADR 0023, migration 0042).
+    - Un planificateur `wakatnet-entretien` tire toutes les 6 h les objets « wakatnet » à jour, avec un jeton propre au routeur dont seule l'empreinte est gardée.
+    - Le propriétaire peut le désactiver et renouveler le jeton.
+    - Il ne touche jamais l'activation, le CoA ni rien qui ne soit pas marqué « wakatnet ».
+  - **Alerte crédits bas** (§8.2, migration 0041).
+    - Un bandeau s'affiche sur le tableau de bord du propriétaire.
+    - Un e-mail part une fois par alerte, à son adresse vérifiée, depuis la tâche périodique.
+  - **`docs/ARCHITECTURE.md`** (§15 point 4) : l'architecture telle que construite, et ses écarts avec le §4, chacun avec son ADR.
+  - **Tableau G-PILOTE** de `docs/PILOTE.md` : ajout de RouterOS 6 (condition posée par `PLAN.md`) et de l'étape 3 sur CHR.
+- **Relecture de sécurité par un second agent.**
+  - **Défaut grave corrigé avant tout commit** : le planificateur téléchargeait sans `check-certificate=yes`, puis importait avec le droit `policy`. N'importe qui sur le chemin réseau pouvait prendre le routeur.
+  - **Aussi corrigés** :
+    - le secret RADIUS n'est plus servi par l'entretien ;
+    - rotation du jeton ;
+    - nom d'hôte du portail validé au démarrage ;
+    - CoA hors de l'entretien, anciennes IP du portail retirées ;
+    - file des alertes ;
+    - tests renforcés.
+  - **Plausible, non traité** : une IP de portail ouvre aussi l'API par SNI (ADR 0023).
+- **Preuves** (état final) :
+  - `apps/api/tests/run.sh` : 239/239, typage compris ;
+  - `radius/tests/run.sh -k "droits or purge"` : 18 réussis (droits exacts des fonctions 0041 et 0042) ;
+  - `apps/api/tests/e2e.sh` : SUCCÈS, axe-core sans violation sur 14 écrans ;
+  - `WAKATNET_ESSAI_OS=debian13 essai.sh` : SUCCÈS sur les 10 étapes (gabarit nginx modifié) ;
+  - les scripts RouterOS n'ont pas tourné sur CHR (écart R8 ; LABO-14 et le [LABO] de l'ADR 0023).
+- **Non fait, hors de portée du code** :
+  - rechargement des crédits par Mobile Money (§8.2) : il faut un compte marchand de la plateforme, à ouvrir par Telecom Universel ;
+  - garde-fous du mode B (verrouillé, ADR 0014) ;
+  - partitionnement de `session` (ADR 0008) ;
+  - RouterOS 6 (phase 2b, CHR 6.49).

@@ -30,6 +30,8 @@ Garder hors des nœuds, dans un coffre :
 
 Les deux clés vont dans `/etc/wakatnet/api.env` (lu par `wakatnet-api` et `wakatnet-taches`), sur les deux nœuds, avec les **mêmes** valeurs (32 octets en base64, générés par `head -c 32 /dev/urandom | base64`, jamais recopiés dans un ticket ni dans une conversation). En production (`NODE_ENV=production`), l'API **refuse de démarrer** sans `WAKATNET_CLE_HMAC` : sans elle, les IP sources des échecs de connexion et des demandes de paiement seraient gardées en clair (T10 de `docs/CONFORMITE.md`, ADR 0016 §2).
 
+**IP dédiée du portail** (SPEC §7.1, walled garden) : `WAKATNET_PORTAIL_IPS=<IPv4 publique du portail>` dans `/etc/wakatnet/api.env`, sur les deux nœuds ; plusieurs IP se séparent par des virgules (celle de A et celle de B si chacune sert le portail). Elle est inscrite dans le walled garden de chaque routeur à l'enrôlement (HTTPS par IP). Sans elle, un client non connecté n'atteint pas le portail et ne peut rien acheter : en production, l'API **refuse de démarrer** sans elle. Un changement d'IP impose de réenrôler les routeurs, ou d'attendre l'étape 3 d'entretien.
+
 ### Clés B2
 
 Depuis le poste de Yacouba seulement, avec l'outil `b2` (v4) autorisé par la clé maîtresse (`b2 account authorize`, qui la lit au clavier). La clé maîtresse ne va **jamais** sur un nœud ni sur la machine de contrôle. `NOM_DU_BUCKET` est le nom réel du bucket (`pgbackrest_s3_bucket`).

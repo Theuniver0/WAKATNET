@@ -61,6 +61,14 @@ function cle(v: string): string {
   return v;
 }
 
+/** Nom d'hôte DNS (minuscules, étiquettes de 1 à 63 caractères) : jamais de joker ni de chemin. */
+function hoteDns(v: string): string {
+  if (!/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(v) || v.length > 253) {
+    throw new ValeurInterdite(`nom d'hote invalide : ${v}`);
+  }
+  return v;
+}
+
 function port(v: number): number {
   if (!Number.isInteger(v) || v < 1 || v > 65535) throw new ValeurInterdite(`port invalide : ${v}`);
   return v;
@@ -141,26 +149,33 @@ export type Etape2 = {
   secret: string;
   noeuds: Noeud[];
   inventaire: Inventaire;
+  /** Portail de paiement, joignable AVANT connexion (walled garden, SPEC §6.2 étape 2 et §7.1) : nom d'hôte, et IP
+   *  dédiées (WAKATNET_PORTAIL_IPS) qui autorisent le HTTPS sans dépendre du nom d'hôte (LABO-14). */
+  portail: { hote: string; ips: string[] };
+  /** Étape 3 (ADR 0023) : URL d'entretien propre au routeur (jeton compris) ; absente, aucun script planifié. */
+  urlEntretien?: string;
 };
 
-/** Étape 2 : pairs, adresse, routes, /radius, pare-feu, preuve du tunnel, puis activation. */
-export function etape2(e: Etape2): string {
-  const moi = ip(e.overlayIp);
-  const coa = port(e.inventaire.coa_port);
-  const lp = port(e.inventaire.listen_port);
-  if (!/^[A-Za-z0-9]{32}$/.test(e.secret)) throw new ValeurInterdite("secret RADIUS de forme inattendue");
-  if (e.noeuds.length === 0) throw new ValeurInterdite("aucun noeud configure");
+/** Ce que l'entretien (étape 3, ADR 0023) regénère : tout sauf l'inventaire, la preuve du tunnel et l'activation. */
+/** Le secret RADIUS n'en fait PAS partie (relecture de sécurité n° 7) : le script le relit sur le routeur, il ne
+ *  voyage jamais par l'URL d'entretien. */
+export type Entretien = Omit<Etape2, "inventaire" | "urlEntretien" | "secret"> & { coaPort: number; listenPort: number };
 
+/** Objets marqués « wakatnet », créés s'ils manquent, remis à jour s'ils existent (nouvelle IP d'un nœud, nouveau
+ *  nœud, IP du portail) : commun à l'étape 2 et à l'entretien. Additif : rien d'autre n'est touché ni réordonné. */
+/** `secret` : la valeur (étape 2) ou null (entretien : variable $wkSecret, relue sur le routeur). */
+function blocsWakatnet(e: Omit<Entretien, "coaPort" | "listenPort">, secret: string | null, coa: number, lp: number): string[] {
+  const moi = ip(e.overlayIp);
+  if (secret !== null && !/^[A-Za-z0-9]{32}$/.test(secret)) throw new ValeurInterdite("secret RADIUS de forme inattendue");
+  if (e.noeuds.length === 0) throw new ValeurInterdite("aucun noeud configure");
+  const valeurSecret = secret === null ? "$wkSecret" : chaine(secret);
   const lignes: string[] = [];
   const marque = (n: Noeud) => chaine(`wakatnet noeud ${n.nom}`);
-
-  lignes.push(`# WAKATNET - enrolement, etape 2 : configuration de ${moi}.`);
-  lignes.push(`# Contient le secret RADIUS du routeur : ce fichier se supprime lui-meme a la fin.`);
-  lignes.push(`{`);
-  lignes.push(`# --- Pairs WireGuard (un par noeud) ---`);
+  lignes.push(`# --- Pairs WireGuard (un par noeud) ; IP ou port d'un noeud deplace : mis a jour ---`);
   for (const n of e.noeuds) {
     const k = chaine(cle(n.cle));
-    lignes.push(`:if ([:len [/interface wireguard peers find where interface="wg-wakatnet" public-key=${k}]] = 0) do={ /interface wireguard peers add interface="wg-wakatnet" public-key=${k} endpoint-address=${ip(n.endpoint)} endpoint-port=${port(n.port)} allowed-address=${ip(n.overlay)}/32 persistent-keepalive=25s comment=${marque(n)} }`);
+    const attributs = `endpoint-address=${ip(n.endpoint)} endpoint-port=${port(n.port)} allowed-address=${ip(n.overlay)}/32`;
+    lignes.push(`:if ([:len [/interface wireguard peers find where interface="wg-wakatnet" public-key=${k}]] = 0) do={ /interface wireguard peers add interface="wg-wakatnet" public-key=${k} ${attributs} persistent-keepalive=25s comment=${marque(n)} } else={ /interface wireguard peers set [find where interface="wg-wakatnet" public-key=${k}] ${attributs} }`);
   }
   lignes.push(`# --- Adresse du routeur dans le tunnel, routes vers les noeuds ---`);
   lignes.push(`:if ([:len [/ip address find where address="${moi}/32" interface="wg-wakatnet"]] = 0) do={ /ip address add address=${moi}/32 interface="wg-wakatnet" comment="wakatnet adresse du tunnel" }`);
@@ -170,9 +185,8 @@ export function etape2(e: Etape2): string {
   lignes.push(`# --- Serveurs RADIUS : l'ordre fait la priorite (A, puis B) ---`);
   for (const n of e.noeuds) {
     const o = ip(n.overlay);
-    lignes.push(`:if ([:len [/radius find where address=${o} comment~"^wakatnet"]] = 0) do={ /radius add service=hotspot address=${o} src-address=${moi} secret=${chaine(e.secret)} timeout=3s require-message-auth=yes-for-request-resp comment=${marque(n)} } else={ /radius set [find where address=${o} comment~"^wakatnet"] service=hotspot src-address=${moi} secret=${chaine(e.secret)} }`);
+    lignes.push(`:if ([:len [/radius find where address=${o} comment~"^wakatnet"]] = 0) do={ /radius add service=hotspot address=${o} src-address=${moi} secret=${valeurSecret} timeout=3s require-message-auth=yes-for-request-resp comment=${marque(n)} } else={ /radius set [find where address=${o} comment~"^wakatnet"] service=hotspot src-address=${moi} secret=${valeurSecret} }`);
   }
-  lignes.push(`/radius incoming set accept=yes`);
   lignes.push(`# --- Pare-feu : insertion EN TETE de la chaine input, sans reordonner l'existant (ADR 0012 section 9) ---`);
   const regles: string[] = [];
   for (const n of e.noeuds) {
@@ -184,8 +198,42 @@ export function etape2(e: Etape2): string {
   }
   for (const r of regles) {
     const commentaire = /comment=("(?:[^"\\]|\\.)*")$/.exec(r)![1];
-    lignes.push(`:if ([:len [/ip firewall filter find where comment=${commentaire}]] = 0) do={ :local tete [/ip firewall filter find where chain=input dynamic=no]; :if ([:len $tete] > 0) do={ /ip firewall filter add ${r} place-before=[:pick $tete 0] } else={ /ip firewall filter add ${r} } }`);
+    const sansCommentaire = r.slice(0, r.length - `comment=${commentaire}`.length).trim();
+    lignes.push(`:if ([:len [/ip firewall filter find where comment=${commentaire}]] = 0) do={ :local tete [/ip firewall filter find where chain=input dynamic=no]; :if ([:len $tete] > 0) do={ /ip firewall filter add ${r} place-before=[:pick $tete 0] } else={ /ip firewall filter add ${r} } } else={ /ip firewall filter set [find where comment=${commentaire}] ${sansCommentaire} }`);
   }
+  lignes.push(`# --- Walled garden : le portail de paiement, joignable AVANT connexion (SPEC section 6.2, 7.1) ---`);
+  // HTTPS : par l'IP dédiée du portail (le nom d'hôte n'est pas lisible dans TLS ; LABO-14). HTTP : par nom d'hôte,
+  // pour la redirection vers HTTPS. Additif : rien d'existant n'est modifié ; retiré à la désinstallation.
+  const hote = hoteDns(e.portail.hote);
+  lignes.push(`:if ([:len [/ip hotspot walled-garden find where comment="wakatnet portail http"]] = 0) do={ /ip hotspot walled-garden add dst-host=${chaine(hote)} action=allow comment="wakatnet portail http" } else={ /ip hotspot walled-garden set [find where comment="wakatnet portail http"] dst-host=${chaine(hote)} action=allow }`);
+  for (const a of e.portail.ips) {
+    const c = chaine(`wakatnet portail ${ip(a)}`);
+    lignes.push(`:if ([:len [/ip hotspot walled-garden ip find where comment=${c}]] = 0) do={ /ip hotspot walled-garden ip add action=accept dst-address=${ip(a)} protocol=tcp dst-port=443 comment=${c} }`);
+  }
+  // Relecture de sécurité n° 5 : une ancienne IP du portail ne reste pas ouverte avant connexion. Seules les entrées
+  // « wakatnet portail <ip> » sont retirées, et jamais toutes (liste vide : rien n'est retiré).
+  if (e.portail.ips.length > 0) {
+    const garder = e.portail.ips.map((a) => `$c != ${chaine(`wakatnet portail ${ip(a)}`)}`).join(" && ");
+    lignes.push(`:foreach i in=[/ip hotspot walled-garden ip find where comment~"^wakatnet portail "] do={ :local c [/ip hotspot walled-garden ip get $i comment]; :if (${garder}) do={ /ip hotspot walled-garden ip remove $i } }`);
+  }
+  return lignes;
+}
+
+/** Étape 2 : pairs, adresse, routes, /radius, pare-feu, preuve du tunnel, puis activation. */
+export function etape2(e: Etape2): string {
+  const moi = ip(e.overlayIp);
+  const coa = port(e.inventaire.coa_port);
+  const lp = port(e.inventaire.listen_port);
+  if (!/^[A-Za-z0-9]{32}$/.test(e.secret)) throw new ValeurInterdite("secret RADIUS de forme inattendue");
+  if (e.noeuds.length === 0) throw new ValeurInterdite("aucun noeud configure");
+
+  const lignes: string[] = [];
+  lignes.push(`# WAKATNET - enrolement, etape 2 : configuration de ${moi}.`);
+  lignes.push(`# Contient le secret RADIUS du routeur : ce fichier se supprime lui-meme a la fin.`);
+  lignes.push(`{`);
+  lignes.push(...blocsWakatnet(e, e.secret, coa, lp));
+  // CoA accepté : posé à l'étape 2 seulement ; l'entretien ne le réactive pas (relecture de sécurité n° 5).
+  lignes.push(`/radius incoming set accept=yes`);
   lignes.push(`# --- Preuve du tunnel : chaque noeud repond au ping A TRAVERS wg-wakatnet (donc handshake fait) ---`);
   lignes.push(`:local ok false`);
   lignes.push(`:for i from=1 to=15 do={`);
@@ -198,12 +246,47 @@ export function etape2(e: Etape2): string {
   lignes.push(`  }`);
   lignes.push(`}`);
   lignes.push(`:if (!$ok) do={ :error "WAKATNET : le tunnel vers la plateforme ne repond pas. Le hotspot n'a PAS ete modifie. Verifiez que le routeur peut envoyer de l'UDP vers ${e.noeuds.map((n) => `${n.endpoint}:${n.port}`).join(", ")}, puis relancez : /import file-name=wakatnet-etape2.rsc" }`);
+  if (e.urlEntretien !== undefined) {
+    lignes.push(`# --- Etape 3 (entretien) : configuration WAKATNET tiree toutes les 6 h ; desactivable : /system scheduler disable wakatnet-entretien ---`);
+    lignes.push(...planificateur(e.urlEntretien));
+  }
   lignes.push(`# --- Activation, en dernier (R5) ---`);
   for (const h of e.inventaire.hotspots) {
     lignes.push(`/ip hotspot profile set [find where name=${chaine(h.profil)}] use-radius=yes radius-accounting=yes radius-interim-update=received`);
   }
   lignes.push(`/file remove [find where name="wakatnet-etape2.rsc"]`);
   lignes.push(`:put "WAKATNET : routeur enrole, adresse ${moi}. Les utilisateurs locaux existants restent valables."`);
+  lignes.push(`}`);
+  return lignes.join("\n") + "\n";
+}
+
+/** Script planifié de l'étape 3 (ADR 0023). Un échec (réseau, 404 d'un routeur révoqué) ne change rien sur le routeur.
+ *  Un planificateur existant n'est pas réactivé : s'il a été désactivé par le propriétaire, il le reste. */
+export function planificateur(url: string): string[] {
+  if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?\/entretien\/[A-Za-z0-9_-]{43}$/.test(url)) throw new ValeurInterdite("URL d'entretien invalide");
+  // check-certificate=yes : sans lui, quiconque est sur le chemin réseau servirait le script importé (relecture de
+  // sécurité n° 1, SPEC §6.2 exigence 6). Pas de droit « policy » : rien dans l'entretien ne touche aux utilisateurs.
+  const evenement = `:do { /tool fetch url="${url}" check-certificate=yes dst-path="wakatnet-entretien.rsc"; /import file-name="wakatnet-entretien.rsc" verbose=no } `
+    + `on-error={ :log warning "wakatnet : entretien indisponible, configuration inchangee" }; `
+    + `:do { /file remove [find where name="wakatnet-entretien.rsc"] } on-error={}`;
+  const e = chaine(evenement);
+  return [`:if ([:len [/system scheduler find where name="wakatnet-entretien"]] = 0) do={ /system scheduler add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive on-event=${e} comment="wakatnet entretien (desactivable)" } else={ /system scheduler set [find where name="wakatnet-entretien"] interval=6h on-event=${e} }`];
+}
+
+/** Étape 3, entretien (SPEC §6.2, ADR 0023) : regénère les objets « wakatnet » ; jamais l'activation ni l'inventaire.
+ *  Aucun secret dans le fichier : le secret RADIUS est relu sur le routeur (relecture de sécurité n° 7). Le fichier se
+ *  supprime lui-même, et le planificateur le retire aussi. */
+export function entretien(e: Entretien): string {
+  const coa = port(e.coaPort);
+  const lp = port(e.listenPort);
+  const lignes = [`# WAKATNET - entretien (etape 3) de ${ip(e.overlayIp)} : objets wakatnet seulement.`, `{`];
+  // Secret RADIUS relu sur le routeur (droit « sensitive » du planificateur) : il ne voyage jamais par l'entretien.
+  lignes.push(`:local wkSecret ""`);
+  lignes.push(`:do { :set wkSecret [/radius get [:pick [/radius find where comment~"^wakatnet"] 0] secret] } on-error={}`);
+  lignes.push(`:if ([:len $wkSecret] = 0) do={ :error "WAKATNET : entretien impossible, aucun serveur RADIUS wakatnet sur ce routeur. Rien n'a ete modifie." }`);
+  lignes.push(...blocsWakatnet(e, null, coa, lp));
+  lignes.push(`/file remove [find where name="wakatnet-entretien.rsc"]`);
+  lignes.push(`:log info "wakatnet : entretien applique"`);
   lignes.push(`}`);
   return lignes.join("\n") + "\n";
 }
@@ -223,7 +306,10 @@ export function desinstallation(inventaire: Inventaire): string {
     lignes.push(`:if ([:len [/ip hotspot profile find where name=${chaine(h.profil)}]] > 0) do={ /ip hotspot profile set [find where name=${chaine(h.profil)}] use-radius=${h.use_radius ? "yes" : "no"} radius-accounting=${h.radius_accounting ? "yes" : "no"} radius-interim-update=${interim} }`);
   }
   lignes.push(`/radius incoming set accept=${inventaire.coa_accept ? "yes" : "no"}`);
+  lignes.push(`/system scheduler remove [find where comment~"^wakatnet"]`);
   lignes.push(`/radius remove [find where comment~"^wakatnet"]`);
+  lignes.push(`/ip hotspot walled-garden remove [find where comment~"^wakatnet"]`);
+  lignes.push(`/ip hotspot walled-garden ip remove [find where comment~"^wakatnet"]`);
   lignes.push(`/ip firewall filter remove [find where comment~"^wakatnet"]`);
   lignes.push(`/ip route remove [find where comment~"^wakatnet"]`);
   lignes.push(`/ip address remove [find where comment~"^wakatnet"]`);

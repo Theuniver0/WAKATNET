@@ -33,6 +33,8 @@
 | LABO-16 et LABO-09 sur CHR : bascule réelle d'un routeur vers B, `timeout` | Non fait | Yacouba |
 | **B chez un second hébergeur**, T13 rejoué, promotion rejouée (ADR 0004 §3) | Non fait | Yacouba |
 | Scripts RouterOS joués sur CHR, sur un routeur vierge **et** sur un routeur déjà configuré (§13, règle 6) | Non fait (`docs/AUDIT_SCRIPTS_ROUTEROS.md`) | Yacouba |
+| Scripts RouterOS joués sur CHR, étape 3 comprise (entretien, walled garden du portail, LABO-14 ; ADR 0023) | Non fait | Yacouba |
+| **RouterOS 6** (phase 2b, ADR 0003) : tunnel choisi au labo, script v6, matrice T sur 6.49.x — condition posée par `docs/PLAN.md` | Non fait (non codé) ; sinon, n'enrôler au pilote que des routeurs en RouterOS ≥ 7.15 | Yacouba |
 | Décisions de la revue de sécurité : quotas d'enrôlement et vérification de l'adresse (M4) | Fait (ADR 0017) ; fournisseur d'e-mail décidé (ADR 0019, Brevo) : compte, domaine expéditeur et clé à créer | Yacouba |
 | Fournisseur S3 avec verrouillage (M8) | Décidé (ADR 0018 : Backblaze B2, conformité 30 jours), prouvé au banc ; compte, bucket et exercice d'effacement sur B2 à faire | Yacouba |
 
