@@ -122,7 +122,7 @@ export function construire(config: Config, base: Base,
   });
 
   // Super-admin : rôle ET double authentification validée dans la session (ADR 0014 §3, §4).
-  routesAdmin(app, base);
+  routesAdmin(app, base, `${config.urlPublique}/tableau/`);
 
   // Routes du routeur : le jeton d'enrôlement tient lieu d'identité (ADR 0012 §7).
   app.register(async (routeur) => routesRouteur(routeur, config, base));

@@ -1306,3 +1306,44 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - garde-fous du mode B (verrouillé, ADR 0014) ;
   - partitionnement de `session` (ADR 0008) ;
   - RouterOS 6 (phase 2b, CHR 6.49).
+
+## 13/11/2026 — Failles du scan de sécurité corrigées (F1 à F6)
+
+- **Demande** : « corrige les failles trouvées » (scan `/claude-security`, dépôt entier, 6 constats vérifiés).
+- **Fait** : détail et preuves dans `docs/REVUE_SECURITE.md` §5.
+  - Migrations 0043 (F2), 0044 (F3) et 0045 (F5, F6).
+  - `pdf.ts` (F1) ; `essai-restauration.sh` (F4).
+  - Confirmation avec choix du mot de passe : API, tableau de bord, administration.
+  - Addendum de l'ADR 0011 ; `MISE_EN_PRODUCTION.md` (lien de confirmation remis par le super-admin).
+- **Relecture par un second agent (règle 4)**. Elle a renversé F4 : les catalogues de la sauvegarde exécutaient encore du code. Elle a corrigé F3 : test invalide, ticket de 8 chiffres jugé sûr, déni de service possible. Elle a aussi relevé une régression de F2 (purge) et le message faux de F5/F6. Tout est repris, voir `REVUE_SECURITE.md` §5.
+- **Preuves** :
+  - **F1** : 0,25 ms au lieu de plus de 20 s (mesure isolée), et un test.
+  - **F4**, par `infra/noeud/essais/sauvegarde.sh` (code 0) :
+    - le piège de `pg_catalog` s'exécute sous `wakatnet-essai`, sans rien atteindre ;
+    - contre-épreuve 1, l'ancien script : le piège tourne en `postgres` et **crée une table dans la base vivante** ;
+    - contre-épreuve 2, pg_hba en `trust` : le nouveau script refuse de tourner (code 1).
+  - **Suites** : résultats dans le message de commit.
+- **Reste à trancher par Yacouba** :
+  - F6 : enregistrer la référence de l'opérateur ;
+  - F3 : réémettre les tickets importés, ou limiter sur le routeur (option 3) ;
+  - F4 : un essai sur une machine jetable.
+
+  Rien n'a été exécuté sur un CHR ni sur un nœud réel. Ni Ansible ni l'unité modifiée n'ont été rejoués sur systemd : banc nocturne.
+
+## 13/11/2026 — Points ouverts du scan corrigés (F3 budget horaire, F4 espaces de noms et ressources)
+
+- **Demande** : « corrige les manquants ». Décisions demandées : F3, budget horaire ; F6, garder le refus.
+- **Fait** :
+  - migrations 0046 (budget, `forme_faible`, `post_auth`, alerte `budget_routeur` ; idempotente, car le test de rejeu de 0012 la rejoue) et 0047 (index `CONCURRENTLY`). La 0044, déjà poussée, n'est pas modifiée ;
+  - essai de restauration : espaces de noms, masquages, contrôle de place ;
+  - unité systemd (capacités, ressources) ;
+  - banc (`--privileged`, piège réseau).
+
+  Détail dans `docs/REVUE_SECURITE.md` §5.
+- **Preuves** : banc de sauvegarde vert (piège sans réseau, sous `wakatnet-essai`) et trois contre-épreuves :
+  - l'ancien script : réseau ouvert et table créée dans la base vivante ;
+  - pg_hba en `trust` : refus ;
+  - sans espaces de noms : refus.
+
+  Suites API, RADIUS et e2e : résultats dans le message de commit.
+- **Reste** : restauration sous un troisième utilisateur ; disque dédié à l'essai ; première nuit du banc Ansible à surveiller (unité et rôle sur systemd) ; réémission des tickets Mikhmon.

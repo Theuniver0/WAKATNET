@@ -61,10 +61,11 @@ test("réglage : WAKATNET_COURRIEL=brevo exige une clé valable et une adresse d
   assert.throws(() => lireConfig({ ...base, WAKATNET_COURRIEL: "brevo", WAKATNET_BREVO_CLE: CLE, WAKATNET_COURRIEL_DE: "pas une adresse" }), /WAKATNET_COURRIEL_DE/);
 });
 
-test("audit 13/11/2026 (3) : avis « compte en attente » — mot de passe de la dernière demande, aucun lien, renvoi depuis l'écran de connexion", () => {
+test("avis « compte en attente » (F2) : rien n'est modifié, mot de passe choisi à la confirmation, aucun lien, renvoi depuis l'écran de connexion", () => {
   const m = messageAttente("proprio@exemple.bf", "https://api.exemple.bf/tableau/");
   assert.equal(m.a, "proprio@exemple.bf");
   assert.doesNotMatch(m.texte, /verifier\?j=/, "aucun lien de confirmation dans l'avis");
   assert.match(m.texte, /https:\/\/api\.exemple\.bf\/tableau\/#\/connexion/);
-  assert.match(m.texte, /dernière demande/);
+  assert.match(m.texte, /choisirez votre mot de passe au moment de confirmer/);
+  assert.doesNotMatch(m.texte, /dernière demande/);
 });

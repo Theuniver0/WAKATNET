@@ -67,6 +67,7 @@ La réplique copie aussi les erreurs : un `DELETE` malheureux, ou un déclencheu
   - Le transport S3 n'est **pas prouvé ici** : il le sera sur le nœud.
 - **Essai de restauration mensuel, automatisé** (`infra/noeud/essai-restauration.sh`, minuterie systemd) :
   - restaure la dernière sauvegarde dans un répertoire temporaire, sur un port local ;
+  - **depuis le scan de sécurité du 13/11/2026 (F4)**, l'instance restaurée tourne sous l'utilisateur sans droits `wakatnet-essai`, et non plus sous `postgres`. Démarrer une sauvegarde, c'est exécuter son code, et le dépôt est accessible en écriture à l'autre nœud. Détail dans `docs/REVUE_SECURITE.md` §5 ;
   - démarre l'instance et contrôle quatre points :
     - les empreintes des migrations (`schema_migrations`) ;
     - l'équilibre du grand livre (chaque transaction équilibrée, solde global nul) ;

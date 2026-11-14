@@ -156,6 +156,44 @@ test("retrouver depuis un AUTRE appareil : numéro + 4 derniers caractères ; te
   });
 });
 
+test("scan de sécurité F5/F6 (migration 0045) : jamais pour pawaPay ni CinetPay ; plafond dur de 10 échecs par numéro sur 24 h, quel que soit l'appareil", async () => {
+  await avecApp(async (app) => {
+    const v = await vendeur(app, "portail retrouver durci");
+    const acheter = async (num: string) => {
+      const f = await app.inject({ url: `/p/${v.publicId}/payer?plan=${v.plan}` });
+      const soumission = /name="soumission" value="([A-Za-z0-9_-]+)"/.exec(f.body)![1];
+      const r0 = await app.inject({ method: "POST", url: `/p/${v.publicId}/payer`, headers: { cookie: cookieDe(f), "content-type": "application/x-www-form-urlencoded" },
+        payload: new URLSearchParams({ plan: v.plan, soumission, operateur: "moov_bf", numero: num }).toString() });
+      const ref = /\/achat\/(wk_[A-Za-z0-9_-]{22})/.exec(String(r0.headers.location))![1];
+      await attendreStatut(ref, "SUCCEEDED");
+      const [{ rf }] = await sql<{ rf: string }>(URL_ADMIN, "SELECT reference_fournisseur AS rf FROM app.payment WHERE reference = $1", [ref]);
+      return rf;
+    };
+    // Sans cookie : un jeton d'appareil neuf à chaque requête (ce que fait un attaquant).
+    const essayer = (num: string, suf: string) => app.inject({ method: "POST", url: `/p/${v.publicId}/retrouver`,
+      headers: { "content-type": "application/x-www-form-urlencoded" }, payload: `numero=${num}&suffixe=${suf}` });
+    // 1. Paiement pawaPay : la référence (depositId) n'est pas remise au client ; même le bon suffixe ne le rend pas.
+    const n1 = numero("00");
+    const rf1 = await acheter(n1);
+    await sql(URL_ADMIN, "UPDATE app.payment SET fournisseur = 'pawapay' WHERE reference_fournisseur = $1", [rf1]);
+    assert.equal((await essayer(n1, rf1.slice(-4))).statusCode, 404, "pawaPay : jamais retrouvable par le suffixe");
+    const n3 = numero("00");
+    const rf3 = await acheter(n3);
+    await sql(URL_ADMIN, "UPDATE app.payment SET fournisseur = 'cinetpay' WHERE reference_fournisseur = $1", [rf3]);
+    assert.equal((await essayer(n3, rf3.slice(-4))).statusCode, 404, "CinetPay : jamais retrouvable par le suffixe");
+    // 2. Plafond dur : 10 échecs du numéro dans les 24 h (au-delà des 15 min) bloquent, même le bon suffixe.
+    const n2 = numero("00");
+    const rf2 = await acheter(n2);
+    await sql(URL_ADMIN, `INSERT INTO app.recuperation_tentative (site_id, numero_hmac, jeton, reussie, le)
+                          SELECT p.site_id, p.numero_hmac, gen_random_bytes(32), false, now() - interval '2 hours'
+                            FROM app.payment p, generate_series(1, 10) WHERE p.reference_fournisseur = $1`, [rf2]);
+    assert.equal((await essayer(n2, rf2.slice(-4))).statusCode, 429, "10 échecs en 24 h : bloqué, quel que soit l'appareil");
+    await sql(URL_ADMIN, `UPDATE app.recuperation_tentative t SET le = now() - interval '25 hours'
+                            FROM app.payment p WHERE p.reference_fournisseur = $1 AND t.numero_hmac = p.numero_hmac`, [rf2]);
+    assert.equal((await essayer(n2, rf2.slice(-4))).statusCode, 303, "après 24 h : de nouveau possible");
+  });
+});
+
 test("« J'ai un ticket » : majuscules, redirection vers le hotspot ; lien suspect → code affiché seulement", async () => {
   await avecApp(async (app) => {
     const v = await vendeur(app, "portail ticket");

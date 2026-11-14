@@ -141,3 +141,116 @@ Remarques sans scénario réaliste, notées sans suite immédiate :
   - réinitialisation des compteurs à minuit UTC ;
   - détournement du point de terminaison WireGuard par un acteur placé sur le chemin (documenté) ;
   - blocage de « J'ai payé » par un voisin qui connaît le numéro (portail, antérieur à f8e350d). **Laissé exprès** : le plafond de 5 essais par numéro et par quart d'heure est l'anti-devinette du suffixe à 4 caractères (65 536 possibilités), soit environ 5 % de chances sur les 7 jours de validité. Le budget par source proposé (avec un plafond de 20 par numéro) porterait ce risque de vol de ticket à environ 20 %. Le blocage, lui, ne fait perdre aucun argent : le code reste sur l'appareil d'achat. L'arbitrage revient à Yacouba.
+
+## 5. Scan de sécurité du 13/11/2026 (dépôt entier, révision 5a76760)
+
+Scan automatisé par plusieurs agents, chaque constat contre-vérifié par un panel indépendant. Six constats ont survécu, tous corrigés dans le même lot. Le rapport brut (`CLAUDE-SECURITY-20261113-204422/`) reste hors du dépôt.
+
+| # | Gravité | Constat | Correctif | Preuve |
+|---|---|---|---|---|
+| F1 | moyenne | `tronquer()` était quadratique. Un propriétaire pouvait bloquer l'API (un seul fil) avec un long nom de site sur une planche PDF. | Entrée bornée à 1 000 caractères, une seule passe, en-tête calculé une fois par planche (`pdf.ts`). | `exploitation.test.ts` « scan de sécurité F1 » ; mesure : 0,25 ms contre plus de 20 s avant |
+| F2 | moyenne | Une inscription non authentifiée remplaçait le mot de passe d'un compte en attente. La confirmation ou la validation par le super-admin activait ensuite le mot de passe de l'attaquant. | Migration 0043 : une inscription ne change jamais le mot de passe. Il se **choisit à la confirmation** (`app.verification_confirmer`). La validation par le super-admin rend un lien à remettre après vérification d'identité (`MISE_EN_PRODUCTION.md`). | `auth.test.ts` « scan de sécurité F2 », `quota.test.ts`, e2e `tableau.ts` |
+| F3 | moyenne | Le blocage anti-devinette porte sur la MAC, choisie par le client ; le seuil par routeur ne faisait qu'alerter. | Migration 0044, addendum de l'ADR 0011 : sous alerte `echecs_routeur`, les codes de **forme faible** sont refusés sur ce routeur quelle que soit la MAC. Forme faible : hors forme de la plateforme, ou tout en chiffres. **Partiel**, voir plus bas. | `test_t07_sql.py::test_f3_…` : chaîne réelle, 100 échecs de 100 MAC, alerte, refus |
+| F4 | moyenne | L'essai mensuel de restauration démarrait, en `postgres` sur le primaire, une grappe venue du dépôt de sauvegardes partagé : l'autre nœud pouvait y faire exécuter du code, avec un accès superutilisateur à la base vivante. | `essai-restauration.sh` en root. La restauration et les WAL sont tirés sous `postgres`, avant le démarrage. L'instance restaurée tourne sous l'utilisateur dédié **`wakatnet-essai`** : le pg_hba vivant ne lui accorde rien, `/etc/pgbackrest` lui est fermé, et les deux points sont **vérifiés à chaque essai**. Ses réponses sont filtrées par motif ; le JSON est construit par python ; les tablespaces sont replacés dans l'essai. | `infra/noeud/essais/sauvegarde.sh`, étape « Sauvegarde piégée » : une fonction de `pg_catalog` piégée s'exécute bien (témoin positif), sous `wakatnet-essai`, et n'atteint rien. Contre-épreuves : l'ancien script crée une table dans la base vivante ; avec un pg_hba en `trust`, le nouveau refuse de tourner |
+| F5 | faible | La limite par appareil de « J'ai payé » reposait sur un jeton choisi par le client. | Migration 0045 : plafond dur de 10 échecs par (site, numéro) sur 24 h. | `portail.test.ts` « scan de sécurité F5/F6 » |
+| F6 | faible | Le suffixe de 4 caractères était comparé à la référence du **fournisseur** (pawaPay : hexadécimal, 65 536 valeurs), que le client ne reçoit pas. | Migration 0045 : **liste blanche** des fournisseurs, réduite aujourd'hui au simulateur. pawaPay et CinetPay sont refusés tant que la référence de l'**opérateur** (ADR 0013) n'est pas enregistrée. | même test (pawaPay et CinetPay) |
+
+**Conséquences à connaître**
+
+- **F2** : le formulaire de confirmation demande désormais le mot de passe. Un propriétaire inscrit avant la migration et non confirmé choisit son mot de passe en cliquant sur son lien ; le mot de passe donné à l'inscription ne vaut plus.
+- **F3** : pendant une attaque, les tickets Mikhmon courts sont refusés sur le routeur visé, au plus 5 minutes après la dernière rafale.
+- **F6** : avec pawaPay et CinetPay, « J'ai payé mais je n'ai pas mon ticket » répond « introuvable » jusqu'à ce que la référence opérateur soit enregistrée. Le client garde son ticket sur l'appareil d'achat ; sinon, c'est le support (recherche par le propriétaire). **À trancher par Yacouba** : enregistrer la référence opérateur dans les adaptateurs, ou garder ce refus.
+
+**Relecture des correctifs (règle 4, second agent, 13/11/2026)**. Elle a renversé deux correctifs de la première version ; tout ce qui suit a été repris :
+
+- **F4 n'était pas fermée.** La première version imposait la configuration, mais les catalogues restaurés restent à la sauvegarde : une fonction de `pg_catalog` piégée s'exécutait en `postgres`. Le banc ne le voyait pas, puisqu'il n'avait pas de piège de catalogue ni de témoin positif. D'où l'utilisateur isolé, et le piège de catalogue ajouté au banc.
+- **F3** :
+  - le test violait la contrainte de forme des tickets, et le voilà réécrit sur la chaîne réelle ;
+  - un ticket Mikhmon de 8 chiffres passait pour sûr, d'où le critère de forme.
+- **F2** : la purge des comptes non confirmés de plus de 7 jours pouvait tuer le lien remis par le super-admin. Un compte validé par le super-admin n'est plus purgé (test dans `quota.test.ts`). « Un lien ouvert » ne convenait pas : un tiers en rouvrirait sans fin par `/renvoyer`, et l'adresse ne serait jamais libérée (test existant de l'ADR 0019).
+- **F5/F6** :
+  - la liste noire devient une liste blanche ;
+  - le message « patientez 15 minutes » était faux face au plafond de 24 h ;
+  - CinetPay est maintenant testé.
+
+**Reste ouvert, à trancher par Yacouba**
+
+- **F3, devinette sous le seuil.** Un attaquant qui reste sous 100 échecs par minute, en changeant de MAC, ne déclenche jamais l'alerte : environ 140 000 essais par jour et par routeur. Un stock Mikhmon de 4 à 6 chiffres tombe donc en quelques heures au plus. Aucune limite de débit compatible avec le service ne protège un code de 10 000 valeurs. Les vraies parades :
+  - réémettre les tickets importés en codes de la plateforme ;
+  - ou limiter sur le routeur (option 3 de l'ADR 0011).
+- **F3, déni de service.** Un client qui entretient l'alerte (100 codes inventés par minute) bloque les tickets importés du routeur pour tous. C'est le prix de la règle ; les codes de la plateforme ne sont pas touchés. Nœud B en réplique : aucune protection (ADR 0011).
+- **F4** : l'essai sur une machine jetable, hors des nœuds (ADR 0018), reste la meilleure option. L'instance isolée garde le réseau et peut joindre les services locaux, comme tout utilisateur sans droits.
+- **F6** : enregistrer la référence de l'opérateur dans les adaptateurs, ou garder le refus.
+- **F2, mineur** : le mot de passe saisi à l'inscription ne sert plus. Le retirer du formulaire est une décision d'interface.
+
+**Seconde relecture des correctifs (13/11/2026)**
+
+- **Verdict** : F4 tient pour l'essentiel. Le code de la sauvegarde ne s'exécute plus en `postgres`, aucune sortie de l'instance n'est interprétée par le shell root, `chown -R` et `rm -rf` ne suivent pas les liens, et les capacités de l'unité suffisent. F3 n'a pas d'oracle (`upper()` en tête) et son test est valide. Pas de régression bloquante sur F2, F5 et F6.
+- **Corrigés aussitôt** :
+  - les sessions d'un compte sont closes quand il confirme son adresse et pose son mot de passe ;
+  - le test F2 compare l'empreinte du mot de passe avant et après la seconde inscription ;
+  - l'utilisateur isolé n'a aucun groupe secondaire (`--clear-groups`), et l'essai vérifie qu'il ne lit pas `/etc/wakatnet` ;
+  - le journal de l'instance est lu sous l'utilisateur isolé.
+- **Ouverts, avec leur suite recommandée** :
+  - **F3, attaque lente** : sous 100 échecs par minute, avec des MAC tournantes, jamais d'alerte (déjà noté plus haut). Suite : un budget bas d'échecs de forme faible par routeur sur une heure (par exemple 30), écrit par `post_auth`. Sous attaque, un ticket importé trouvé reçoit la même réponse qu'un code inconnu, ce qui couvre aussi les préfixes Mikhmon. **À décider avec la réémission des tickets importés.**
+  - **F4, réseau et sockets locales** : l'instance isolée joint l'API en direct sur 127.0.0.1:3000, où elle peut forger `X-Forwarded-For` et sauter les limites de nginx. Elle peut aussi deviner les mots de passe des rôles PostgreSQL, ou joindre l'autre nœud et Internet. Suite : la lancer sous `unshare --net`, ou une règle nftables `meta skuid wakatnet-essai reject` dans le rôle parefeu.
+  - **F4, ressources** : une sauvegarde énorme, ou du code isolé, peut remplir le disque du primaire ou mobiliser sa mémoire. Suite :
+    - `MemoryMax`, `TasksMax` et `OOMScoreAdjust` dans l'unité ;
+    - un système de fichiers dédié à `/var/lib/wakatnet-essai` ;
+    - une comparaison de la taille annoncée avec l'espace libre.
+  - **F4, banc** : il lance le script en root hors de systemd, donc ni les capacités, ni `ProtectSystem`, ni `StateDirectory` ne sont exercés, ni le réseau dans le piège. Suite : le banc Ansible nocturne (nœuds sous systemd), et un piège réseau.
+  - **F4, restauration sous `postgres`** : un manifeste piégé ne trouverait que les chemins accessibles en écriture de l'unité, dont `/var/lib/wakatnet`. Suite : un troisième utilisateur pour la restauration.
+  - **F5/F6** : un tiers qui connaît le numéro bloque la récupération pendant 24 h. Impact nul tant que la récupération est coupée en production.
+
+**Points ouverts corrigés (« corrige les manquants », décisions de Yacouba du 13/11/2026)**
+
+- **F3, attaque lente : budget horaire** (migrations 0046 et 0047).
+  - Chaque échec est marqué « forme faible » ou non, sans jamais garder le code.
+  - Au-delà de 30 échecs de forme faible en une heure sur un routeur (`devinette_faibles_par_heure`, `devinette_faibles_fenetre_s`), ou pendant une alerte, le routeur est **restreint** : les codes faibles y sont refusés, et un ticket importé de forme forte (préfixe Mikhmon) reçoit la réponse d'un code inconnu.
+  - Les codes de la plateforme restent servis.
+  - Test : `test_f3_budget_horaire_d_echecs_faibles_attaque_lente`.
+  - **Reste**, en connaissance de cause :
+    - 30 essais par heure, soit 720 par jour, contre un stock Mikhmon de 4 chiffres (10 000 valeurs) : la réémission reste la parade de fond ;
+    - un client qui échoue exprès 30 fois retient les tickets importés du routeur pendant une heure.
+- **F4, réseau et sockets** : l'instance restaurée et tout ce qu'elle lance tournent dans leurs propres espaces de noms (`unshare --net --mount`).
+  - Ils n'ont aucune interface réseau, ni Internet, ni l'autre nœud, ni l'API ou FreeRADIUS en local.
+  - La socket et le répertoire de la base vivante, `/etc/pgbackrest`, `/etc/wakatnet` et `/var/lib/wakatnet` y sont masqués.
+  - L'essai vérifie ces masquages et cette absence de réseau avant de restaurer, et refuse de tourner sinon.
+  - L'unité gagne `CAP_SYS_ADMIN` et `RestrictNamespaces=net mnt`, que setpriv abandonne.
+- **F4, ressources** : `OOMScoreAdjust=1000`, `MemoryHigh=25%`, `MemoryMax=40%`, `TasksMax=512`, `CPUWeight=20`. Avant de restaurer, l'essai compare la taille annoncée de la sauvegarde (plus 20 %) à la place libre, en gardant 10 % du disque ou 2 Gio.
+- **F4, banc** : le conteneur tourne en `--privileged` pour les espaces de noms, et le piège essaie aussi le réseau. Preuves :
+  - le piège s'exécute sous `wakatnet-essai`, **sans réseau**, et n'atteint rien ;
+  - contre-épreuve 1 : l'ancien script exécute le piège **avec réseau** en `postgres`, et crée une table dans la base vivante ;
+  - contre-épreuve 2 : avec un pg_hba en `trust`, le nouveau script refuse de tourner ;
+  - contre-épreuve 3 : sans espaces de noms (conteneur non privilégié), il refuse aussi.
+- **F6** : refus gardé (décision de Yacouba). Le client garde son ticket sur l'appareil d'achat ; sinon, c'est le support.
+
+**Toujours ouverts**
+
+- La restauration elle-même tourne sous `postgres`. Un manifeste piégé n'atteindrait que les chemins accessibles en écriture de l'unité. Un troisième utilisateur dédié à la restauration est la suite.
+- Disque : le code isolé peut encore remplir `$RACINE` pendant l'essai. Un système de fichiers dédié à `/var/lib/wakatnet-essai` le borne.
+- L'unité et le rôle Ansible ne sont exercés que par le banc nocturne : il faut le surveiller à la première nuit.
+- F2 : le mot de passe saisi à l'inscription ne sert plus (décision d'interface).
+
+**Troisième relecture (13/11/2026), corrigée aussitôt**
+
+- **F3** :
+  - la 0044, déjà poussée, n'est plus modifiée : le budget passe dans la 0046, idempotente, avec la colonne en tête (ordre des verrous de `post_auth`, pas d'interblocage) ;
+  - la restriction est évaluée pour toute saisie (pas d'oracle de durée) ;
+  - une alerte `budget_routeur` est posée, et un paramètre à 0 vaut 1 ;
+  - sous alerte, le test couvre aussi l'import de forme forte.
+- **F4** :
+  - `/run` est masqué en entier (D-Bus, systemd-resolved : plus de DNS détourné), ainsi que `/var/spool` et `/var/log` ;
+  - `/tmp`, `/var/tmp` et `/dev/shm` sont des tmpfs de 64 Mio ;
+  - l'instance a son propre espace de noms IPC, et `setpriv` passe en `--no-new-privs --bounding-set=-all` ;
+  - l'état du dépôt n'est lu qu'une fois, et `restore --set` restaure la sauvegarde contrôlée ;
+  - la plage de WAL est bornée (4096 segments) et comptée dans la place disque ;
+  - `postgresql.auto.conf` est vidé sous `postgres` ;
+  - banc : une sonde distingue « fermé » d'une erreur quelconque et exige un `/run` vide. Le piège voit `ferme errno=101 run=` ; l'ancien script voit `ouvert run=5` et crée la table vivante.
+- **Restent ouverts** :
+  - budget par propriétaire (30 × N routeurs) ;
+  - restauration sous un troisième utilisateur ;
+  - espace de noms PID (le nettoyage repose sur `pkill` et le cgroup de l'unité) ;
+  - `SystemCallFilter` ;
+  - disque dédié à l'essai ;
+  - unité et rôle Ansible à éprouver sur systemd (banc nocturne).

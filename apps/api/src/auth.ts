@@ -313,10 +313,14 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
 
     // Lien de vérification suivi (ADR 0017) : public. La page du tableau de bord demande un clic avant cet appel,
     // car les antivirus de messagerie ouvrent les liens (un GET ne consomme rien).
-    pub.post<{ Body: { jeton?: unknown } }>("/v1/verification/confirmer", async (req, rep) => {
-      const j = req.body?.jeton;
+    // Scan de sécurité du 13/11/2026 (F2, migration 0043) : le mot de passe se choisit ICI, par le détenteur du lien.
+    // L'inscription ne fixe plus rien d'un compte en attente : ni un tiers inscrit avant, ni un tiers inscrit après,
+    // n'activent leur mot de passe.
+    pub.post<{ Body: { jeton?: unknown; mot_de_passe?: unknown } }>("/v1/verification/confirmer", async (req, rep) => {
+      const j = req.body?.jeton, mdp = req.body?.mot_de_passe;
       if (typeof j !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(j)) return rep.code(404).send({ erreur: "lien invalide ou expiré" });
-      const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.verification_consommer(${empreinte(j)}) AS ok`;
+      if (!mdpAcceptable(mdp)) return rep.code(422).send({ erreur: "choisissez un mot de passe de 10 caractères au moins" });
+      const [{ ok }] = await base.$queryRaw<{ ok: boolean }[]>`SELECT app.verification_confirmer(${empreinte(j)}, ${await hacher(mdp)}) AS ok`;
       if (!ok) return rep.code(404).send({ erreur: "lien invalide ou expiré" });
       return { ok: true };
     });

@@ -176,11 +176,22 @@ export function couper(s: string, taille: number, max: number, gras = false): st
   return lignes;
 }
 
-/** Une seule ligne d'au plus `max` points, tronquée par « … » au besoin. */
+/** Une seule ligne d'au plus `max` points, tronquée par « … » au besoin. Une seule passe, linéaire en la longueur
+ *  de `s` (scan de sécurité du 13/11/2026, F1 : l'ancienne boucle remesurait toute la chaîne à chaque caractère retiré,
+ *  O(n²) sur la boucle d'événements ; une zone de milliers de caractères bloquait l'API). Un texte plus long que
+ *  TRONQUER_MAX est d'abord coupé : aucune ligne d'un PDF n'en affiche autant. */
+const TRONQUER_MAX = 1000;
 export function tronquer(s: string, taille: number, max: number, gras = false): string {
-  if (largeur(s, taille, gras) <= max) return s;
-  let t = s;
-  while (t.length > 1 && largeur(`${t}…`, taille, gras) > max) t = t.slice(0, -1);
+  const borne = s.length > TRONQUER_MAX ? s.slice(0, TRONQUER_MAX) : s;
+  if (borne === s && largeur(s, taille, gras) <= max) return s;
+  const limite = max - largeur("…", taille, gras);
+  let t = "", w = 0;
+  for (const ch of borne.normalize("NFC")) {
+    const c = largeur(ch, taille, gras);
+    if (w + c > limite && t.length > 0) break;
+    t += ch;
+    w += c;
+  }
   return `${t.trimEnd()}…`;
 }
 
@@ -190,13 +201,14 @@ export type TicketPapier = { code: string; plan: string; prix: bigint; uptime: n
 export function planche(tickets: TicketPapier[], zone: string, pdv: string): Buffer {
   const pdf = new Pdf();
   const marge = 28, l = (A4.largeur - 2 * marge) / 2, h = (A4.hauteur - 2 * marge) / 5;
+  const enTete = tronquer(zone, 11, l - 28, true);                    // une fois par lot, pas une fois par ticket (F1)
   tickets.forEach((t, i) => {
     if (i % 10 === 0) pdf.page();
     const col = i % 2, rang = Math.floor((i % 10) / 2);
     const x = marge + col * l, y = marge + rang * h;
     pdf.cadre(x, y, l, h, true);
     const utile = l - 28;                                              // marges intérieures : rien ne déborde
-    pdf.texte(x + 14, y + 22, 11, tronquer(zone, 11, utile, true), true);
+    pdf.texte(x + 14, y + 22, 11, enTete, true);
     pdf.texte(x + 14, y + 38, 9, tronquer(`${t.plan} - ${franc(t.prix)}`, 9, utile));
     pdf.texteCentre(x + l / 2, y + 86, 26, t.code, true);
     const d = [t.uptime ? `${dureeLisible(t.uptime)} de connexion` : "", t.validite ? `valable ${dureeLisible(t.validite)}` : ""]

@@ -103,7 +103,7 @@ Contenu : `[global]`, `repo1-cipher-pass=` (phrase de passe), `repo1-s3-key=` (k
 
    Scanner une seule fois l'URI `otpauth://` affichée.
 
-   **E-mail** (ADR 0019) : avec Brevo réglé, chaque propriétaire confirme son adresse par le lien reçu, puis se connecte (quota de 2 routeurs). Le super-admin le valide (Administration, **Valider l'adresse**) pour porter son quota à 10 et le sortir des plafonds des comptes non validés. Sans `WAKATNET_COURRIEL`, aucun e-mail ne part : un propriétaire inscrit ne peut pas se connecter tant que le super-admin n'a pas validé son adresse, après l'avoir vérifiée par un autre moyen (téléphone).
+   **E-mail** (ADR 0019) : avec Brevo réglé, chaque propriétaire confirme son adresse par le lien reçu, puis se connecte (quota de 2 routeurs). Le super-admin le valide (Administration, **Valider l'adresse**) pour porter son quota à 10 et le sortir des plafonds des comptes non validés. Sans `WAKATNET_COURRIEL`, aucun e-mail ne part. **Depuis la migration 0043 (scan de sécurité F2)**, « Valider l'adresse » ne confirme plus l'adresse d'office : il affiche un **lien de confirmation** (7 jours, usage unique). Le super-admin le remet au propriétaire **après avoir vérifié son identité** par un autre moyen (téléphone, en personne). Le propriétaire y choisit son mot de passe ; sans cela, le mot de passe d'un tiers inscrit avant lui serait activé.
 
    Premier essai d'envoi : créer un compte d'essai avec une adresse à soi, vérifier la réception (et le dossier indésirables), le lien, puis la connexion.
 7. Sauvegarde, sur A :
