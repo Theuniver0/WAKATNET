@@ -1399,3 +1399,11 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - constat : pas de magasin de racines avant la 7.19 (ADR 0003, décision à prendre).
 - **Preuves** : `chr.sh` SUCCÈS, 38/38, en 7.15.3 et 7.19.4 (version finale, sans fichier) ; `routeros.test.ts` 14/14 ; suite API : voir le message de commit. Détail dans `docs/AUDIT_SCRIPTS_ROUTEROS.md`.
 - **Limites** : image 7.15.3 sans somme de contrôle publiée (404) ; chaîne publique du certificat non essayée (pas de DNS dans le banc) ; RADIUS sur le fil, RouterOS 6 : non couverts.
+
+## 14/11/2026 — Outil d'essai du bac à sable CinetPay
+
+- **Décisions de Yacouba** : racine TLS fournie dans la commande d'enrôlement ; RouterOS 6 attend l'estimation du parc ; clés du bac à sable CinetPay données.
+- **Constat** : CinetPay s'authentifie par `api_key` et `api_password` dans le corps de `POST /v1/oauth/login`. Le formulaire sécurisé ne sait injecter qu'un en-tête fixe : les clés ne peuvent pas venir dans ce conteneur sans passer par la conversation, ce qui est interdit.
+- **Fait** : `packages/payments/essais/cinetpay-bac-a-sable.ts`, que Yacouba lance chez lui ; rapport sans secret, à renvoyer (ADR 0022).
+- **Preuves** : auto-essai contre le faux serveur (connexion, référence inconnue, trois achats, `verify()`) ; rapport sans clé, mot de passe ni numéro (recherche : 0) ; `tsc` sans erreur.
+
