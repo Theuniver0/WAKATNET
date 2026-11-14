@@ -3,7 +3,7 @@
 // Ticket : .scratch/phase-2-multi-proprietaires/issues/04-scripts-routeros.md
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chaine, commande, desinstallation, entretien, etape1, etape2, ValeurInterdite, type Inventaire } from "../src/routeros.ts";
+import { chaine, commande, desinstallation, entretien, etape1, etape2, TAILLE_MAX_ENTRETIEN, ValeurInterdite, type Inventaire } from "../src/routeros.ts";
 import { NOEUDS } from "./aide-sans-base.ts";
 
 const PORTAIL = { hote: "portail.wakatnet.invalid", ips: ["203.0.113.10", "198.51.100.20"] };
@@ -188,11 +188,16 @@ test("étape 3, entretien (ADR 0023) : pair d'un nœud déplacé mis à jour, n�
   assert.equal(planif.length, 1);
   const [evenement] = chaines(planif[0]).filter((c) => c.includes("/tool fetch"));
   assert.ok(evenement, "on-event : une seule chaîne, bien échappée");
-  assert.match(evenement, /\/tool fetch url="https:\/\/api\.wakatnet\.invalid\/entretien\/A{43}" check-certificate=yes /,
-               "relecture n° 1 : certificat vérifié avant d'importer");
-  assert.match(planif[0], /policy=read,write,test,sensitive /, "relecture n° 1 : sans le droit « policy »");
-  assert.match(planif[0], /else=\{ \/system scheduler set \[find where name="wakatnet-entretien"\] interval=6h on-event=/);
-  assert.ok(!/set [^}]*disabled=no/.test(planif[0]), "un planificateur désactivé par le propriétaire le reste");
+  assert.match(evenement, /\/tool fetch url="https:\/\/api\.wakatnet\.invalid\/entretien\/A{43}" check-certificate=yes output=user as-value\]/,
+               "relecture n° 1 : certificat vérifié avant d'exécuter ; en mémoire, sans fichier");
+  assert.match(evenement, /:local f \[:parse \(\$r->"data"\)\]; \$f \}/);
+  assert.ok(!evenement.includes("dst-path") && !evenement.includes("/import") && !evenement.includes("/file"),
+            "relecture du 14/11/2026 : aucun fichier, donc ni droit « ftp » ni échange du fichier avant l'import");
+  for (const politique of [/add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive /,
+                           /else=\{ \/system scheduler set \[find where name="wakatnet-entretien"\] interval=6h policy=read,write,test,sensitive on-event=/]) {
+    assert.match(planif[0], politique, "relecture n° 1 : ni « policy » ni « ftp » ; le set ramène un planificateur existant à ces droits");
+  }
+  assert.ok(!/disabled=|scheduler enable/.test(planif[0]), "un planificateur désactivé par le propriétaire le reste");
   assert.ok(avec.findIndex((x) => x.includes("/system scheduler")) < avec.findIndex((x) => x.includes("use-radius=yes")));
   assert.equal(lignesUtiles(E2()).filter((x) => x.includes("/system scheduler")).length, 0, "sans URL : pas de planificateur");
   assert.throws(() => etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL,
@@ -214,7 +219,11 @@ test("étape 3, entretien (ADR 0023) : pair d'un nœud déplacé mis à jour, n�
   assert.ok(retrait.includes('$c != "wakatnet portail 203.0.113.10" && $c != "wakatnet portail 198.51.100.20"'), retrait);
   assert.ok(!lignesUtiles(entretien({ overlayIp: "10.213.1.7", noeuds: NOEUDS, portail: { ...PORTAIL, ips: [] }, coaPort: 3799, listenPort: 13231 }))
     .some((x) => x.includes("walled-garden ip remove")), "liste vide : rien n'est retiré");
-  assert.match(l.at(-3)!, /\/file remove \[find where name="wakatnet-entretien\.rsc"\]/);
+  assert.ok(!s.includes("/file"), "exécuté en mémoire : aucun fichier à retirer");
+  assert.ok(Buffer.byteLength(s) < TAILLE_MAX_ENTRETIEN / 2, `loin de la borne d'output=user (${Buffer.byteLength(s)} octets pour trois nœuds)`);
+  const beaucoup = Array.from({ length: 2000 }, (_, i) => `192.0.${Math.floor(i / 250)}.${(i % 250) + 1}`);
+  assert.throws(() => entretien({ overlayIp: "10.213.1.7", noeuds: NOEUDS, portail: { ...PORTAIL, ips: beaucoup }, coaPort: 3799, listenPort: 13231 }),
+                ValeurInterdite, "au-delà de la borne : refus côté API, plutôt qu'un script tronqué sur le routeur");
   assert.ok(l.findIndex((x) => x.includes(":set wkSecret")) < l.findIndex((x) => x.includes("/radius add")), "secret relu avant usage");
   assert.ok(lignesUtiles(desinstallation(inventaire())).includes('/system scheduler remove [find where comment~"^wakatnet"]'));
 });

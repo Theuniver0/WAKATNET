@@ -266,16 +266,28 @@ export function planificateur(url: string): string[] {
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?\/entretien\/[A-Za-z0-9_-]{43}$/.test(url)) throw new ValeurInterdite("URL d'entretien invalide");
   // check-certificate=yes : sans lui, quiconque est sur le chemin réseau servirait le script importé (relecture de
   // sécurité n° 1, SPEC §6.2 exigence 6). Pas de droit « policy » : rien dans l'entretien ne touche aux utilisateurs.
-  const evenement = `:do { /tool fetch url="${url}" check-certificate=yes dst-path="wakatnet-entretien.rsc"; /import file-name="wakatnet-entretien.rsc" verbose=no } `
-    + `on-error={ :log warning "wakatnet : entretien indisponible, configuration inchangee" }; `
-    + `:do { /file remove [find where name="wakatnet-entretien.rsc"] } on-error={}`;
+  // Sans fichier : le script est téléchargé en mémoire (`output=user`) et exécuté par `:parse`. Un fichier intermédiaire
+  // exigeait le droit « ftp » (banc CHR 7.19.4, 14/11/2026 : « cannot open file: permission denied ») ; ce droit
+  // aurait permis à un script importé de lire les sauvegardes et de réécrire les pages du portail, et un compte local
+  // « ftp » aurait pu remplacer le fichier entre le téléchargement et l'import (relecture du 14/11/2026). `:parse`
+  // analyse tout avant d'exécuter : un script tronqué ou mal formé n'applique rien.
+  // Le `set` réécrit droits, intervalle et événement ; seul `disabled` est préservé.
+  const evenement = `:do { :local r [/tool fetch url="${url}" check-certificate=yes output=user as-value]; `
+    + `:if (($r->"status") != "finished") do={ :error "telechargement incomplet" }; `
+    + `:local f [:parse ($r->"data")]; $f } `
+    + `on-error={ :log warning "wakatnet : entretien indisponible, configuration inchangee" }`;
   const e = chaine(evenement);
-  return [`:if ([:len [/system scheduler find where name="wakatnet-entretien"]] = 0) do={ /system scheduler add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive on-event=${e} comment="wakatnet entretien (desactivable)" } else={ /system scheduler set [find where name="wakatnet-entretien"] interval=6h on-event=${e} }`];
+  return [`:if ([:len [/system scheduler find where name="wakatnet-entretien"]] = 0) do={ /system scheduler add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive on-event=${e} comment="wakatnet entretien (desactivable)" } else={ /system scheduler set [find where name="wakatnet-entretien"] interval=6h policy=read,write,test,sensitive on-event=${e} }`];
 }
 
+/** `fetch output=user` garde la réponse dans une variable, de taille limitée (environ 64 Kio d'après la documentation
+ *  MikroTik, non mesuré) : on refuse bien avant. L'entretien d'un routeur à deux nœuds fait environ 6 Kio. */
+export const TAILLE_MAX_ENTRETIEN = 32 * 1024;
+
 /** Étape 3, entretien (SPEC §6.2, ADR 0023) : regénère les objets « wakatnet » ; jamais l'activation ni l'inventaire.
- *  Aucun secret dans le fichier : le secret RADIUS est relu sur le routeur (relecture de sécurité n° 7). Le fichier se
- *  supprime lui-même, et le planificateur le retire aussi. */
+ *  Aucun secret dans le script : le secret RADIUS est relu sur le routeur (relecture de sécurité n° 7). Exécuté en
+ *  mémoire par le planificateur, sans fichier ; sa taille est bornée (TAILLE_MAX_ENTRETIEN). */
+
 export function entretien(e: Entretien): string {
   const coa = port(e.coaPort);
   const lp = port(e.listenPort);
@@ -285,10 +297,11 @@ export function entretien(e: Entretien): string {
   lignes.push(`:do { :set wkSecret [/radius get [:pick [/radius find where comment~"^wakatnet"] 0] secret] } on-error={}`);
   lignes.push(`:if ([:len $wkSecret] = 0) do={ :error "WAKATNET : entretien impossible, aucun serveur RADIUS wakatnet sur ce routeur. Rien n'a ete modifie." }`);
   lignes.push(...blocsWakatnet(e, null, coa, lp));
-  lignes.push(`/file remove [find where name="wakatnet-entretien.rsc"]`);
   lignes.push(`:log info "wakatnet : entretien applique"`);
   lignes.push(`}`);
-  return lignes.join("\n") + "\n";
+  const texte = lignes.join("\n") + "\n";
+  if (Buffer.byteLength(texte) > TAILLE_MAX_ENTRETIEN) throw new ValeurInterdite("entretien trop long pour output=user");
+  return texte;
 }
 
 /** Désinstallation (R6) : désactive RADIUS d'abord, puis retire tout objet marqué « wakatnet ». */

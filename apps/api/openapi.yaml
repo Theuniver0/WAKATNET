@@ -312,6 +312,7 @@ paths:
       responses:
         "200": { description: Script RouterOS, content: { text/plain: {} } }
         "404": { description: Jeton inconnu ou routeur révoqué (réponse identique) }
+        "503": { description: "Script impossible à produire (ex. configuration au-delà de 32 Kio) ; journalisé, routeur inchangé" }
   /enroll/{jeton}:
     parameters:
       - $ref: "#/components/parameters/jeton"

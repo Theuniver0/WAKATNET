@@ -1388,3 +1388,14 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   Détail dans `docs/REVUE_SECURITE.md` §5.
 - **Preuves** : suite API 243/243 (schéma Prisma tiré de la base) ; RADIUS et e2e : voir le message de commit.
 - **Reste** : tout ce qui suit exige Yacouba (comptes, matériel, routeurs réels) : liste dans la réponse de session.
+
+## 14/11/2026 — Banc CHR : scripts RouterOS exécutés sur un vrai RouterOS
+
+- **Demande** : « fait tout ce que tu [peux] seul » ; RouterOS « v7.15+ et v6 ».
+- **Fait** :
+  - banc `infra/routeros/essais/chr.sh` (qemu, plateforme `plateforme.py`, scripts du vrai générateur via `generer.ts`, nœud A `wireguard-go`) : refus, enrôlement, idempotence, entretien par le vrai planificateur, désinstallation ;
+  - défaut corrigé : lancé par le planificateur, l'entretien ne pouvait pas écrire son fichier (droit `ftp` manquant), donc n'aurait jamais tourné. Corrigé sans ajouter `ftp` (relecture par un second agent) : exécution en mémoire (`output=user` puis `:parse`), taille bornée à 32 Kio ; tests (`routeros.test.ts`) ; ADR 0023 mis à jour ;
+  - RouterOS 6.49.18 : `require-message-auth=yes-for-request-resp` accepté (ADR 0003, réglage seulement) ;
+  - constat : pas de magasin de racines avant la 7.19 (ADR 0003, décision à prendre).
+- **Preuves** : `chr.sh` SUCCÈS, 38/38, en 7.15.3 et 7.19.4 (version finale, sans fichier) ; `routeros.test.ts` 14/14 ; suite API : voir le message de commit. Détail dans `docs/AUDIT_SCRIPTS_ROUTEROS.md`.
+- **Limites** : image 7.15.3 sans somme de contrôle publiée (404) ; chaîne publique du certificat non essayée (pas de DNS dans le banc) ; RADIUS sur le fil, RouterOS 6 : non couverts.

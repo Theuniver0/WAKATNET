@@ -8,11 +8,13 @@
 
 - WireGuard n'existe qu'à partir de RouterOS 7 ; la spec en fait l'overlay (§6.1).
 - Le Message-Authenticator côté RouterOS serait présent depuis la 7.15, et aussi en 6.49.18 d'après un extrait de changelog. **Non vérifié** (LABO-00).
+  - Banc CHR du 14/11/2026 : `/radius … require-message-auth=yes-for-request-resp` est **accepté** en 6.49.18, 7.15.3 et 7.19.4 (réglage seulement : l'envoi réel de l'attribut sur le fil reste à vérifier, LABO-00). La 6.49.18 n'a ni WireGuard ni magasin de racines intégré.
 - Une part du parc des petites WiFi Zones tourne probablement sur des modèles bas de gamme (hAP lite, hAP ac lite : MIPS, 16 Mo de flash), souvent en RouterOS 6. Cette part n'est pas chiffrée.
 
 ## Décisions
 
 1. **RouterOS 7 : minimum 7.15.** Le script d'enrôlement refuse toute version inférieure, avec un message clair et la procédure de mise à jour.
+   - Constat du banc CHR (14/11/2026) : le magasin de racines intégré (`builtin-trust-anchors`) n'existe qu'à partir de la 7.19. De 7.15 à 7.18, la vérification du certificat de l'API échoue sans racine importée. Décision en attente (Yacouba) : relever le minimum à 7.19, ou fournir la racine dans la commande d'enrôlement (`docs/AUDIT_SCRIPTS_ROUTEROS.md`).
 2. **RouterOS 6 : accepté, en phase 2b**, c'est-à-dire après la preuve complète du chemin v7 (phase 2) et **avant l'enrôlement des propriétaires pilotes tiers**. Le pilote sur les sites de Telecom Universel se fait en v7.
    - Versions : **6.49.x long-term uniquement**. Minimum 6.49.18 si LABO-00 confirme qu'elle porte le Message-Authenticator ; sinon, la version minimale est décidée par un ADR à partir des résultats du labo.
    - **Un seul type de tunnel** pour la v6 : L2TP/IPsec ou SSTP, choisi par le labo (tenue derrière le CGNAT Starlink et 4G, coût CPU sur MIPS). Deux tunnels, vers les nœuds A et B, comme en v7.
