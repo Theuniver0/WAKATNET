@@ -7,7 +7,7 @@ import type { Base } from "./base.ts";
 import { messageCreditsBas, type Expediteur } from "./courriel.ts";
 import type { ServicePaiement } from "./paiement.ts";
 
-export type Bilan = { expires: number; verifies: number; erreurs: number; frais: number; purges: number };
+export type Bilan = { expires: number; verifies: number; erreurs: number; frais: number; purges: number; reemissions: number };
 
 /** Budget d'un tour : bien en deçà de TimeoutStartSec (55 s), pour finir proprement. */
 export const BUDGET_TOUR_MS = 40_000;
@@ -19,6 +19,8 @@ export async function tour(base: Base, service: ServicePaiement, journal: (m: st
   const [{ n: frais }] = await base.$queryRaw<{ n: number }[]>`SELECT app.frais_papier_prelever(500) AS n`;
   const [{ n: purges }] = await base.$queryRaw<{ n: number }[]>`SELECT app.numeros_purger() AS n`;
   const [{ n: expires }] = await base.$queryRaw<{ n: number }[]>`SELECT app.paiements_expirer() AS n`;
+  // Migration 0050 : un ancien ticket Mikhmon activé pendant sa réémission expire son remplaçant inutilisé.
+  const [{ n: reemissions }] = await base.$queryRaw<{ n: number }[]>`SELECT app.reemission_reconcilier() AS n`;
   const a = await base.$queryRaw<{ reference: string; tenant_id: bigint }[]>`
     SELECT reference, tenant_id FROM app.paiements_a_verifier(200)`;
   let verifies = 0, erreurs = 0;
@@ -36,7 +38,7 @@ export async function tour(base: Base, service: ServicePaiement, journal: (m: st
       journal(`paiement=${p.reference} erreur=« ${e instanceof Error ? e.message.split("\n")[0] : String(e)} »`);
     }
   }
-  return { expires, verifies, erreurs, frais, purges };
+  return { expires, verifies, erreurs, frais, purges, reemissions };
 }
 
 /** Alertes « crédits bas » (SPEC §8.2, migration 0041) : un e-mail par alerte, à l'adresse vérifiée du propriétaire.

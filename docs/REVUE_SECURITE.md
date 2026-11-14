@@ -254,3 +254,55 @@ Scan automatisé par plusieurs agents, chaque constat contre-vérifié par un pa
   - `SystemCallFilter` ;
   - disque dédié à l'essai ;
   - unité et rôle Ansible à éprouver sur systemd (banc nocturne).
+
+**Derniers points ouverts corrigés (« corrige les manquants », 14/11/2026)**
+
+- **F3, budget par propriétaire** (migrations 0048, idempotente, et 0049, index `CONCURRENTLY`). Au-delà de 60 échecs de forme faible en une heure sur l'ensemble des routeurs d'un propriétaire (`devinette_faibles_par_proprietaire`), tous ses routeurs sont restreints, et une alerte `budget_proprietaire` est posée. Cela ferme les « 30 × N routeurs ».
+  - Test : `test_f3_budget_par_proprietaire_echecs_repartis_sur_ses_routeurs`, avec des échecs répartis sur trois routeurs dont aucun n'atteint son propre budget.
+  - Prix : 60 échecs volontaires retiennent pendant une heure les tickets importés de tout le propriétaire.
+- **F4, espace PID** : le serveur restauré est PID 1 de son espace. Le tuer tue tout ce qu'il a lancé, et `/proc` ne montre que l'essai.
+- **F4, restauration isolée** : pgBackRest (restauration et WAL) tourne sous `postgres`, dans un espace de montage où la base vivante (`data_directory` lu en direct), `/var/lib/wakatnet`, `/etc/wakatnet` et la socket sont masqués, et dans son propre espace PID. Un manifeste piégé n'atteint que l'essai. Ce choix remplace le troisième utilisateur, qui aurait exigé de changer les groupes de `/etc/pgbackrest` et de redémarrer PostgreSQL.
+- **F4, disque** : un surveillant mesure la place libre pendant tout l'essai, et à chaque étape. Sous la marge, il tue la restauration et l'instance, et l'essai échoue. La taille annoncée par le dépôt n'est plus la seule défense. Le banc le prouve : la sauvegarde piégée écrit 400 Mio, l'essai est arrêté et la copie effacée.
+- **F4, unité** : `SystemCallFilter=@system-service @mount`, `RestrictNamespaces=net mnt ipc pid`, et `CAP_SETPCAP` pour que setpriv vide le jeu limite.
+- **Unité éprouvée sous systemd** : l'étape « 5 bis » du banc Ansible (Debian 13 et Ubuntu 24.04) lance la vraie unité, et la restauration réussit. Elle a trouvé deux défauts que le banc Docker ne voyait pas :
+  - `CAP_SETPCAP` manquait : l'isolement échouait, et l'essai refusait de tourner ;
+  - les droits de `/etc/wakatnet` dans le banc (0755) n'étaient pas ceux du rôle (0750) : l'essai refusait de tourner, à raison.
+
+**Toujours ouverts, décisions de Yacouba**
+
+- **Réémission des tickets Mikhmon** : elle invaliderait des tickets peut-être déjà vendus. Seul le stock non distribué pourrait l'être sans risque.
+- **F2** : le mot de passe saisi à l'inscription ne sert plus (choix d'interface).
+
+**Quatrième relecture (14/11/2026), corrigée aussitôt**
+
+- `--kill-child` d'unshare était annulé par le changement d'uid de setpriv. `setpriv --pdeathsig KILL` le rétablit : tuer `unshare` tue l'espace.
+- **Surveillant** :
+  - il couvre aussi `archive-get` (fonction `suivi`) ;
+  - il continue de tuer après un premier déclenchement ;
+  - il échoue fermé si `df` échoue ;
+  - son message lui est propre (« arrêté par le surveillant »).
+- **Restauration** : `/var/spool/pgbackrest` et `/var/log/pgbackrest` sont masqués ; ses journaux et verrous vont dans l'essai. Tout lien de la copie qui sort de la copie fait refuser le démarrage.
+- **Alerte `budget_proprietaire`** : un index (0049), et un verrou consultatif par propriétaire contre le doublon.
+- **Unité** : `SystemCallFilter=~@keyring io_uring_*` (le commentaire disait vrai, pas le filtre).
+- **Tests** :
+  - le budget par propriétaire est contrôlé sur ses trois routeurs, pour un autre propriétaire (non touché), avec une seule alerte au-delà du seuil, et une restauration exacte des paramètres ;
+  - le rejeu de 0046 ne peut plus casser sur une alerte `budget_proprietaire` ;
+  - l'étape « Disque » remplit sans fin, au premier plan de la requête, et vérifie qu'aucun processus ne survit et que la place est rendue.
+- **Étape 5 bis** : elle prouve que le durcissement de l'unité laisse passer un essai sain sous systemd. L'isolement et le surveillant, eux, sont prouvés par le banc Docker.
+
+**Décisions de Yacouba appliquées (14/11/2026)**
+
+- **Réémission des tickets importés de Mikhmon** (migration 0050, `/v1/imports/reemission`, écran « Tickets papier ») :
+  - le propriétaire remplace d'un coup les tickets importés **jamais utilisés** (ni activation, ni connexion acceptée, ni expiration) par des codes de la plateforme ;
+  - chaque nouveau ticket garde le forfait figé de l'ancien et va dans des lots ordinaires, imprimables en PDF ;
+  - l'ancien **garde son code**, mais il est **expiré** et lié à son remplaçant (`reemis_par`). Saisi, il répond « expiré » ; c'est un « inconnu » qui épuiserait le budget anti-devinette. Un réimport le voit en doublon, et le support sait quel ticket le remplace ;
+  - **le premier activé gagne** : une connexion avec l'ancien code pendant la réémission active l'ancien (l'accounting cherche par code). À chaque tour des tâches, `app.reemission_reconcilier()` expire alors le remplaçant resté inutilisé ; si les deux ont servi, il pose l'alerte `reemission_double` ;
+  - le traitement se fait par tranches de 500, en transactions courtes, et chaque ticket est revérifié une fois verrouillé ;
+  - aucun crédit n'est consommé, puisque c'est du remplacement un pour un (le plafond du découvert ne s'applique pas ; les frais papier se prélèvent à l'activation, sur la copie figée identique) ;
+  - l'écran demande confirmation : les tickets déjà vendus mais pas encore utilisés sont remplacés eux aussi. Il rappelle de supprimer ces tickets du routeur, au cas où le routeur consulterait sa base locale avant RADIUS (LABO-08).
+
+  Relecture par un second agent (règle 4) : la première version renommait l'ancien code. Une connexion pendant la réémission donnait alors deux tickets pour un seul paiement, et un réimport faisait revivre l'ancien. Les deux défauts sont corrigés par la conception ci-dessus, et prouvés par `import.test.ts`.
+
+  C'est la parade de fond contre la devinette des codes courts : les budgets de l'ADR 0011 n'en sont que le filet.
+- **Inscription sans mot de passe** : le formulaire ne le demande plus, puisqu'il se choisit à la confirmation (F2). L'API ignore un `mot_de_passe` envoyé par un ancien client, et pose un secret aléatoire haché, avec la même durée de réponse.
+- **Reste, antérieur à ce lot** : la réponse à l'inscription attend l'envoi de l'e-mail (lien ou avis), qui ne fait pas le même travail en base dans les deux cas. Sa durée peut donc encore distinguer une adresse libre d'une adresse inscrite. Remède : répondre d'abord, puis envoyer, comme le fait déjà `/v1/verification/renvoyer`.

@@ -45,6 +45,10 @@ ATTENDU = {
     "app.wg_points_noter(p_cles text[], p_ips inet[], p_vus timestamp with time zone[])": {"wk_wg"},
     # Ticket 07 : import d'un lot de tickets Mikhmon pour le propriétaire du contexte RLS.
     "app.voucher_importer(p_plans bigint[], p_codes text[])": {"wk_api"},
+    # Migration 0050 : réémission des tickets importés jamais utilisés.
+    "app.import_a_reemettre()": {"wk_api"},
+    "app.import_reemettre(p_pdv bigint, p_plan bigint, p_utilisateur bigint, p_max integer)": {"wk_api"},
+    "app.reemission_reconcilier()": {"wk_api"},
     # Phase 3 (ADR 0013 §11) : tout ce qui touche à l'argent passe par ces fonctions ; rien sur ledger.
     "app.compte_marchand_enregistrer(p_fournisseur text, p_cles bytea)": {"wk_api"},
     # Audit du 13/11/2026 : limite des vérifications de compte (0037), depositId noté avant charge() (0037),
@@ -172,13 +176,14 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.admin_regler"), ("wk_api", "app.alerte_credits_notifiee"), ("wk_api", "app.alertes_credits_a_notifier"), ("wk_api", "app.avis_compte_existant"), ("wk_api", "app.compte_marchand_avant_verification"), ("wk_api", "app.compte_marchand_du_proprietaire"), ("wk_api", "app.compte_marchand_enregistrer"),
                       ("wk_api", "app.compte_marchand_par_webhook"), ("wk_api", "app.connexion_lire"), ("wk_api", "app.connexion_reserver"), ("wk_api", "app.connexion_reussie"), ("wk_api", "app.courriel_reserver"), ("wk_api", "app.credits_alerte"),
                       ("wk_api", "app.enrolement_autorise"), ("wk_api", "app.enroll_register"), ("wk_api", "app.enroll_token_valide"), ("wk_api", "app.entretien_jeton_poser"), ("wk_api", "app.entretien_jeton_renouveler"), ("wk_api", "app.entretien_lire"), ("wk_api", "app.frais_papier_prelever"),
+                      ("wk_api", "app.import_a_reemettre"), ("wk_api", "app.import_reemettre"),
                       ("wk_api", "app.inscription_demander"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"), ("wk_api", "app.paiement_etat"),
                       ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_par_reference_fournisseur"), ("wk_api", "app.paiement_reference_fournisseur_noter"), ("wk_api", "app.paiement_replanifier"),
                       ("wk_api", "app.paiement_retrouver"), ("wk_api", "app.paiement_transition"), ("wk_api", "app.paiements_a_verifier"),
                       ("wk_api", "app.paiements_expirer"), ("wk_api", "app.paiements_par_numero"), ("wk_api", "app.portail_forfaits"),
-                      ("wk_api", "app.portail_site"), ("wk_api", "app.releve"), ("wk_api", "app.renvoi_demander"), ("wk_api", "app.reversement_avant_envoi"),
+                      ("wk_api", "app.portail_site"), ("wk_api", "app.reemission_reconcilier"), ("wk_api", "app.releve"), ("wk_api", "app.renvoi_demander"), ("wk_api", "app.reversement_avant_envoi"),
                       ("wk_api", "app.reversement_creer"), ("wk_api", "app.reversement_renvoi_permis"), ("wk_api", "app.reversement_verdict"),
                       ("wk_api", "app.reversements_a_traiter"), ("wk_api", "app.session_email_verifie"), ("wk_api", "app.session_fermer"),
                       ("wk_api", "app.session_lire"), ("wk_api", "app.session_ouvrir"), ("wk_api", "app.site_hotes_depuis_inventaire"),

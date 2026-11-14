@@ -11,8 +11,9 @@ Wants=network-online.target
 Type=oneshot
 # En root, sans autres capacités que celles qu'il faut pour CONFIER chaque étape (scan de sécurité F4) : restauration
 # sous postgres, instance restaurée sous l'utilisateur dédié wakatnet-essai, qui n'a accès à rien.
-# CAP_SYS_ADMIN : espaces de noms réseau et montage de l'instance restaurée (unshare), abandonnés par setpriv.
-CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_SYS_ADMIN
+# CAP_SYS_ADMIN : espaces de noms et montages de l'essai (unshare) ; CAP_SETPCAP : setpriv vide le jeu de capacités
+# limite avant de passer à l'utilisateur isolé. Toutes sont abandonnées par setpriv.
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_KILL CAP_SYS_ADMIN
 StateDirectory=wakatnet-essai
 StateDirectoryMode=0711
 TimeoutStartSec=6h
@@ -35,7 +36,13 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
-RestrictNamespaces=net mnt ipc
+RestrictNamespaces=net mnt ipc pid
+# Appels système : ceux d'un service, plus le montage (tmpfs des espaces de l'essai) ; sauf le trousseau du noyau et
+# io_uring, que @system-service laisse passer. Le reste (perf, bpf, chargement de module…) est refusé, au script comme au
+# code de la sauvegarde.
+SystemCallFilter=@system-service @mount
+SystemCallFilter=~@keyring io_uring_setup io_uring_enter io_uring_register
+SystemCallErrorNumber=EPERM
 LockPersonality=yes
 RestrictRealtime=yes
 SystemCallArchitectures=native

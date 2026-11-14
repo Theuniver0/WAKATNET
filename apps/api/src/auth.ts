@@ -238,7 +238,7 @@ async function envoyerVerification(base: Base, courriel: { expediteur: Expediteu
 
 // ADR 0019 (F9) : un seul message pour tout échec de connexion, adresse non confirmée comprise.
 const ECHEC_CONNEXION = "Adresse ou mot de passe incorrect, ou adresse pas encore confirmée (lien reçu par e-mail).";
-const REPONSE_INSCRIPTION = "Si cette adresse n'a pas encore de compte, il vient d'être créé : ouvrez le lien de confirmation reçu par e-mail, puis connectez-vous.";
+const REPONSE_INSCRIPTION = "Si cette adresse n'a pas encore de compte, il vient d'être créé : ouvrez le lien de confirmation reçu par e-mail, choisissez-y votre mot de passe, puis connectez-vous.";
 const REPONSE_RENVOI = "Si un compte attend la confirmation de cette adresse, un nouveau lien vient d'être envoyé.";
 
 /** Avis à une adresse déjà inscrite (ADR 0019) : « compte existant », ou « compte en attente » quand l'adresse n'est pas
@@ -270,14 +270,16 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
 
     // Inscription d'un propriétaire (accès ouvert, ADR 0001 §5). ADR 0019 : aucune session, et la même réponse que
     // l'adresse soit libre ou déjà inscrite (F9). Un compte neuf reçoit le lien ; une adresse déjà inscrite, un avis.
-    // Le mot de passe est haché dans les deux cas, avant la base (pas d'écart de durée révélateur).
-    pub.post<{ Body: { nom?: unknown; email?: unknown; mot_de_passe?: unknown } }>("/v1/inscription", async (req, rep) => {
-      const { nom, email, mot_de_passe } = req.body ?? {};
+    // Depuis le scan de sécurité F2 (migration 0043), le mot de passe se choisit à la confirmation : celui de
+    // l'inscription n'est plus demandé (décision de Yacouba, 14/11/2026), et un « mot_de_passe » encore envoyé par un
+    // ancien client est ignoré. Le compte neuf reçoit un secret aléatoire, haché comme avant (même durée de réponse) :
+    // personne ne le connaît, et la connexion reste fermée jusqu'à la confirmation.
+    pub.post<{ Body: { nom?: unknown; email?: unknown } }>("/v1/inscription", async (req, rep) => {
+      const { nom, email } = req.body ?? {};
       // 80 caractères : la limite de la colonne app.utilisateur.nom (audit du 13/11/2026).
       if (typeof nom !== "string" || nom.trim().length < 1 || nom.length > 80) return rep.code(422).send({ erreur: "nom de 1 à 80 caractères" });
       if (!emailAcceptable(email)) return rep.code(422).send({ erreur: "adresse e-mail invalide" });
-      if (!mdpAcceptable(mot_de_passe)) return rep.code(422).send({ erreur: "mot de passe de 10 caractères au moins" });
-      const empreinteMdp = await hacher(mot_de_passe);
+      const empreinteMdp = await hacher(randomBytes(32).toString("base64url"));
       const [r] = await base.$queryRaw<{ statut: string; utilisateur_id: bigint | null }[]>`
         SELECT statut, utilisateur_id FROM app.inscription_demander(${nom.trim()}, ${email}, ${empreinteMdp}, ${cleSource(req.ip, cleHmac, new Date(), 48)})`;
       if (r.statut === "trop") return rep.code(429).send({ erreur: "Trop de demandes depuis cette connexion : réessayez plus tard." });

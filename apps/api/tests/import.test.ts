@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { examiner, lireCsv } from "../src/import.ts";
-import { avecApp, proprietaire, routeur, sql, URL_ADMIN, entetes } from "./aide.ts";
+import { avecApp, proprietaire, routeur, session, sql, URL_ADMIN, entetes, entetesJeton } from "./aide.ts";
 
 let A: { tenant: string; site: string };
 let B: { tenant: string; site: string };
@@ -114,5 +114,85 @@ test("20 000 lignes (le maximum) : un seul appel SQL, dans les délais ; 20 001 
     console.log(`# 20 000 tickets importés en ${Date.now() - debut} ms`);
     lignes.push("ZZZZZZZ,ZZZZZZZ,p");
     assert.equal((await importer(app, C.tenant, { csv: lignes.join("\n"), correspondance: { p: plan } })).statusCode, 422);
+  });
+});
+
+test("réémission (migration 0050) : seuls les tickets importés JAMAIS utilisés ; remplaçants en lots ; anciens expirés, sans retour ; le premier activé gagne", async () => {
+  await avecApp(async (app) => {
+    const P = await proprietaire("réémission");
+    const plan = await forfait(P.tenant);
+    const planB = await forfait(B.tenant);
+    await routeur(P.tenant, P.site);
+    const [{ ip }] = await sql<{ ip: string }>(URL_ADMIN, "SELECT host(overlay_ip) AS ip FROM app.router WHERE tenant_id = $1 LIMIT 1", [P.tenant]);
+    const decider = async (code: string) => (await sql<{ d: string; m: string | null }>(URL_ADMIN,
+      "SELECT decision AS d, reply_message AS m FROM radius.authorize($1, $2, '02AABBCCDD01', '')", [code, ip]))[0];
+    const [{ id: pdv }] = await sql<{ id: string }>(URL_ADMIN,
+      "INSERT INTO app.point_of_sale (tenant_id, nom) VALUES ($1, 'Boutique') RETURNING id::text", [P.tenant]);
+    const [{ id: pdvAutre }] = await sql<{ id: string }>(URL_ADMIN,
+      "INSERT INTO app.point_of_sale (tenant_id, nom) VALUES ($1, 'Ailleurs') RETURNING id::text", [B.tenant]);
+    const csv = ["name,password,profile", "1234,1234,1h", "567890,567890,1h", "K7Q2,K7Q2,1h", "AB12CD34EF,AB12CD34EF,1h"].join("\n");
+    const corresp = { "1h": plan };
+    assert.equal((await importer(app, P.tenant, { csv, correspondance: corresp })).statusCode, 200);
+    assert.deepEqual(await decider("1234"), { d: "Accept", m: null }, "avant : l'ancien code est servi");
+    // K7Q2 a déjà servi (activé) ; AB12CD34EF a une connexion acceptée : jamais réémis.
+    await sql(URL_ADMIN, "UPDATE app.voucher SET activated_at = now() WHERE tenant_id = $1 AND code = 'K7Q2'", [P.tenant]);
+    await sql(URL_ADMIN, `INSERT INTO radius.auth_log (router_id, tenant_id, mac, resultat, voucher_id)
+                          SELECT NULL, tenant_id, '02AABBCCDDEE', 'Accept', id FROM app.voucher WHERE tenant_id = $1 AND code = 'AB12CD34EF'`, [P.tenant]);
+    const lireEtat = async () => (await app.inject({ url: "/v1/imports/reemission", headers: entetes(P.tenant) })).json();
+    assert.deepEqual((await lireEtat()).forfaits, [{ forfait_id: plan, forfait: "1 heure", tickets: 2, courts: 2 }]);
+    // Propriétaire seulement ; point de vente et forfait d'un autre propriétaire : rien.
+    const g = await session(P.tenant, "gerant", pdv);
+    const reemettre = (h: Record<string, string>, corps: object) => app.inject({ method: "POST", url: "/v1/imports/reemission", headers: h, payload: corps });
+    assert.equal((await reemettre(entetesJeton(g.jeton), { point_de_vente_id: pdv })).statusCode, 403);
+    assert.equal((await reemettre(entetes(P.tenant), { point_de_vente_id: pdvAutre })).statusCode, 422, "point de vente d'un autre propriétaire");
+    assert.equal((await reemettre(entetes(P.tenant), { point_de_vente_id: pdv, forfait_id: planB })).statusCode, 409, "forfait d'un autre propriétaire");
+    const r = await reemettre(entetes(P.tenant), { point_de_vente_id: pdv });
+    assert.equal(r.statusCode, 201, r.body);
+    const corps = r.json();
+    assert.equal(corps.tickets, 2);
+    assert.equal(corps.lots.length, 1);
+    // Remplaçants : un lot ordinaire, imprimable, codes de la plateforme, copie figée de l'ancien (200 F), servis.
+    const t = (await app.inject({ url: `/v1/lots/${corps.lots[0].id}/tickets`, headers: entetes(P.tenant) })).json() as { code: string }[];
+    assert.equal(t.length, 2);
+    for (const x of t) {
+      assert.match(x.code, /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{8}$/);
+      assert.deepEqual(await decider(x.code), { d: "Accept", m: null }, "remplaçant servi");
+    }
+    const prix = await sql<{ p: string }>(URL_ADMIN, "SELECT f_prix_xof::text AS p FROM app.voucher WHERE batch_id = $1", [corps.lots[0].id]);
+    assert.deepEqual(prix.map((x) => x.p), ["200", "200"]);
+    assert.equal((await app.inject({ url: `/v1/lots/${corps.lots[0].id}/tickets.pdf`, headers: entetes(P.tenant) })).statusCode, 200);
+    // Anciens : code gardé, expiré, lié à son remplaçant ; saisi, il répond « expiré » (hors budget anti-devinette).
+    assert.deepEqual(await decider("1234"), { d: "Reject", m: "expire" });
+    const anciens = await sql<{ code: string; lie: boolean; expire: boolean }>(URL_ADMIN,
+      `SELECT code, reemis_par IS NOT NULL AS lie, expires_at <= now() AS expire FROM app.voucher
+        WHERE tenant_id = $1 AND origine = 'import' ORDER BY code`, [P.tenant]);
+    assert.deepEqual(anciens, [
+      { code: "1234", lie: true, expire: true }, { code: "567890", lie: true, expire: true },
+      { code: "AB12CD34EF", lie: false, expire: null }, { code: "K7Q2", lie: false, expire: null }]);
+    // Réimport du même export Mikhmon : les anciens codes restent des doublons, ils ne revivent pas.
+    const re = (await importer(app, P.tenant, { csv, correspondance: corresp })).json();
+    assert.equal(re.importes, 0);
+    assert.deepEqual(await decider("1234"), { d: "Reject", m: "expire" }, "toujours expiré après un réimport");
+    // Rien à refaire ; journalisé une fois, avec les lots.
+    assert.deepEqual((await lireEtat()).forfaits, []);
+    assert.equal((await reemettre(entetes(P.tenant), { point_de_vente_id: pdv })).statusCode, 409);
+    const [{ a }] = await sql<{ a: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS a FROM app.audit_log WHERE tenant_id = $1 AND action = 'import_reemis' AND details ? 'lots'", [P.tenant]);
+    assert.equal(a, 1);
+    // Le premier activé gagne : un ancien ticket activé quand même (connexion pendant la réémission, accounting par code)
+    // expire son remplaçant inutilisé, une seule fois.
+    await sql(URL_ADMIN, "UPDATE app.voucher SET activated_at = now() WHERE tenant_id = $1 AND code = '1234'", [P.tenant]);
+    const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT app.reemission_reconcilier() AS n");
+    assert.ok(n >= 1);
+    const [{ remplacant }] = await sql<{ remplacant: string }>(URL_ADMIN,
+      "SELECT n.code AS remplacant FROM app.voucher o JOIN app.voucher n ON n.id = o.reemis_par WHERE o.tenant_id = $1 AND o.code = '1234'", [P.tenant]);
+    assert.deepEqual(await decider(remplacant), { d: "Reject", m: "expire" }, "remplaçant expiré : la valeur ne sert qu'une fois");
+    const [{ c }] = await sql<{ c: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS c FROM app.audit_log WHERE tenant_id = $1 AND action = 'reemission_conflit'", [P.tenant]);
+    assert.equal(c, 1);
+    await sql(URL_ADMIN, "SELECT app.reemission_reconcilier()");
+    const [{ c2 }] = await sql<{ c2: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS c2 FROM app.audit_log WHERE tenant_id = $1 AND action = 'reemission_conflit'", [P.tenant]);
+    assert.equal(c2, 1, "une seule fois");
   });
 });

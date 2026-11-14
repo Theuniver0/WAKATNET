@@ -58,13 +58,11 @@ export function Connexion({ apres }: { apres: () => Promise<void> }) {
 export function Inscription(_props: { apres: () => Promise<void> }) {
   const [nom, setNom] = useState("");
   const [email, setEmail] = useState("");
-  const [mdp, setMdp] = useState("");
   const { erreur, info, occupe, lancer } = useAction();
   const envoi = (e: FormEvent) => {
     e.preventDefault();
     void lancer(async () => {
-      const r = await envoyer<{ message: string }>("/v1/inscription", { nom, email, mot_de_passe: mdp }, { sans401: true });
-      setMdp("");
+      const r = await envoyer<{ message: string }>("/v1/inscription", { nom, email }, { sans401: true });
       return r.message;
     });
   };
@@ -73,8 +71,7 @@ export function Inscription(_props: { apres: () => Promise<void> }) {
       <form onSubmit={envoi} className="carte">
         <Champ libelle="Nom de votre zone Wi-Fi" valeur={nom} onChange={setNom} requis autoComplete="organization" />
         <Champ libelle="Adresse e-mail" type="email" valeur={email} onChange={setEmail} requis autoComplete="username" />
-        <Champ libelle="Mot de passe" type="password" valeur={mdp} onChange={setMdp} requis autoComplete="new-password"
-          aide="10 caractères au moins." />
+        <p>Vous choisirez votre mot de passe en ouvrant le lien de confirmation reçu par e-mail.</p>
         <Alerte message={erreur} />
         <button type="submit" disabled={occupe}>Créer mon compte</button>
       </form>

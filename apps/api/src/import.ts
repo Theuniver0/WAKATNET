@@ -117,4 +117,31 @@ export function routesImport(app: FastifyInstance, base: Base): void {
         lignes: lignesRapport,
       };
     });
+
+  // Réémission des tickets importés jamais utilisés (migration 0050, décision du 14/11/2026) : leurs codes courts
+  // restent devinables. Propriétaire seulement (rôle par défaut). Les nouveaux tickets sont des lots ordinaires.
+  app.get("/v1/imports/reemission", async (req) => {
+    const l = await enTantQue(base, req.tenantId, (tx) => tx.$queryRaw<{ plan_id: bigint; plan_nom: string; tickets: bigint; courts: bigint }[]>`
+      SELECT * FROM app.import_a_reemettre()`);
+    return { forfaits: l.map((x) => ({ forfait_id: x.plan_id.toString(), forfait: x.plan_nom, tickets: Number(x.tickets), courts: Number(x.courts) })) };
+  });
+
+  app.post<{ Body: { point_de_vente_id?: unknown; forfait_id?: unknown } }>("/v1/imports/reemission", async (req, rep) => {
+    const b = req.body ?? {};
+    if (!estIdentifiant(b.point_de_vente_id)) return rep.code(422).send({ erreur: "point de vente exigé" });
+    if (b.forfait_id !== undefined && b.forfait_id !== null && !estIdentifiant(b.forfait_id)) return rep.code(422).send({ erreur: "forfait invalide" });
+    const forfait = b.forfait_id === undefined || b.forfait_id === null ? null : BigInt(b.forfait_id as string);
+    // Par tranches de 500, une transaction courte chacune : les tickets ne restent pas verrouillés longtemps (l'accounting
+    // et post_auth les mettent à jour), et chaque tranche revérifie ses tickets (migration 0050).
+    const lots: { id: string; forfait_id: string; quantite: number }[] = [];
+    for (let tour = 0; tour < 100; tour++) {
+      const l = await enTantQue(base, req.tenantId, (tx) => tx.$queryRaw<{ statut: string; lot_id: bigint | null; plan_id: bigint | null; quantite: number | null }[]>`
+        SELECT * FROM app.import_reemettre(${BigInt(b.point_de_vente_id as string)}, ${forfait}::bigint, ${req.utilisateur!.id}, 500)`);
+      if (l[0]?.statut === "pdv_inconnu") return rep.code(422).send({ erreur: "point de vente inconnu" });
+      if (l[0]?.statut === "rien") break;
+      for (const x of l) lots.push({ id: x.lot_id!.toString(), forfait_id: x.plan_id!.toString(), quantite: x.quantite! });
+    }
+    if (lots.length === 0) return rep.code(409).send({ erreur: "aucun ticket importé à réémettre" });
+    return rep.code(201).send({ tickets: lots.reduce((n, x) => n + x.quantite, 0), lots });
+  });
 }

@@ -105,7 +105,8 @@ def test_l_index_par_routeur_porte_sur_l_expression_et_l_ancien_a_disparu():
 FICHIER_0012 = "0012_radius_devinette_sous_attaque.sans_transaction.sql"
 # Migrations postérieures qui redéfinissent une fonction de 0012 : rejouer 0012 les écraserait ;
 # elles sont donc rejouées avec elle, dans l'ordre de migrer.sh (phase 5 : garde de réplique, T13).
-SUIVANTES_0012 = ("0027_radius_post_auth_replique.sql", "0046_radius_devinette_budget.sql")
+SUIVANTES_0012 = ("0027_radius_post_auth_replique.sql", "0046_radius_devinette_budget.sql",
+                  "0048_radius_devinette_proprietaire.sql")
 
 
 def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivante():
@@ -119,6 +120,11 @@ def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivant
         c.execute(f"""CREATE INDEX {ANCIEN_INDEX} ON radius.auth_log (router_id, at)
                       WHERE resultat = 'Reject' AND cause = 'ticket_inconnu'""")
         c.execute("DELETE FROM public.schema_migrations WHERE fichier = ANY(%s)", ([FICHIER_0012, *SUIVANTES_0012],))
+        # 0046, rejouée avant 0048, recrée un CHECK qui ignore « budget_proprietaire » : aucune telle alerte ne doit
+        # exister ni naître pendant le rejeu (les post_auth de la boucle sont des échecs de forme faible).
+        valeur_budget = c.execute("SELECT valeur FROM radius.parametre WHERE cle = 'devinette_faibles_par_proprietaire'").fetchone()[0]
+        c.execute("UPDATE radius.parametre SET valeur = '999999' WHERE cle = 'devinette_faibles_par_proprietaire'")
+        c.execute("DELETE FROM radius.alerte WHERE type = 'budget_proprietaire'")
     lecteur = psycopg.connect(host=PG_HOTE, dbname="wakatnet", user="wakatnet_admin",
                               password=os.environ["POSTGRES_PASSWORD"])
     lecteur.execute("SELECT count(*) FROM radius.auth_log")       # transaction ouverte, verrou tenu
@@ -145,6 +151,8 @@ def test_migration_0012_ne_bloque_ni_authorize_ni_post_auth_sur_une_table_vivant
         lecteur.rollback()
         lecteur.close()
     sortie, _ = migration.communicate(timeout=120)
+    with admin() as c:
+        c.execute("UPDATE radius.parametre SET valeur = %s WHERE cle = 'devinette_faibles_par_proprietaire'", (valeur_budget,))
     _nettoyer()
     print(f"migration sous lecteur long : pire authorize + post_auth {pire * 1000:.0f} ms")
     assert migration.returncode == 0, sortie

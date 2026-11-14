@@ -21,10 +21,14 @@ const jetonDe = (r: { headers: Record<string, unknown> }) => /wk_session=([A-Za-
 const sourceAuHasard = () => `10.${randomBytes(1)[0]}.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
 const inscrireBrut = (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") =>
   app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: sourceAuHasard(), payload: { nom: "Zone test", email, mot_de_passe } });
+/** Adresse confirmée et mot de passe posé, comme par le lien (le mot de passe se choisit à la confirmation depuis F2). */
+const confirmerEnBase = async (email: string, mot_de_passe: string) =>
+  sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now(), mot_de_passe = $2 WHERE email = lower($1)",
+      [email, await hacher(mot_de_passe)]);
 /** Inscription, puis adresse confirmée (comme par le lien) : la connexion est alors permise. */
 const inscrire = async (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") => {
   const r = await inscrireBrut(app, email, mot_de_passe);
-  await sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now() WHERE email = lower($1)", [email]);
+  await confirmerEnBase(email, mot_de_passe);
   return r;
 };
 const connecter = (app: App, email: string, mot_de_passe: string) =>
@@ -63,17 +67,31 @@ test("inscription (ADR 0019) : aucune session ; même réponse adresse libre ou 
     assert.equal(deja.body, r.body, "réponse identique : rien ne dit que l'adresse existe");
     const [{ n: comptes }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.utilisateur WHERE email = lower($1)", [email]);
     assert.equal(comptes, 1);
-    // Avant confirmation : refus, avec le message d'un mauvais mot de passe.
+    // Avant confirmation : refus, avec le message d'un mauvais mot de passe, MÊME avec le bon mot de passe en base (le
+    // mot de passe ne s'écrit plus à l'inscription : on le pose ici, sans confirmer, pour éprouver le seul verrou restant).
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET mot_de_passe = $2 WHERE email = lower($1)", [email, await hacher("un-mot-de-passe-long")]);
     const avant = await connecter(app, email, "un-mot-de-passe-long");
     assert.equal(avant.statusCode, 401);
     assert.equal(avant.body, (await connecter(app, adresse(), "un-mot-de-passe-long")).body);
-    await sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now() WHERE email = lower($1)", [email]);
+    await confirmerEnBase(email, "un-mot-de-passe-long");
     const ok = await connecter(app, email, "un-mot-de-passe-long");
     assert.equal(ok.statusCode, 200);
     const c = cookieDe(ok);
     for (const attr of ["HttpOnly", "Secure", "SameSite=Strict", "Path=/"]) assert.ok(c.includes(attr), attr);
     assert.equal((await app.inject({ url: "/v1/moi", headers: entetesJeton(jetonDe(ok)) })).json().role, "proprietaire");
-    assert.equal((await inscrireBrut(app, adresse(), "court")).statusCode, 422);
+    // 14/11/2026 : le mot de passe n'est plus demandé à l'inscription ; un ancien client qui l'envoie est servi, et
+    // la valeur est ignorée (elle ne permettra jamais de se connecter).
+    const ancienClient = adresse();
+    assert.equal((await inscrireBrut(app, ancienClient, "mdp-envoye-par-un-ancien-client")).statusCode, 202);
+    assert.equal((await inscrireBrut(app, adresse(), "court")).statusCode, 202, "plus de contrôle de longueur : la valeur est ignorée");
+    const [{ dedans }] = await sql<{ dedans: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS dedans FROM app.utilisateur WHERE email = lower($1) AND mot_de_passe LIKE 'scrypt$%'", [ancienClient]);
+    assert.equal(dedans, 1, "compte créé avec un secret haché");
+    // La valeur envoyée est bien ignorée : adresse confirmée SANS toucher au mot de passe, « court » n'ouvre rien.
+    await sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now() WHERE email = lower($1)", [ancienClient]);
+    assert.equal((await connecter(app, ancienClient, "mdp-envoye-par-un-ancien-client")).statusCode, 401, "mot de passe de l'inscription ignoré");
+    assert.equal((await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: sourceAuHasard(),
+      payload: { nom: "Sans mot de passe", email: adresse() } })).statusCode, 202, "inscription sans mot de passe");
     const sans = await app.inject({ method: "POST", url: "/v1/inscription", payload: { nom: "x", email: adresse(), mot_de_passe: "un-mot-de-passe-long" } });
     assert.equal(sans.statusCode, 403);
     const [{ n }] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.utilisateur WHERE mot_de_passe LIKE '%un-mot-de-passe%'");

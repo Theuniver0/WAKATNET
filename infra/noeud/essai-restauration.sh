@@ -47,10 +47,12 @@ cd /
 #   - IPC : sémaphores et mémoire partagée System V à part (la base vivante ne peut pas en être privée) ;
 #   - montage : /run en entier (socket de la base vivante, D-Bus, systemd-resolved : pas de résolution DNS détournée),
 #     la base vivante, les secrets, journaux et files masqués par des tmpfs vides ; /tmp, /var/tmp et /dev/shm remplacés
-#     par des tmpfs BORNÉS (le code de la sauvegarde ne remplit pas le disque du primaire par là).
+#     par des tmpfs BORNÉS (le code de la sauvegarde ne remplit pas le disque du primaire par là) ;
+#   - PID : le premier processus (le serveur) y est PID 1 ; sa mort tue TOUT ce qu'il a lancé (aucun processus détaché ne
+#     survit), et /proc ne montre que l'essai (pas les lignes de commande de l'hôte).
 # L'instance n'a besoin que de $DONNEES (sa socket y est) et de $WAL. Échec d'un masquage : refus.
 isole() {
-  unshare --net --ipc --mount --propagation private -- sh -c '
+  unshare --net --ipc --pid --fork --kill-child --mount --mount-proc --propagation private -- sh -c '
     for d in /run /var/run /var/lib/postgresql /etc/pgbackrest /etc/wakatnet /var/lib/wakatnet /var/spool /var/log; do
       if [ -d "$d" ] && [ ! -L "$d" ]; then mount -n -t tmpfs -o size=64k,mode=0755 essai-masque "$d" || exit 97; fi
     done
@@ -58,7 +60,8 @@ isole() {
       if [ -d "$d" ] && [ ! -L "$d" ]; then mount -n -t tmpfs -o size=64m,mode=1777 essai-borne "$d" || exit 97; fi
     done
     u="$1"; shift
-    exec setpriv --reuid="$u" --regid="$u" --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all -- "$@"' isole "$ISOLE" "$@"
+    exec setpriv --reuid="$u" --regid="$u" --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all \
+      --pdeathsig KILL -- "$@"' isole "$ISOLE" "$@"
 }
 comme() {
   local u="$1"; shift
@@ -67,6 +70,20 @@ comme() {
   else setpriv --reuid="$u" --regid="$u" --init-groups -- "$@"; fi
 }
 VIVANTE=(comme postgres psql -X -q -tA -v ON_ERROR_STOP=1 -d "$BASE")
+# Restauration et WAL : sous postgres (il lit le dépôt et sa configuration), mais dans un espace de montage où la base
+# VIVANTE, /var/lib/wakatnet, les secrets de l'API et la socket sont masqués, et dans son propre espace PID. Un manifeste
+# piégé (chemin, lien) n'atteint donc que l'essai : la file et les journaux de pgBackRest y sont masqués aussi (des
+# « .ok » déposés dans la file archive-push du primaire lui feraient croire des WAL archivés), et ses journaux et
+# verrous de l'essai vont dans $PGBR, à postgres, sous $RACINE (pas de file : archive-get synchrone).
+sous_postgres_masque() {
+  unshare --pid --fork --kill-child --mount --mount-proc --propagation private -- sh -c '
+    vivantes="$1"; shift
+    for d in "$vivantes" /var/lib/postgresql /var/lib/wakatnet /etc/wakatnet /run/postgresql /var/run/postgresql \
+             /var/spool/pgbackrest /var/log/pgbackrest; do
+      if [ -d "$d" ] && [ ! -L "$d" ]; then mount -n -t tmpfs -o size=64k,mode=0755 essai-masque "$d" || exit 97; fi
+    done
+    exec setpriv --reuid=postgres --regid=postgres --init-groups --no-new-privs --pdeathsig KILL -- "$@"' masque "$DONNEES_VIVANTES" "$@"
+}
 
 # Sur le primaire seulement, comme la sauvegarde (une réplique doublerait charge et disque).
 if [ "$("${VIVANTE[@]}" -c 'SELECT pg_is_in_recovery()')" = t ]; then
@@ -98,31 +115,36 @@ except OSError:
   echo "ÉCHEC : isolement de l'instance indisponible (unshare --net --mount) : l'essai ne tourne pas à découvert" >&2; exit 1
 fi
 install -d -o root -g root -m 0711 "$RACINE"
+DONNEES_VIVANTES="$("${VIVANTE[@]}" -c 'SHOW data_directory')"
+[ -d "$DONNEES_VIVANTES" ] || { echo "ÉCHEC : répertoire de la base vivante introuvable" >&2; exit 1; }
 # Une copie laissée par un essai interrompu (SIGKILL à l'expiration du délai : le piège EXIT ne s'exécute
 # pas) est une base EN CLAIR sur disque : effacée avant tout (revue de sécurité F7).
 pkill -KILL -u "$ISOLE" 2>/dev/null || true
-rm -rf "$RACINE"/donnees.* "$RACINE"/wal.* "$RACINE"/conf.*
+rm -rf "$RACINE"/donnees.* "$RACINE"/wal.* "$RACINE"/conf.* "$RACINE"/pgbackrest.*
 DONNEES="$(mktemp -d "$RACINE/donnees.XXXXXX")"
 WAL="$(mktemp -d "$RACINE/wal.XXXXXX")"
+PGBR="$(mktemp -d "$RACINE/pgbackrest.XXXXXX")"
 CONF="$(mktemp -d "$RACINE/conf.XXXXXX")"
-chown postgres:postgres "$DONNEES" "$WAL"
-chmod 0700 "$DONNEES" "$WAL"
+chown postgres:postgres "$DONNEES" "$WAL" "$PGBR"
+chmod 0700 "$DONNEES" "$WAL" "$PGBR"
 chmod 0755 "$CONF"
 # Session imposée par le client (prioritaire sur ALTER ROLE / ALTER DATABASE restaurés) ; défense en profondeur
 # seulement : l'isolement vient de l'utilisateur.
 ESSAI=(isole env "PGOPTIONS=-c session_preload_libraries= -c local_preload_libraries= -c search_path=pg_catalog -c jit=off"
        psql -X -q -tA -v ON_ERROR_STOP=1 -h "$DONNEES" -p "$PORT" -U postgres -d "$BASE")
 nettoyer() {
-  isole "$PGBIN/pg_ctl" -D "$DONNEES" -m immediate stop >/dev/null 2>&1 || true
-  # Tout processus laissé par le code de la sauvegarde (COPY … TO PROGRAM détaché) est tué.
+  # Aucune commande du nettoyage ne doit changer le code de sortie de l'essai (set -e dans le piège EXIT).
+  if [ -n "${SURVEILLANT:-}" ]; then kill "$SURVEILLANT" 2>/dev/null || true; fi
+  # Le serveur est PID 1 de son espace : le tuer tue tout ce qu'il a lancé (COPY … TO PROGRAM détaché compris).
   pkill -KILL -u "$ISOLE" 2>/dev/null || true
-  rm -rf "$DONNEES" "$WAL" "$CONF"
+  if [ -n "${SERVEUR:-}" ]; then wait "$SERVEUR" 2>/dev/null || true; fi
+  rm -rf "$DONNEES" "$WAL" "$PGBR" "$CONF" || true
 }
 trap nettoyer EXIT
 # Réponse de l'instance restaurée : non fiable. Chaque ligne doit suivre le motif, sinon l'essai échoue.
 essai_lire() {
   local motif="$1" requete="$2" sortie
-  sortie="$("${ESSAI[@]}" -c "$requete")" || return 1
+  sortie="$("${ESSAI[@]}" -c "$requete")" || { disque_ok; return 1; }
   if [ -n "$sortie" ] && printf '%s\n' "$sortie" | LC_ALL=C grep -qvE "$motif"; then
     echo "ÉCART : réponse inattendue de l'instance restaurée (motif $motif) : sauvegarde suspecte" >&2
     return 1
@@ -153,18 +175,70 @@ marge = int(sys.argv[2]) << 20 if sys.argv[2] else max(total // 10, 2 << 30)
 if libre - besoin < marge:
     sys.exit("ÉCHEC : place insuffisante pour l essai (%d Mio nécessaires, %d Mio libres) : rien n est restauré"
              % (besoin >> 20, libre >> 20))
-print(e, d, f)' "$RACINE" "${WAKATNET_ESSAI_MARGE_MIO:-}" "${WAKATNET_ESSAI_WAL_MAX:-4096}")" || exit 1
-read -r etiquette wal_debut wal_fin <<<"$etat"
+print(e, d, f, marge)' "$RACINE" "${WAKATNET_ESSAI_MARGE_MIO:-}" "${WAKATNET_ESSAI_WAL_MAX:-4096}")" || exit 1
+read -r etiquette wal_debut wal_fin marge <<<"$etat"
+# Surveillant du disque pendant TOUT l'essai : la taille annoncée vient du dépôt, et le code de la sauvegarde peut écrire
+# dans $DONNEES. Si la place libre passe sous la marge, la restauration et l'instance sont tuées, l'essai échoue.
+DISQUE_KO="$CONF/disque-ko"
+place_libre() { df -B1 --output=avail "$RACINE" 2>/dev/null | tail -1 | tr -d ' '; }
+# Échoue FERMÉ : une mesure impossible vaut un disque plein. Une fois déclenché, il continue de tuer jusqu'à la fin.
+surveiller_disque() {
+  local libre
+  set +e
+  while sleep 2; do
+    libre="$(place_libre)"
+    if ! [ "$libre" -ge "$marge" ] 2>/dev/null; then
+      : > "$DISQUE_KO"
+      [ -s "$CONF/restauration.pid" ] && pkill -KILL -P "$(cat "$CONF/restauration.pid")" 2>/dev/null
+      pkill -KILL -u "$ISOLE" 2>/dev/null
+    fi
+  done
+}
+surveiller_disque &
+SURVEILLANT=$!
+disque_ok() {
+  if [ -e "$DISQUE_KO" ]; then
+    echo "ÉCHEC : place disque passée sous la marge pendant l'essai ($(( marge >> 20 )) Mio) : essai arrêté par le surveillant" >&2
+    exit 1
+  fi
+  # Mesure immédiate aussi : l'essai peut finir entre deux passages du surveillant.
+  local libre; libre="$(place_libre)"
+  if ! [ "$libre" -ge "$marge" ] 2>/dev/null; then
+    echo "ÉCHEC : place disque passée sous la marge pendant l'essai ($(( marge >> 20 )) Mio) : essai arrêté" >&2; exit 1
+  fi
+}
+# Une commande de l'essai lancée en arrière-plan, suivie par le surveillant (qui tue son espace s'il le faut).
+suivi() {
+  "$@" &
+  local pid=$!
+  echo "$pid" > "$CONF/restauration.pid"
+  if wait "$pid"; then : > "$CONF/restauration.pid"; disque_ok; return 0; fi
+  : > "$CONF/restauration.pid"; disque_ok; return 1
+}
 
 debut="$(date +%s.%N)"
 # Restauration sous postgres : pgBackRest pose les fichiers, rien de la sauvegarde ne s'exécute. Un tablespace déclaré
 # par le manifeste est replacé DANS le répertoire d'essai (jamais au chemin choisi par la sauvegarde) ; les liens
 # symboliques sont restaurés en répertoires (link-all désactivé par défaut).
-comme postgres pgbackrest --stanza="$STANZA" --pg1-path="$DONNEES" --type=immediate --target-action=promote \
-  --archive-mode=off --tablespace-map-all="$DONNEES/pg_tblspc_essai" --set="$etiquette" restore >/dev/null
+PGBR_OPTIONS=(--stanza="$STANZA" --pg1-path="$DONNEES" --log-path="$PGBR" --lock-path="$PGBR")
+suivi sous_postgres_masque pgbackrest "${PGBR_OPTIONS[@]}" --type=immediate --target-action=promote \
+  --archive-mode=off --tablespace-map-all="$DONNEES/pg_tblspc_essai" --set="$etiquette" restore >/dev/null \
+  || { echo "ÉCHEC : restauration" >&2; exit 1; }
+# Aucun lien de la copie ne doit sortir de la copie (manifeste piégé) : rien n'est démarré sinon.
+if ! python3 - "$DONNEES" <<'PY'
+import os, sys
+racine = os.path.realpath(sys.argv[1])
+for base, reps, fichiers in os.walk(racine):
+    for nom in reps + fichiers:
+        chemin = os.path.join(base, nom)
+        if os.path.islink(chemin) and os.path.commonpath([racine, os.path.realpath(chemin)]) != racine:
+            sys.exit("ÉCART : lien hors de la copie restaurée (%s) : sauvegarde suspecte" % os.path.relpath(chemin, racine))
+PY
+then exit 1; fi
 # WAL tirés AVANT le démarrage (segments de 16 Mo) : l'instance restaurée ne touche jamais au dépôt ni à sa phrase de passe.
 while read -r seg; do
-  comme postgres pgbackrest --stanza="$STANZA" archive-get "$seg" "$WAL/$seg" >/dev/null
+  suivi sous_postgres_masque pgbackrest "${PGBR_OPTIONS[@]}" archive-get "$seg" "$WAL/$seg" >/dev/null \
+    || { echo "ÉCHEC : WAL $seg introuvable" >&2; exit 1; }
 done < <(python3 -c '
 import sys
 d, f = sys.argv[1], sys.argv[2]
@@ -173,7 +247,8 @@ while (l, s) <= fin:
     print("%s%08X%08X" % (tl, l, s))
     l, s = (l + 1, 0) if s == 0xFF else (l, s + 1)' "$wal_debut" "$wal_fin")
 # Historique de la ligne temporelle, s'il y en a une (après une bascule) : absent sur la ligne 1.
-comme postgres pgbackrest --stanza="$STANZA" archive-get "${wal_debut:0:8}.history" "$WAL/${wal_debut:0:8}.history" >/dev/null 2>&1 || true
+suivi sous_postgres_masque pgbackrest "${PGBR_OPTIONS[@]}" archive-get "${wal_debut:0:8}.history" "$WAL/${wal_debut:0:8}.history" \
+  >/dev/null 2>&1 || true
 # La configuration de la sauvegarde n'est jamais lue. Fichiers restaurés retirés, postgresql.auto.conf vidé ; la
 # configuration de l'essai est écrite ici, hors du répertoire restauré, avec des valeurs de confiance : celles que la
 # récupération exige au moins égales au primaire sont lues dans la base VIVANTE.
@@ -215,11 +290,18 @@ printf 'local all all trust\n' > "$CONF/pg_hba.conf"
 : > "$CONF/pg_ident.conf"
 chmod 0644 "$CONF"/*
 chown -R "$ISOLE:$ISOLE" "$DONNEES" "$WAL"
-isole "$PGBIN/pg_ctl" -D "$DONNEES" -w -t 600 -l "$DONNEES/essai.log" -o "-c config_file=$CONF/postgresql.conf" start >/dev/null \
-  || { echo "ÉCHEC : l'instance restaurée ne démarre pas ; fin de son journal :" >&2
-       # Lu sous l'utilisateur isolé : son répertoire est à lui (un lien vers un secret ne se lit pas en root).
-       isole tail -20 "$DONNEES/essai.log" >&2 || true; exit 1; }
+# Serveur au premier plan, PID 1 de son espace ; son journal est écrit par l'utilisateur isolé, dans son répertoire.
+isole sh -c 'exec "$0" -D "$1" -c "config_file=$2" > "$1/essai.log" 2>&1' "$PGBIN/postgres" "$DONNEES" "$CONF/postgresql.conf" \
+  2> "$CONF/serveur.err" &
+SERVEUR=$!
 for _ in $(seq 1 600); do
+  disque_ok
+  if ! kill -0 "$SERVEUR" 2>/dev/null; then
+    echo "ÉCHEC : l'instance restaurée s'est arrêtée ; fin de son journal :" >&2
+    cat "$CONF/serveur.err" >&2 || true
+    # Lu sous l'utilisateur isolé : son répertoire est à lui (un lien vers un secret ne se lit pas en root).
+    isole tail -20 "$DONNEES/essai.log" >&2 || true; exit 1
+  fi
   [ "$("${ESSAI[@]}" -c 'SELECT pg_is_in_recovery()' 2>/dev/null || true)" = f ] && break
   sleep 1
 done
@@ -263,6 +345,7 @@ lignes_ledger="$(essai_lire '^[0-9]+ transactions, [0-9]+ écritures$' "SELECT (
 comptes="$(essai_lire '^[0-9]+ [0-9]+ [0-9]+ [0-9]+$' "SELECT (SELECT count(*) FROM app.tenant) || ' ' || (SELECT count(*) FROM app.voucher)
            || ' ' || (SELECT count(*) FROM app.payment) || ' ' || (SELECT count(*) FROM radius.session)")"
 
+disque_ok
 ok=true
 [ "${#ecarts[@]}" = 0 ] || ok=false
 install -d "$(dirname "$RESULTAT")"
