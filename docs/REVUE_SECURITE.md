@@ -305,4 +305,20 @@ Scan automatisé par plusieurs agents, chaque constat contre-vérifié par un pa
 
   C'est la parade de fond contre la devinette des codes courts : les budgets de l'ADR 0011 n'en sont que le filet.
 - **Inscription sans mot de passe** : le formulaire ne le demande plus, puisqu'il se choisit à la confirmation (F2). L'API ignore un `mot_de_passe` envoyé par un ancien client, et pose un secret aléatoire haché, avec la même durée de réponse.
-- **Reste, antérieur à ce lot** : la réponse à l'inscription attend l'envoi de l'e-mail (lien ou avis), qui ne fait pas le même travail en base dans les deux cas. Sa durée peut donc encore distinguer une adresse libre d'une adresse inscrite. Remède : répondre d'abord, puis envoyer, comme le fait déjà `/v1/verification/renvoyer`.
+- **Durée de l'inscription** (corrigé le 14/11/2026) : la préparation du lien ou de l'avis part maintenant après la réponse, comme pour `/v1/verification/renvoyer`. Il reste seulement l'écart propre à `app.inscription_demander`, qui crée un compte dans un cas et en lit un dans l'autre : quelques millisecondes en base, sous le bruit du réseau.
+
+**Points de code restants, corrigés seul (14/11/2026)**
+
+- **Empreinte factice** : un échec du premier calcul (scrypt saturé) restait en cache. Toute connexion sur une adresse inconnue répondait alors 503 jusqu'au redémarrage de l'API. L'échec n'est plus gardé.
+- **Saturation et essais de connexion** : un 503 « calculs saturés » consommait l'essai réservé, si bien qu'un attaquant qui saturait scrypt faisait perdre leurs essais aux vrais utilisateurs. La réservation est maintenant libérée (`app.connexion_reussie(essai, NULL)`). Aucun mot de passe n'ayant été vérifié, ce n'est pas un essai gratuit.
+- **Index du journal d'audit** (migration 0052, `CONCURRENTLY`) :
+  - `(action, objet)` : idempotence des rechargements, alertes notifiées, réémissions ;
+  - `(action, le)` et `(action, tenant_id, id)` : alertes de crédits ;
+  - `(le)` : purge à 5 ans.
+- **Relecture par un second agent** : les corrections tiennent. Ajouté sur sa demande :
+  - une erreur de base pendant la libération de l'essai garde la réponse 503 ;
+  - `_pourTests` est refusé en production ;
+  - l'empreinte factice est préparée au démarrage, et son cache n'est effacé que par sa propre promesse.
+
+  Non fait : prouver par un test que la réponse d'inscription part avant le travail en base. Les tests existants attendent seulement la fin de ce travail.
+- **Preuves** : `auth.test.ts` (« relecture du 14/11/2026 »). Une saturation donne 503, aucun essai n'est compté, puis un vrai échec compte. Une empreinte factice saturée ne fait plus échouer les connexions suivantes.

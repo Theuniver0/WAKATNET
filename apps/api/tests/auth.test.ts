@@ -6,7 +6,7 @@ import { Writable } from "node:stream";
 import { test } from "node:test";
 import pg from "pg";
 import { construire } from "../src/app.ts";
-import { base32Encoder, chiffrerTotp, envoisEnCours, hacher, hotp, totpPas, verifier } from "../src/auth.ts";
+import { _pourTests, base32Encoder, chiffrerTotp, envoisEnCours, hacher, hotp, totpPas, verifier } from "../src/auth.ts";
 import { enTantQue, ouvrirBase } from "../src/base.ts";
 import { ExpediteurMemoire } from "../src/courriel.ts";
 import { avecApp, CLES, config, empreinteTest, entetesJeton, MDP_TEST, proprietaire, session, sql, URL_ADMIN, URL_API } from "./aide.ts";
@@ -19,8 +19,12 @@ const jetonDe = (r: { headers: Record<string, unknown> }) => /wk_session=([A-Za-
 
 // Une source par inscription : la limite de 5 inscriptions par heure et par source (ADR 0019) ne gêne pas les tests.
 const sourceAuHasard = () => `10.${randomBytes(1)[0]}.${randomBytes(1)[0]}.${randomBytes(1)[0]}`;
-const inscrireBrut = (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") =>
-  app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: sourceAuHasard(), payload: { nom: "Zone test", email, mot_de_passe } });
+// Le lien ou l'avis se prépare après la réponse (relecture du 14/11/2026) : les helpers attendent la fin de ce travail.
+const inscrireBrut = async (app: App, email: string, mot_de_passe = "un-mot-de-passe-long") => {
+  const r = await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: sourceAuHasard(), payload: { nom: "Zone test", email, mot_de_passe } });
+  await envoisEnCours();
+  return r;
+};
 /** Adresse confirmée et mot de passe posé, comme par le lien (le mot de passe se choisit à la confirmation depuis F2). */
 const confirmerEnBase = async (email: string, mot_de_passe: string) =>
   sql(URL_ADMIN, "UPDATE app.utilisateur SET email_verifie_le = now(), mot_de_passe = $2 WHERE email = lower($1)",
@@ -271,8 +275,11 @@ test("revue de sécurité M2 derrière nginx : la source est l'en-tête X-Forwar
 
 const verifie = async (email: string) => (await sql<{ v: boolean }>(URL_ADMIN,
   "SELECT email_verifie_le IS NOT NULL AS v FROM app.utilisateur WHERE email = lower($1)", [email]))[0]?.v;
-const inscrireDepuis = (app: App, email: string, source: string, mot_de_passe = "un-mot-de-passe-long", nom = "Zone test") =>
-  app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: source, payload: { nom, email, mot_de_passe } });
+const inscrireDepuis = async (app: App, email: string, source: string, mot_de_passe = "un-mot-de-passe-long", nom = "Zone test") => {
+  const r = await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: source, payload: { nom, email, mot_de_passe } });
+  await envoisEnCours();
+  return r;
+};
 const renvoyer = (app: App, email: string, source = sourceAuHasard()) =>
   app.inject({ method: "POST", url: "/v1/verification/renvoyer", headers: CSRF, remoteAddress: source, payload: { email } });
 /** `null` : requête SANS mot de passe (un `undefined` prendrait la valeur par défaut). */
@@ -487,5 +494,30 @@ test("audit 13/11/2026 (LIMITES n° 2) : calculs scrypt plafonnés ; au-delà, 5
     assert.ok(codes.includes(503), "la saturation est bien visible (503)");
     const sature = reps.find((x) => x.statusCode === 503)!;
     assert.equal(sature.headers["retry-after"], "5");
+  });
+});
+
+test("relecture du 14/11/2026 : calculs saturés → 503 SANS consommer l'essai ; un échec de l'empreinte factice n'est pas gardé", async () => {
+  await avecApp(async (app) => {
+    const essais = async (email: string) => (await sql<{ n: number }>(URL_ADMIN,
+      "SELECT count(*)::int AS n FROM app.connexion_echec WHERE email = lower($1)", [email]))[0].n;
+    // 1. Saturation sur un compte existant : 503, et aucune réservation ne reste.
+    const email = adresse();
+    await inscrire(app, email);
+    let liberer = _pourTests.saturer();
+    try {
+      assert.equal((await connecter(app, email, "un-mot-de-passe-long")).statusCode, 503);
+      assert.equal(await essais(email), 0, "un essai saturé ne compte pas");
+    } finally { liberer(); }
+    assert.equal((await connecter(app, email, "mauvais-mot-de-passe")).statusCode, 401);
+    assert.equal(await essais(email), 1, "un vrai échec compte toujours");
+    // 2. L'empreinte factice échoue (saturée) au premier calcul : l'échec n'est pas mis en cache.
+    _pourTests.oublierEmpreinteFactice();
+    liberer = _pourTests.saturer();
+    try {
+      assert.equal((await connecter(app, adresse(), "un-mot-de-passe-long")).statusCode, 503);
+    } finally { liberer(); }
+    assert.equal((await connecter(app, adresse(), "un-mot-de-passe-long")).statusCode, 401,
+      "adresse inconnue : 401 une fois les calculs libérés (avant : 503 jusqu'au redémarrage)");
   });
 });

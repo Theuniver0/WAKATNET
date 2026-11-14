@@ -1375,3 +1375,16 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - OpenAPI et droits mis à jour.
 - **Relecture (règle 4)** : la première version renommait l'ancien code. Une connexion pendant la réémission ou un réimport pouvait alors faire valoir deux fois un même ticket. Repris (ancien expiré et lié, « premier activé gagne »).
 - **Preuves** : `import.test.ts` (« réémission… » : `radius.authorize` sur l'ancien et le nouveau code, réimport, réconciliation) et `auth.test.ts` (verrou de confirmation, mot de passe de l'inscription ignoré) ; suite API 242/242 ; RADIUS et e2e : voir le message de commit.
+
+## 14/11/2026 — Points de code restants (connexion, inscription, journal d'audit)
+
+- **Demande** : « fait tout ce que tu [peux] seul, ensuite demande-moi ce dont tu as besoin ».
+- **Fait** :
+  - l'empreinte factice ne garde plus un échec ;
+  - un 503 « calculs saturés » ne consomme plus l'essai de connexion ;
+  - le lien ou l'avis d'inscription se prépare après la réponse ;
+  - index du journal d'audit (migration 0052).
+
+  Détail dans `docs/REVUE_SECURITE.md` §5.
+- **Preuves** : suite API 243/243 (schéma Prisma tiré de la base) ; RADIUS et e2e : voir le message de commit.
+- **Reste** : tout ce qui suit exige Yacouba (comptes, matériel, routeurs réels) : liste dans la réponse de session.

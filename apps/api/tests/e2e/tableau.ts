@@ -101,7 +101,12 @@ try {
   await page.getByRole("button", { name: "Créer mon compte" }).click();
   // ADR 0019 : aucune session à l'inscription ; le lien de confirmation, puis la connexion.
   await page.getByText(/un lien de confirmation reçu par e-mail|ouvrez le lien de confirmation/).waitFor();
-  const message = expediteur.messages.find((m) => m.a === email);
+  // Le lien se prépare après la réponse (relecture du 14/11/2026) : on l'attend, 5 s au plus.
+  let message = expediteur.messages.find((m) => m.a === email);
+  for (let i = 0; i < 50 && !message; i++) {
+    await new Promise((ok) => setTimeout(ok, 100));
+    message = expediteur.messages.find((m) => m.a === email);
+  }
   assert.ok(message, "lien de confirmation envoyé à l'inscription");
   const jetonVerif = /#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(message.texte)![1];
   await page.goto(`${TABLEAU}#/connexion`);
