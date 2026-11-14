@@ -47,7 +47,7 @@ try:
     r = "ouvert"
 except OSError as e:
     r = "ferme errno=%s" % e.errno
-print(r, "run=" + ",".join(sorted(os.listdir("/run"))))
+print(r, "run=" + ",".join(sorted(os.listdir("/run"))), "pid1=" + open("/proc/1/comm").read().strip())
 PY
 chmod 0644 /srv/temoin/sonde.py
 # Configuration comme en production (rôle pgbackrest, audit du 13/11/2026) : à root, lisible par postgres seulement.
@@ -111,7 +111,7 @@ pg psql -X -q -v ON_ERROR_STOP=1 -d wakatnet <<'SQL'
 CREATE SCHEMA IF NOT EXISTS piege;
 CREATE FUNCTION piege.lancer() RETURNS void LANGUAGE plpgsql AS $f$
 BEGIN
-  COPY (SELECT 1) TO PROGRAM 'id -un > /srv/temoin/piege-qui; psql -X -q -h /var/run/postgresql -U postgres -d wakatnet -c "CREATE TABLE IF NOT EXISTS public.piege_vivant ()" >/dev/null 2>&1; touch /var/lib/wakatnet/piege-execute 2>/dev/null; python3 /srv/temoin/sonde.py > /srv/temoin/piege-reseau 2>&1; true';
+  COPY (SELECT 1) TO PROGRAM 'id -un > /srv/temoin/piege-qui; psql -X -q -h /var/run/postgresql -U postgres -d wakatnet -c "CREATE TABLE IF NOT EXISTS public.piege_vivant ()" >/dev/null 2>&1; touch /var/lib/wakatnet/piege-execute 2>/dev/null; python3 /srv/temoin/sonde.py > /srv/temoin/piege-reseau 2>&1; [ -e /srv/temoin/remplir ] && while :; do head -c 52428800 /dev/zero >> remplissage; sleep 0.3; done; true';
 END $f$;
 -- Appelée par l'ancien essai (search_path de la base), puis par le nouveau (pg_catalog, correspondance exacte).
 CREATE FUNCTION piege.md5(text) RETURNS text LANGUAGE plpgsql AS $f$ BEGIN PERFORM piege.lancer(); RETURN 'piege'; END $f$;
@@ -133,12 +133,32 @@ dans env WAKATNET_ESSAI_MARGE_MIO=512 WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/
   || { echo "ÉCHEC : le piège de pg_catalog ne s'est pas exécuté (ou pas sous wakatnet-essai) : le banc ne prouve rien"; exit 1; }
 if dans test -e /var/lib/wakatnet/piege-execute; then echo "ÉCHEC : le code de la sauvegarde a écrit à côté de la base vivante"; exit 1; fi
 RESEAU="$(dans cat /srv/temoin/piege-reseau 2>/dev/null)"
-[[ "$RESEAU" =~ ^ferme\ errno=[0-9]+\ run=$ ]] \
-  || { echo "ÉCHEC : le code de la sauvegarde atteint le réseau ou voit /run : $RESEAU"; exit 1; }
+[[ "$RESEAU" =~ ^ferme\ errno=[0-9]+\ run=\ pid1=postgres$ ]] \
+  || { echo "ÉCHEC : le code de la sauvegarde atteint le réseau, voit /run ou n'est pas dans l'espace PID de l'instance : $RESEAU"; exit 1; }
 if [ "$(pg psql -X -tA -d wakatnet -c "SELECT to_regclass('public.piege_vivant') IS NOT NULL")" = t ]; then
   echo "ÉCHEC : le code de la sauvegarde a écrit dans la base VIVANTE"; exit 1
 fi
 echo "piège exécuté sous wakatnet-essai, sans réseau ($RESEAU) ni accès à la base vivante ou à son répertoire ; recovery_end_command ignoré"
+
+etape "Disque : le code de la sauvegarde remplit son répertoire, le surveillant arrête l'essai"
+# Même sauvegarde piégée : avec ce témoin, elle écrit SANS FIN dans le répertoire de l'instance (50 Mio toutes les 0,3 s),
+# au premier plan de la requête : seul le surveillant peut l'arrêter. La marge est réglée pour que le contrôle préalable
+# passe (≈ 250 Mio de jeu) et que le remplissage la franchisse.
+dans touch /srv/temoin/remplir
+LIBRE="$(dans df -B1M --output=avail /var/lib | tail -1 | tr -d ' ')"
+TAILLE="$(pg pgbackrest --stanza=wakatnet info --output=json | pg python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["backup"][-1]["info"]["size"] >> 20)')"
+MARGE=$(( LIBRE - (TAILLE + 64) * 12 / 10 - 250 ))
+set +e
+SORTIE="$(dans env WAKATNET_ESSAI_MARGE_MIO="$MARGE" WAKATNET_ESSAI_RESULTAT=/var/lib/wakatnet/essai-restauration.json bash /depot/infra/noeud/essai-restauration.sh 2>&1)"
+CODE=$?
+set -e
+dans rm -f /srv/temoin/remplir
+printf '%s\n' "$SORTIE" | tail -2
+[ "$CODE" = 1 ] && grep -q "essai arrêté par le surveillant" <<<"$SORTIE" || { echo "ÉCHEC : le surveillant de disque n'a pas arrêté l'essai (code $CODE)"; exit 1; }
+dans sh -c '! ls -d /var/lib/wakatnet-essai/donnees.* 2>/dev/null' || { echo "ÉCHEC : copie de l'essai laissée sur disque"; exit 1; }
+if dans pgrep -u wakatnet-essai >/dev/null; then echo "ÉCHEC : processus de l'essai encore en vie"; exit 1; fi
+[ "$(dans df -B1M --output=avail /var/lib | tail -1 | tr -d ' ')" -gt $(( MARGE - 100 )) ] || { echo "ÉCHEC : place non rendue"; exit 1; }
+echo "remplissage arrêté par le surveillant (marge $MARGE Mio), copie effacée"
 
 etape "Atteinte au grand livre après la sauvegarde : l'essai doit la détecter"
 ID="$(pg psql -X -q -tA -d wakatnet -c "SELECT max(id) FROM ledger.ecriture WHERE transaction_id IN

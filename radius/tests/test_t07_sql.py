@@ -307,3 +307,52 @@ def test_f3_budget_horaire_d_echecs_faibles_attaque_lente():
         with admin() as c:
             c.execute(f"DELETE FROM radius.auth_log WHERE router_id = {r2} AND mac LIKE '0E%%'")
             c.execute(f"DELETE FROM radius.alerte WHERE type = 'budget_routeur' AND router_id = {r2}")
+
+
+def test_f3_budget_par_proprietaire_echecs_repartis_sur_ses_routeurs():
+    """Troisième relecture (migration 0048) : le budget par routeur laissait 30 essais par heure et PAR ROUTEUR. 60 échecs
+    de forme faible répartis sur les routeurs d'un propriétaire, sans qu'aucun n'atteigne son propre budget, restreignent
+    TOUS ses routeurs, et eux seuls ; une alerte budget_proprietaire est posée, une seule fois par fenêtre."""
+    court = _ticket_importe("P" + uuid.uuid4().hex[:5].upper())
+    long_ = nouveau_ticket()
+    court_b = "B" + uuid.uuid4().hex[:5].upper()             # ticket importé d'un AUTRE propriétaire (2, routeur r7)
+    with admin() as c:
+        t = nouveau_ticket(plan_id=3, tenant_id=2)
+        c.execute("UPDATE app.voucher SET code = %s, origine = 'import' WHERE tenant_id = 2 AND code = %s", (court_b, t))
+    def echecs(src, n):
+        with en_tant_que_radius() as c:
+            for _ in range(n):
+                c.execute("SELECT radius.post_auth('4321', %s, %s, 'Reject', 'ticket_inconnu')",
+                          (src, "0D" + uuid.uuid4().hex[:10].upper()))
+    with admin() as c:
+        valeurs = dict(c.execute("""SELECT cle, valeur FROM radius.parametre
+                                     WHERE cle IN ('devinette_faibles_par_proprietaire', 'devinette_faibles_par_heure')""").fetchall())
+    try:
+        with admin() as c:
+            c.execute("DELETE FROM radius.alerte WHERE type IN ('budget_routeur', 'budget_proprietaire', 'echecs_routeur') AND tenant_id IN (1, 2)")
+            # Échecs faibles laissés dans l'heure par d'autres tests du même propriétaire : le budget est décalé d'autant.
+            deja = c.execute("""SELECT count(*) FROM radius.auth_log WHERE tenant_id = 1 AND forme_faible AND resultat = 'Reject'
+                                  AND cause = 'ticket_inconnu' AND at > now() - interval '1 hour'""").fetchone()[0]
+            c.execute("UPDATE radius.parametre SET valeur = %s WHERE cle = 'devinette_faibles_par_proprietaire'", (str(60 + deja),))
+            # Seul le budget du propriétaire est éprouvé ici : celui des routeurs est mis hors de portée le temps du test.
+            c.execute("UPDATE radius.parametre SET valeur = '100000' WHERE cle = 'devinette_faibles_par_heure'")
+        echecs(R1, 29)
+        echecs(R2, 29)
+        assert decider(court, _mac()) == ("Accept", None), "58 échecs répartis : sous le budget du propriétaire"
+        echecs(ROUTEURS["r6"][0], 2)                         # le 60e, sur un troisième routeur
+        echecs(R2, 10)                                       # au-delà du seuil : toujours UNE alerte
+        for src in (R1, R2, ROUTEURS["r6"][0]):
+            assert decider(court, _mac(), src=src) == ("Reject", "trop_de_tentatives"), f"propriétaire restreint ({src})"
+        assert decider(long_, _mac()) == ("Accept", None), "code de la plateforme : toujours servi"
+        assert decider(court_b, _mac(), src=ROUTEURS["r7"][0]) == ("Accept", None), "un autre propriétaire n'est pas touché"
+        with admin() as c:
+            assert c.execute("SELECT count(*) FROM radius.alerte WHERE type = 'budget_proprietaire' AND tenant_id = 1").fetchone()[0] == 1
+            assert c.execute("SELECT count(*) FROM radius.alerte WHERE type = 'budget_proprietaire' AND tenant_id = 2").fetchone()[0] == 0
+            c.execute("UPDATE radius.auth_log SET at = now() - interval '61 minutes' WHERE tenant_id = 1 AND mac LIKE '0D%%'")
+        assert decider(court, _mac()) == ("Accept", None), "plus d'une heure : levé"
+    finally:
+        with admin() as c:
+            c.execute("DELETE FROM radius.auth_log WHERE tenant_id = 1 AND mac LIKE '0D%%'")
+            c.execute("DELETE FROM radius.alerte WHERE type = 'budget_proprietaire' AND tenant_id = 1")
+            for cle, valeur in valeurs.items():
+                c.execute("UPDATE radius.parametre SET valeur = %s WHERE cle = %s", (valeur, cle))

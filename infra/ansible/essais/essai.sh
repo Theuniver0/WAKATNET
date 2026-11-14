@@ -12,6 +12,8 @@
 #   3. B avec postgresql_reconstruire_replique=true : réplique en flux sur le slot noeud_b ;
 #   4. second passage sur A et B : aucun changement (idempotence) ;
 #   5. A redéclaré réplique : refusé, A reste primaire et en marche ;
+#   5 bis. essai de restauration par sa vraie unité systemd sur A (scan de sécurité F4) : capacités, espaces de noms,
+#      filtre d'appels système et ProtectSystem éprouvés ; RÉUSSI, copie effacée ;
 #   6. FreeRADIUS sans le dépôt de l'éditeur : la version de la distribution (Ubuntu 24.04 : 3.2.5 ; Debian 13 :
 #      3.2.7) est refusée par la garde de version ;
 #   7. B promu, puis PostgreSQL de A redémarré par systemd (redémarrage par l'hébergeur) : la garde contre le
@@ -152,6 +154,41 @@ if "${JOUER[@]}" "$ANSIBLE/essais/essai.yml" --limit noeud_a -e wakatnet_role=re
 grep -q "est déclaré réplique mais n'en est pas une" "$TMP/a2.log" || echec "refus attendu pour A"
 [ "$(docker exec -u postgres "$A" psql -X -tA -c 'SELECT pg_is_in_recovery()')" = f ] || echec "A n'est plus primaire"
 echo "refusé (attendu) ; A toujours primaire, en marche"
+
+etape "5 bis. Essai de restauration par sa VRAIE unité systemd (capacités, espaces de noms, filtre d'appels système)"
+# Le rôle noeud_wakatnet ne s'applique pas dans ces conteneurs (Node téléchargé) : l'utilisateur, le script et l'unité
+# sont posés ici comme il les pose. Dépôt pgBackRest : un répertoire (pas de S3 dans le banc). La sauvegarde et l'essai
+# tournent sur A, primaire ; l'étape 7 refait passer Ansible sur A, mais le rôle postgresql échoue avant pgbackrest.
+docker exec -i "$A" bash -s <<'SH'
+set -euo pipefail
+useradd --system --shell /usr/sbin/nologin --no-create-home --home-dir /nonexistent wakatnet-essai
+# Droits du rôle noeud_wakatnet (root, 0750) : le certificat de l'étape TLS l'avait créé en 0755, et l'essai refuse alors
+# de tourner (« wakatnet-essai lit /etc/wakatnet »), ce que la première exécution de ce banc a montré.
+chmod 0750 /etc/wakatnet
+install -d -o postgres -g postgres -m 0700 /var/lib/pgbackrest-essai /var/lib/wakatnet
+sed -i -e 's/^repo1-type=s3/repo1-type=posix/' -e '/^repo1-s3-/d' -e 's#^repo1-path=.*#repo1-path=/var/lib/pgbackrest-essai#' \
+  /etc/pgbackrest/pgbackrest.conf
+install -d /opt/wakatnet/infra/noeud /opt/wakatnet/infra/sql /etc/systemd/system/wakatnet-essai-restauration.service.d
+SH
+docker cp "$DEPOT/infra/sql/." "$A:/opt/wakatnet/infra/sql/"
+docker cp "$DEPOT/infra/noeud/essai-restauration.sh" "$A:/opt/wakatnet/infra/noeud/essai-restauration.sh"
+docker cp "$DEPOT/infra/systemd/wakatnet-essai-restauration.service" "$A:/etc/systemd/system/wakatnet-essai-restauration.service"
+docker exec "$A" bash -c 'chmod 0755 /opt/wakatnet/infra/noeud/essai-restauration.sh &&
+  printf "[Service]\nEnvironment=WAKATNET_ESSAI_MARGE_MIO=256\n" > /etc/systemd/system/wakatnet-essai-restauration.service.d/banc.conf &&
+  systemctl daemon-reload'
+docker exec -u postgres -e PGDATABASE=wakatnet -e PGUSER=postgres "$A" bash /opt/wakatnet/infra/sql/migrer.sh > "$TMP/migrer.log" 2>&1 \
+  || { tail -20 "$TMP/migrer.log"; echec "migrations sur A"; }
+docker exec -u postgres "$A" pgbackrest --stanza=wakatnet stanza-create >/dev/null
+docker exec -u postgres "$A" pgbackrest --stanza=wakatnet backup --type=full >/dev/null
+if ! docker exec "$A" systemctl start wakatnet-essai-restauration.service; then
+  docker exec "$A" journalctl -u wakatnet-essai-restauration --no-pager -n 40
+  echec "l'essai de restauration échoue sous systemd"
+fi
+docker exec "$A" python3 -c 'import json; r = json.load(open("/var/lib/wakatnet/essai-restauration.json")); assert r["ok"], r; print("résultat :", r["etiquette"], r["grand_livre"])'
+docker exec "$A" journalctl -u wakatnet-essai-restauration --no-pager -n 20 | grep -q "essai de restauration : RÉUSSI" || echec "RÉUSSI absent du journal"
+docker exec "$A" sh -c '! ls -d /var/lib/wakatnet-essai/donnees.* 2>/dev/null' || echec "copie de l'essai laissée sur disque"
+[ "$(docker exec "$A" systemctl show -p Result --value wakatnet-essai-restauration)" = success ] || echec "unité en échec"
+echo "unité réelle : RÉUSSI sous systemd (CapabilityBoundingSet, RestrictNamespaces, SystemCallFilter, ProtectSystem) ; copie effacée"
 
 etape "6. FreeRADIUS sans le dépôt de l'éditeur : version refusée"
 if "${JOUER[@]}" "$ANSIBLE/essais/freeradius.yml" > "$TMP/fr.log" 2>&1; then echec "FreeRADIUS de la distribution accepté"; fi

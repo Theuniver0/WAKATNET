@@ -254,3 +254,38 @@ Scan automatisé par plusieurs agents, chaque constat contre-vérifié par un pa
   - `SystemCallFilter` ;
   - disque dédié à l'essai ;
   - unité et rôle Ansible à éprouver sur systemd (banc nocturne).
+
+**Derniers points ouverts corrigés (« corrige les manquants », 14/11/2026)**
+
+- **F3, budget par propriétaire** (migrations 0048, idempotente, et 0049, index `CONCURRENTLY`). Au-delà de 60 échecs de forme faible en une heure sur l'ensemble des routeurs d'un propriétaire (`devinette_faibles_par_proprietaire`), tous ses routeurs sont restreints, et une alerte `budget_proprietaire` est posée. Cela ferme les « 30 × N routeurs ».
+  - Test : `test_f3_budget_par_proprietaire_echecs_repartis_sur_ses_routeurs`, avec des échecs répartis sur trois routeurs dont aucun n'atteint son propre budget.
+  - Prix : 60 échecs volontaires retiennent pendant une heure les tickets importés de tout le propriétaire.
+- **F4, espace PID** : le serveur restauré est PID 1 de son espace. Le tuer tue tout ce qu'il a lancé, et `/proc` ne montre que l'essai.
+- **F4, restauration isolée** : pgBackRest (restauration et WAL) tourne sous `postgres`, dans un espace de montage où la base vivante (`data_directory` lu en direct), `/var/lib/wakatnet`, `/etc/wakatnet` et la socket sont masqués, et dans son propre espace PID. Un manifeste piégé n'atteint que l'essai. Ce choix remplace le troisième utilisateur, qui aurait exigé de changer les groupes de `/etc/pgbackrest` et de redémarrer PostgreSQL.
+- **F4, disque** : un surveillant mesure la place libre pendant tout l'essai, et à chaque étape. Sous la marge, il tue la restauration et l'instance, et l'essai échoue. La taille annoncée par le dépôt n'est plus la seule défense. Le banc le prouve : la sauvegarde piégée écrit 400 Mio, l'essai est arrêté et la copie effacée.
+- **F4, unité** : `SystemCallFilter=@system-service @mount`, `RestrictNamespaces=net mnt ipc pid`, et `CAP_SETPCAP` pour que setpriv vide le jeu limite.
+- **Unité éprouvée sous systemd** : l'étape « 5 bis » du banc Ansible (Debian 13 et Ubuntu 24.04) lance la vraie unité, et la restauration réussit. Elle a trouvé deux défauts que le banc Docker ne voyait pas :
+  - `CAP_SETPCAP` manquait : l'isolement échouait, et l'essai refusait de tourner ;
+  - les droits de `/etc/wakatnet` dans le banc (0755) n'étaient pas ceux du rôle (0750) : l'essai refusait de tourner, à raison.
+
+**Toujours ouverts, décisions de Yacouba**
+
+- **Réémission des tickets Mikhmon** : elle invaliderait des tickets peut-être déjà vendus. Seul le stock non distribué pourrait l'être sans risque.
+- **F2** : le mot de passe saisi à l'inscription ne sert plus (choix d'interface).
+
+**Quatrième relecture (14/11/2026), corrigée aussitôt**
+
+- `--kill-child` d'unshare était annulé par le changement d'uid de setpriv. `setpriv --pdeathsig KILL` le rétablit : tuer `unshare` tue l'espace.
+- **Surveillant** :
+  - il couvre aussi `archive-get` (fonction `suivi`) ;
+  - il continue de tuer après un premier déclenchement ;
+  - il échoue fermé si `df` échoue ;
+  - son message lui est propre (« arrêté par le surveillant »).
+- **Restauration** : `/var/spool/pgbackrest` et `/var/log/pgbackrest` sont masqués ; ses journaux et verrous vont dans l'essai. Tout lien de la copie qui sort de la copie fait refuser le démarrage.
+- **Alerte `budget_proprietaire`** : un index (0049), et un verrou consultatif par propriétaire contre le doublon.
+- **Unité** : `SystemCallFilter=~@keyring io_uring_*` (le commentaire disait vrai, pas le filtre).
+- **Tests** :
+  - le budget par propriétaire est contrôlé sur ses trois routeurs, pour un autre propriétaire (non touché), avec une seule alerte au-delà du seuil, et une restauration exacte des paramètres ;
+  - le rejeu de 0046 ne peut plus casser sur une alerte `budget_proprietaire` ;
+  - l'étape « Disque » remplit sans fin, au premier plan de la requête, et vérifie qu'aucun processus ne survit et que la place est rendue.
+- **Étape 5 bis** : elle prouve que le durcissement de l'unité laisse passer un essai sain sous systemd. L'isolement et le surveillant, eux, sont prouvés par le banc Docker.

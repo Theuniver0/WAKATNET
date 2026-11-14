@@ -1347,3 +1347,19 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 
   Suites API, RADIUS et e2e : résultats dans le message de commit.
 - **Reste** : restauration sous un troisième utilisateur ; disque dédié à l'essai ; première nuit du banc Ansible à surveiller (unité et rôle sur systemd) ; réémission des tickets Mikhmon.
+
+## 14/11/2026 — Derniers points ouverts du scan (budget par propriétaire, espace PID, restauration isolée, disque, unité sous systemd)
+
+- **Demande** : « corrige les manquants ». Détail dans `docs/REVUE_SECURITE.md` §5.
+- **Fait** :
+  - migrations 0048 et 0049 ;
+  - `essai-restauration.sh` : espace PID, restauration masquée, surveillant de disque ;
+  - unité : `SystemCallFilter`, espace PID, `CAP_SETPCAP` ;
+  - banc de sauvegarde : PID 1 vérifié, remplissage arrêté ;
+  - banc Ansible : étape 5 bis, la vraie unité sous systemd.
+- **Preuves** :
+  - banc de sauvegarde vert ;
+  - banc Ansible Debian 13 vert, étape 5 bis comprise ;
+  - Ubuntu 24.04, et suites API, RADIUS et e2e : voir le message de commit.
+- **Appris** : seule l'unité exécutée sous un vrai systemd a révélé l'absence de `CAP_SETPCAP`. Le banc Docker, privilégié, ne pouvait pas le voir.
+- **Reste** : décisions de Yacouba (réémission des tickets Mikhmon, mot de passe d'inscription).

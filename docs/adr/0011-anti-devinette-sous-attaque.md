@@ -72,3 +72,9 @@ Pour savoir si une MAC est bloquée, `trop_de_tentatives` compte ses échecs ré
   - un stock de 4 chiffres reste exposé à 720 essais par jour.
 
   **Réémettre les tickets importés** en codes de la plateforme reste recommandé.
+
+### Complément du 14/11/2026 : budget par propriétaire
+
+- Le budget par routeur laissait 30 essais par heure **par routeur**, alors que les tickets de portée « propriétaire » valent sur tous ses routeurs.
+- Au-delà de 60 échecs de forme faible en une heure sur l'ensemble de ses routeurs (`devinette_faibles_par_proprietaire`), **tous** ses routeurs sont restreints, et une alerte `budget_proprietaire` est posée (migrations 0048 et 0049).
+- Prix : un client qui échoue exprès 60 fois retient les tickets importés de tout le propriétaire pendant une heure. Les codes de la plateforme restent servis.
