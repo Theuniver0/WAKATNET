@@ -11,7 +11,7 @@
 | **A** | Un site de Telecom Universel, 2 semaines, petits montants (forfaits de 500 F au plus), rapprochement chaque matin | **G-ARGENT** (aucun franc réel avant) |
 | **B** | 3 propriétaires pilotes | **G-PILOTE** (avant le routeur d'un tiers) |
 
-## 2. État des portes au 12/11/2026 : FERMÉES
+## 2. État des portes au 14/11/2026 : FERMÉES
 
 ### G-ARGENT : phase 3 verte **et** `docs/CONFORMITE.md` rempli
 
@@ -32,8 +32,8 @@
 | Rôles Ansible rejoués sur une **VM Debian 13**, paquets de l'éditeur de FreeRADIUS (dépôt **[À CONFIRMER]**) | Partiel : prouvés sur **conteneurs Debian 13** (13/11/2026, dépôt PGDG, seuils de production) ; restent la VM (WireGuard du noyau, `noeud_wakatnet`) et FreeRADIUS de l'éditeur | Yacouba |
 | LABO-16 et LABO-09 sur CHR : bascule réelle d'un routeur vers B, `timeout` | Non fait | Yacouba |
 | **B chez un second hébergeur**, T13 rejoué, promotion rejouée (ADR 0004 §3) | Non fait | Yacouba |
-| Scripts RouterOS joués sur CHR, sur un routeur vierge **et** sur un routeur déjà configuré (§13, règle 6) | Non fait (`docs/AUDIT_SCRIPTS_ROUTEROS.md`) | Yacouba |
-| Scripts RouterOS joués sur CHR, étape 3 comprise (entretien, walled garden du portail, LABO-14 ; ADR 0023) | Non fait | Yacouba |
+| Scripts RouterOS joués sur CHR, sur un routeur vierge **et** sur un routeur déjà configuré (§13, règle 6) | **Fait au banc** le 14/11/2026 (`infra/routeros/essais/chr.sh`, 47/47 en 7.15.3 et 7.19.4 : refus, enrôlement par la vraie commande, pare-feu existant, idempotence, désinstallation). Reste : un vrai routeur (collage dans Winbox, chaîne TLS publique) | Yacouba |
+| Scripts RouterOS joués sur CHR, étape 3 comprise (entretien, walled garden du portail, LABO-14 ; ADR 0023) | **Entretien fait au banc** (vrai planificateur, IP du portail remplacée ; défaut du droit `ftp` trouvé et corrigé). Reste LABO-14 : un client non connecté joint-il vraiment le portail en HTTPS ? (téléphone, routeur réel) | Yacouba |
 | **RouterOS 6** (phase 2b, ADR 0003) : tunnel choisi au labo, script v6, matrice T sur 6.49.x — condition posée par `docs/PLAN.md` | Non fait (non codé) ; sinon, n'enrôler au pilote que des routeurs en RouterOS ≥ 7.15 | Yacouba |
 | Décisions de la revue de sécurité : quotas d'enrôlement et vérification de l'adresse (M4) | Fait (ADR 0017) ; fournisseur d'e-mail décidé (ADR 0019, Brevo) : compte, domaine expéditeur et clé à créer | Yacouba |
 | Fournisseur S3 avec verrouillage (M8) | Décidé (ADR 0018 : Backblaze B2, conformité 30 jours), prouvé au banc ; compte, bucket et exercice d'effacement sur B2 à faire | Yacouba |
