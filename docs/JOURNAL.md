@@ -1363,3 +1363,15 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - Ubuntu 24.04, et suites API, RADIUS et e2e : voir le message de commit.
 - **Appris** : seule l'unité exécutée sous un vrai systemd a révélé l'absence de `CAP_SETPCAP`. Le banc Docker, privilégié, ne pouvait pas le voir.
 - **Reste** : décisions de Yacouba (réémission des tickets Mikhmon, mot de passe d'inscription).
+
+## 14/11/2026 — Réémission des tickets Mikhmon, inscription sans mot de passe (décisions de Yacouba)
+
+- **Demande** : « corrige les manquants ». Réponses de Yacouba : outil de réémission, et retrait du champ mot de passe de l'inscription.
+- **Fait** :
+  - migrations 0050 (`app.import_a_reemettre`, `app.import_reemettre` par tranches, `app.reemission_reconcilier` dans le tour des tâches, colonne `reemis_par`) et 0051 (index `CONCURRENTLY`) ;
+  - routes `/v1/imports/reemission` ;
+  - section de l'écran « Tickets papier » ;
+  - inscription sans mot de passe (API, écran, e2e) ;
+  - OpenAPI et droits mis à jour.
+- **Relecture (règle 4)** : la première version renommait l'ancien code. Une connexion pendant la réémission ou un réimport pouvait alors faire valoir deux fois un même ticket. Repris (ancien expiré et lié, « premier activé gagne »).
+- **Preuves** : `import.test.ts` (« réémission… » : `radius.authorize` sur l'ancien et le nouveau code, réimport, réconciliation) et `auth.test.ts` (verrou de confirmation, mot de passe de l'inscription ignoré) ; suite API 242/242 ; RADIUS et e2e : voir le message de commit.

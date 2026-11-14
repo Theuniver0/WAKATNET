@@ -3,8 +3,14 @@ import { envoyer, lire, type Forfait, type Lot, type Moi, type PointDeVente, typ
 import { dateHeure, franc } from "./format.ts";
 import { Alerte, Champ, Choix, Ecran, Info, useAction, useCharge } from "./ui.tsx";
 
+type Reemission = { forfaits: { forfait_id: string; forfait: string; tickets: number; courts: number }[] };
+
 export function Lots({ moi }: { moi: Moi }) {
   const peutGenerer = moi.role === "proprietaire" || moi.role === "gerant";
+  const proprietaire = moi.role === "proprietaire";
+  // Migration 0050 : tickets importés de Mikhmon jamais utilisés, à remplacer par des codes de la plateforme.
+  const importes = useCharge(() => lire<Reemission>("/v1/imports/reemission"), proprietaire);
+  const [pointReemission, setPointReemission] = useState("");
   const lots = useCharge(() => lire<Lot[]>("/v1/lots"));
   const stats = useCharge(() => lire<StatPapier[]>("/v1/stats/ventes-papier"));
   const forfaits = useCharge(() => lire<Forfait[]>("/v1/forfaits"), peutGenerer);
@@ -25,6 +31,18 @@ export function Lots({ moi }: { moi: Moi }) {
       return "Tickets générés. Vous pouvez les imprimer.";
     });
   };
+  const reemettre = (e: FormEvent) => {
+    e.preventDefault();
+    if (!window.confirm(`Remplacer ${aReemettre} ticket(s) Mikhmon ? Les anciens tickets ne fonctionneront plus, même ceux déjà vendus : `
+      + "ne le faites que pour les tickets encore en stock. Cette action est définitive.")) return;
+    void lancer(async () => {
+      const r = await envoyer<{ tickets: number; lots: { id: string }[] }>("/v1/imports/reemission", { point_de_vente_id: pointReemission });
+      importes.recharger(); lots.recharger(); stats.recharger();
+      return `${r.tickets} ticket(s) remplacé(s), en ${r.lots.length} lot(s) ci-dessous : imprimez-les, retirez les anciens tickets de la vente, `
+        + "et supprimez-les aussi du routeur (utilisateurs hotspot de Mikhmon), sinon le routeur pourrait encore les accepter.";
+    });
+  };
+  const aReemettre = (importes.donnees?.forfaits ?? []).reduce((n, f) => n + f.tickets, 0);
   const remettre = (l: Lot) => void lancer(async () => {
     await envoyer(`/v1/lots/${l.id}/remis`);
     lots.recharger();
@@ -43,8 +61,30 @@ export function Lots({ moi }: { moi: Moi }) {
           <div className="champ"><button type="submit" disabled={occupe}>Générer les tickets</button></div>
         </form>
       ) : null}
-      <Alerte message={erreur ?? lots.erreur ?? forfaits.erreur ?? pdv.erreur} />
+      <Alerte message={erreur ?? lots.erreur ?? forfaits.erreur ?? pdv.erreur ?? importes.erreur} />
       <Info message={info} />
+
+      {proprietaire && aReemettre > 0 ? (
+        <section aria-labelledby="titre-reemission" className="carte">
+          <h2 id="titre-reemission">Tickets importés de Mikhmon</h2>
+          <p>
+            {aReemettre} ticket(s) importé(s) n'ont jamais servi. Leurs codes, souvent courts, se devinent plus facilement que
+            ceux de WAKATNET. Vous pouvez les remplacer par des codes de la plateforme, avec le même forfait : les anciens
+            tickets ne fonctionneront plus, même ceux déjà vendus : ne le faites que pour les tickets encore en stock. Il faudra
+            imprimer les nouveaux, retirer les anciens de la vente et les supprimer du routeur (utilisateurs hotspot de Mikhmon).
+          </p>
+          <ul>
+            {(importes.donnees?.forfaits ?? []).map((f) => (
+              <li key={f.forfait_id}>{f.forfait} : {f.tickets} ticket(s), dont {f.courts} à code court</li>
+            ))}
+          </ul>
+          <form onSubmit={reemettre} className="grille">
+            <Choix libelle="Point de vente des nouveaux tickets" valeur={pointReemission} onChange={setPointReemission} requis
+              options={(pdv.donnees ?? []).map((p) => ({ valeur: p.id, texte: p.nom }))} />
+            <div className="champ"><button type="submit" disabled={occupe}>Remplacer ces tickets</button></div>
+          </form>
+        </section>
+      ) : null}
 
       <section aria-labelledby="titre-lots">
         <h2 id="titre-lots">Vos lots</h2>

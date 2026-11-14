@@ -141,13 +141,18 @@ model voucher {
   mac_liee           String?
   origine            String         @default("wakatnet")
   batch_id           BigInt?
+  reemis_par         BigInt?
   payment            payment?
   voucher_batch      voucher_batch? @relation(fields: [tenant_id, batch_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction, map: "voucher_lot")
+  voucher            voucher?       @relation("voucherTovoucher", fields: [reemis_par], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  other_voucher      voucher[]      @relation("voucherTovoucher")
   site               site?          @relation(fields: [tenant_id, f_site_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
   plan               plan           @relation(fields: [tenant_id, plan_id], references: [tenant_id, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@unique([tenant_id, code])
   @@index([batch_id], map: "voucher_par_lot", where: raw("(batch_id IS NOT NULL)"))
+  @@index([tenant_id, plan_id, id], map: "voucher_import_inutilise", where: raw("((origine = 'import'::text) AND (activated_at IS NULL) AND (reemis_par IS NULL))"))
+  @@index([reemis_par], map: "voucher_reemis_par", where: raw("(reemis_par IS NOT NULL)"))
   @@schema("app")
 }
 

@@ -97,7 +97,7 @@ try {
   await auditer(page, "Créer un compte");
   await page.getByLabel("Nom de votre zone Wi-Fi").fill("Wifi du Maquis Wend-Kuni");
   await page.getByLabel("Adresse e-mail", { exact: true }).fill(email);
-  await page.getByLabel("Mot de passe").fill(MDP_TEST);
+  assert.equal(await page.getByLabel("Mot de passe").count(), 0, "plus de mot de passe à l'inscription (choisi à la confirmation)");
   await page.getByRole("button", { name: "Créer mon compte" }).click();
   // ADR 0019 : aucune session à l'inscription ; le lien de confirmation, puis la connexion.
   await page.getByText(/un lien de confirmation reçu par e-mail|ouvrez le lien de confirmation/).waitFor();

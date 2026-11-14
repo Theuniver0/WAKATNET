@@ -289,3 +289,20 @@ Scan automatisé par plusieurs agents, chaque constat contre-vérifié par un pa
   - le rejeu de 0046 ne peut plus casser sur une alerte `budget_proprietaire` ;
   - l'étape « Disque » remplit sans fin, au premier plan de la requête, et vérifie qu'aucun processus ne survit et que la place est rendue.
 - **Étape 5 bis** : elle prouve que le durcissement de l'unité laisse passer un essai sain sous systemd. L'isolement et le surveillant, eux, sont prouvés par le banc Docker.
+
+**Décisions de Yacouba appliquées (14/11/2026)**
+
+- **Réémission des tickets importés de Mikhmon** (migration 0050, `/v1/imports/reemission`, écran « Tickets papier ») :
+  - le propriétaire remplace d'un coup les tickets importés **jamais utilisés** (ni activation, ni connexion acceptée, ni expiration) par des codes de la plateforme ;
+  - chaque nouveau ticket garde le forfait figé de l'ancien et va dans des lots ordinaires, imprimables en PDF ;
+  - l'ancien **garde son code**, mais il est **expiré** et lié à son remplaçant (`reemis_par`). Saisi, il répond « expiré » ; c'est un « inconnu » qui épuiserait le budget anti-devinette. Un réimport le voit en doublon, et le support sait quel ticket le remplace ;
+  - **le premier activé gagne** : une connexion avec l'ancien code pendant la réémission active l'ancien (l'accounting cherche par code). À chaque tour des tâches, `app.reemission_reconcilier()` expire alors le remplaçant resté inutilisé ; si les deux ont servi, il pose l'alerte `reemission_double` ;
+  - le traitement se fait par tranches de 500, en transactions courtes, et chaque ticket est revérifié une fois verrouillé ;
+  - aucun crédit n'est consommé, puisque c'est du remplacement un pour un (le plafond du découvert ne s'applique pas ; les frais papier se prélèvent à l'activation, sur la copie figée identique) ;
+  - l'écran demande confirmation : les tickets déjà vendus mais pas encore utilisés sont remplacés eux aussi. Il rappelle de supprimer ces tickets du routeur, au cas où le routeur consulterait sa base locale avant RADIUS (LABO-08).
+
+  Relecture par un second agent (règle 4) : la première version renommait l'ancien code. Une connexion pendant la réémission donnait alors deux tickets pour un seul paiement, et un réimport faisait revivre l'ancien. Les deux défauts sont corrigés par la conception ci-dessus, et prouvés par `import.test.ts`.
+
+  C'est la parade de fond contre la devinette des codes courts : les budgets de l'ADR 0011 n'en sont que le filet.
+- **Inscription sans mot de passe** : le formulaire ne le demande plus, puisqu'il se choisit à la confirmation (F2). L'API ignore un `mot_de_passe` envoyé par un ancien client, et pose un secret aléatoire haché, avec la même durée de réponse.
+- **Reste, antérieur à ce lot** : la réponse à l'inscription attend l'envoi de l'e-mail (lien ou avis), qui ne fait pas le même travail en base dans les deux cas. Sa durée peut donc encore distinguer une adresse libre d'une adresse inscrite. Remède : répondre d'abord, puis envoyer, comme le fait déjà `/v1/verification/renvoyer`.

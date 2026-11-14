@@ -55,7 +55,8 @@ paths:
     post:
       summary: "Inscription d'un propriétaire (accès ouvert) ; aucune session ; même réponse que l'adresse soit libre ou prise (ADR 0019, F9)"
       security: []
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nom, email, mot_de_passe], properties: { nom: { type: string }, email: { type: string }, mot_de_passe: { type: string, minLength: 10 } } } } } }
+      # Le mot de passe se choisit à la confirmation (/v1/verification/confirmer, migration 0043) ; un « mot_de_passe » envoyé ici est ignoré.
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [nom, email], properties: { nom: { type: string }, email: { type: string } } } } } }
       responses:
         "202": { description: "Demande prise : lien de confirmation (compte neuf) ou avis (adresse déjà inscrite) envoyé par e-mail" }
         "403": { description: En-tête anti-CSRF manquant }
@@ -194,6 +195,30 @@ paths:
         "422": { description: CSV ou correspondance invalide ; rien n'est importé }
         "401": { description: Identité absente ou invalide }
         "403": { description: Propriétaire suspendu }
+  # Migration 0050 : réémission des tickets importés jamais utilisés (codes de la plateforme, en lots imprimables).
+  /v1/imports/reemission:
+    get:
+      summary: Tickets importés réémissibles, par forfait (tickets, dont codes courts)
+      responses:
+        "200": { description: "forfaits : [{ forfait_id, forfait, tickets, courts }]", content: { application/json: { schema: { type: object } } } }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Réservé au propriétaire }
+    post:
+      summary: Remplace les tickets importés jamais utilisés par des codes de la plateforme ; les anciens codes ne valent plus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [point_de_vente_id]
+              properties: { point_de_vente_id: { type: string }, forfait_id: { type: string, description: "un seul forfait ; absent : tous" } }
+      responses:
+        "201": { description: "Lots créés : { tickets, lots: [{ id, forfait_id, quantite }] }", content: { application/json: { schema: { type: object } } } }
+        "409": { description: Aucun ticket importé à réémettre }
+        "422": { description: Point de vente ou forfait invalide }
+        "401": { description: Identité absente ou invalide }
+        "403": { description: Réservé au propriétaire }
   /v1/sites/{site}/redirection.html:
     get:
       summary: Page « login.html » du hotspot, qui renvoie le client vers le portail de ce site

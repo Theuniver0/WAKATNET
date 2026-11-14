@@ -78,3 +78,7 @@ Pour savoir si une MAC est bloquée, `trop_de_tentatives` compte ses échecs ré
 - Le budget par routeur laissait 30 essais par heure **par routeur**, alors que les tickets de portée « propriétaire » valent sur tous ses routeurs.
 - Au-delà de 60 échecs de forme faible en une heure sur l'ensemble de ses routeurs (`devinette_faibles_par_proprietaire`), **tous** ses routeurs sont restreints, et une alerte `budget_proprietaire` est posée (migrations 0048 et 0049).
 - Prix : un client qui échoue exprès 60 fois retient les tickets importés de tout le propriétaire pendant une heure. Les codes de la plateforme restent servis.
+
+### Complément du 14/11/2026 : réémission
+
+La parade de fond recommandée plus haut existe : le propriétaire remplace ses tickets importés jamais utilisés par des codes de la plateforme (migration 0050, écran « Tickets papier »). Les tickets déjà vendus mais pas encore utilisés sont remplacés eux aussi : il faut retirer de la vente les anciens papiers. L'écran le dit avant de valider.
