@@ -1375,3 +1375,44 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
   - OpenAPI et droits mis à jour.
 - **Relecture (règle 4)** : la première version renommait l'ancien code. Une connexion pendant la réémission ou un réimport pouvait alors faire valoir deux fois un même ticket. Repris (ancien expiré et lié, « premier activé gagne »).
 - **Preuves** : `import.test.ts` (« réémission… » : `radius.authorize` sur l'ancien et le nouveau code, réimport, réconciliation) et `auth.test.ts` (verrou de confirmation, mot de passe de l'inscription ignoré) ; suite API 242/242 ; RADIUS et e2e : voir le message de commit.
+
+## 14/11/2026 — Points de code restants (connexion, inscription, journal d'audit)
+
+- **Demande** : « fait tout ce que tu [peux] seul, ensuite demande-moi ce dont tu as besoin ».
+- **Fait** :
+  - l'empreinte factice ne garde plus un échec ;
+  - un 503 « calculs saturés » ne consomme plus l'essai de connexion ;
+  - le lien ou l'avis d'inscription se prépare après la réponse ;
+  - index du journal d'audit (migration 0052).
+
+  Détail dans `docs/REVUE_SECURITE.md` §5.
+- **Preuves** : suite API 243/243 (schéma Prisma tiré de la base) ; RADIUS et e2e : voir le message de commit.
+- **Reste** : tout ce qui suit exige Yacouba (comptes, matériel, routeurs réels) : liste dans la réponse de session.
+
+## 14/11/2026 — Banc CHR : scripts RouterOS exécutés sur un vrai RouterOS
+
+- **Demande** : « fait tout ce que tu [peux] seul » ; RouterOS « v7.15+ et v6 ».
+- **Fait** :
+  - banc `infra/routeros/essais/chr.sh` (qemu, plateforme `plateforme.py`, scripts du vrai générateur via `generer.ts`, nœud A `wireguard-go`) : refus, enrôlement, idempotence, entretien par le vrai planificateur, désinstallation ;
+  - défaut corrigé : lancé par le planificateur, l'entretien ne pouvait pas écrire son fichier (droit `ftp` manquant), donc n'aurait jamais tourné. Corrigé sans ajouter `ftp` (relecture par un second agent) : exécution en mémoire (`output=user` puis `:parse`), taille bornée à 32 Kio ; tests (`routeros.test.ts`) ; ADR 0023 mis à jour ;
+  - RouterOS 6.49.18 : `require-message-auth=yes-for-request-resp` accepté (ADR 0003, réglage seulement) ;
+  - constat : pas de magasin de racines avant la 7.19 (ADR 0003, décision à prendre).
+- **Preuves** : `chr.sh` SUCCÈS, 38/38, en 7.15.3 et 7.19.4 (version finale, sans fichier) ; `routeros.test.ts` 14/14 ; suite API : voir le message de commit. Détail dans `docs/AUDIT_SCRIPTS_ROUTEROS.md`.
+- **Limites** : image 7.15.3 sans somme de contrôle publiée (404) ; chaîne publique du certificat non essayée (pas de DNS dans le banc) ; RADIUS sur le fil, RouterOS 6 : non couverts.
+
+## 14/11/2026 — Outil d'essai du bac à sable CinetPay
+
+- **Décisions de Yacouba** : racine TLS fournie dans la commande d'enrôlement ; RouterOS 6 attend l'estimation du parc ; clés du bac à sable CinetPay données.
+- **Constat** : CinetPay s'authentifie par `api_key` et `api_password` dans le corps de `POST /v1/oauth/login`. Le formulaire sécurisé ne sait injecter qu'un en-tête fixe : les clés ne peuvent pas venir dans ce conteneur sans passer par la conversation, ce qui est interdit.
+- **Fait** : `packages/payments/essais/cinetpay-bac-a-sable.ts`, que Yacouba lance chez lui ; rapport sans secret, à renvoyer (ADR 0022).
+- **Preuves** : auto-essai contre le faux serveur (connexion, référence inconnue, trois achats, `verify()`) ; rapport sans clé, mot de passe ni numéro (recherche : 0) ; `tsc` sans erreur.
+
+## 14/11/2026 — Racines TLS dans la commande d'enrôlement (décision de Yacouba)
+
+- **Fait** :
+  - `WAKATNET_RACINES_TLS` (1 à 3 racines, contrôlées au démarrage, exigée en production) ; ISRG Root X1 et X2 dans `infra/tls/`, copiées du paquet signé `ca-certificates` (letsencrypt.org injoignable d'ici : empreintes à comparer avant le premier enrôlement réel) ;
+  - la commande importe chaque racine si son empreinte est absente (`wakatnet racine N`) ; la désinstallation les retire ;
+  - le banc CHR joue désormais la commande réelle, sans autorité posée à la main.
+- **Preuves** : `chr.sh` 47/47 en 7.15.3 et 7.19.4 (dont import des vraies racines ISRG X1 et X2) ; suite API : voir le message de commit. Relecture par un second agent : `.gitignore` excluait les `.pem` (racines jamais déployées, tests cassés sur un clone propre), corrigé ; attente bornée du fichier, copie non approuvée signalée, doublons refusés, un nom par racine.
+- **Reste à prouver sur un vrai routeur** : chaîne publique (contre-signature), collage d'une ligne de 3,1 Ko dans Winbox.
+

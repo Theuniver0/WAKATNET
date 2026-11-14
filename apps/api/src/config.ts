@@ -38,9 +38,34 @@ export type Config = {
   courriel?: { fournisseur: "brevo"; cle: string; de: string; nom: string };
   /** Proxy inverse de confiance (ADR 0016 §2 : nginx local) ; absent : aucune confiance dans X-Forwarded-For. */
   trustProxy?: string;
+  /** Racines TLS de l'API (WAKATNET_RACINES_TLS : fichier PEM, 1 à 3 certificats) : importées par la commande
+   *  d'enrôlement sur un routeur qui ne les a pas. RouterOS n'a de magasin intégré qu'à partir de la 7.19 (banc CHR du
+   *  14/11/2026, ADR 0003) : sans elles, `check-certificate=yes` échoue de 7.15 à 7.18. Exigées en production. */
+  racinesTls?: RacineTls[];
 };
 
+export type RacineTls = { pem: string; empreinte: string };
+
+import { X509Certificate } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { lireCle } from "./chiffrement.ts";
+
+/** Lit et contrôle les racines : autorité auto-signée, en cours de validité, PEM sans rien d'autre. */
+export function lireRacinesTls(contenu: string, maintenant = new Date()): RacineTls[] {
+  const blocs = contenu.match(/-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----/g) ?? [];
+  const reste = contenu.replace(/-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]+-----END CERTIFICATE-----/g, "").trim();
+  if (blocs.length < 1 || blocs.length > 3 || reste !== "") throw new ConfigInvalide("WAKATNET_RACINES_TLS : 1 à 3 certificats PEM, rien d'autre");
+  const racines = blocs.map((b) => {
+    let x: X509Certificate;
+    try { x = new X509Certificate(b); } catch { throw new ConfigInvalide("WAKATNET_RACINES_TLS : certificat illisible"); }
+    if (!x.ca || x.subject !== x.issuer || !x.verify(x.publicKey)) throw new ConfigInvalide(`WAKATNET_RACINES_TLS : ${x.subject} n'est pas une racine auto-signée`);
+    if (new Date(x.validTo) <= maintenant || new Date(x.validFrom) > maintenant) throw new ConfigInvalide(`WAKATNET_RACINES_TLS : ${x.subject} hors de sa période de validité`);
+    const pem = x.toString().replace(/\r/g, "").trim() + "\n";
+    return { pem, empreinte: x.fingerprint256.replace(/:/g, "").toLowerCase() };
+  });
+  if (new Set(racines.map((r) => r.empreinte)).size !== racines.length) throw new ConfigInvalide("WAKATNET_RACINES_TLS : racine en double");
+  return racines;
+}
 
 export class ConfigInvalide extends Error {}
 
@@ -99,8 +124,16 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
     if (!/^[^@\s]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$/i.test(de)) throw new ConfigInvalide("WAKATNET_COURRIEL_DE : adresse de l'expéditeur");
     courriel = { fournisseur: "brevo", cle, de, nom: env.WAKATNET_COURRIEL_NOM || "WAKATNET" };
   }
+  let racinesTls: RacineTls[] | undefined;
+  if (env.WAKATNET_RACINES_TLS) {
+    let contenu: string;
+    try { contenu = readFileSync(env.WAKATNET_RACINES_TLS, "utf8"); } catch { throw new ConfigInvalide("WAKATNET_RACINES_TLS : fichier illisible"); }
+    racinesTls = lireRacinesTls(contenu);
+  } else if (env.NODE_ENV === "production") {
+    throw new ConfigInvalide("WAKATNET_RACINES_TLS exigée en production : sans elle, les routeurs RouterOS 7.15 à 7.18 ne peuvent pas vérifier le certificat de l'API (ADR 0003)");
+  }
   const etatsNoeuds = (env.WAKATNET_ETATS_NOEUDS ?? "/var/lib/wakatnet/sante/etat.json").split(",").filter(Boolean);
-  return { urlBase, urlPublique, urlPortail, portailIps, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(courriel ? { courriel } : {}), ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}) };
+  return { urlBase, urlPublique, urlPortail, portailIps, noeuds: lireNoeuds(env.WAKATNET_NOEUDS), cles, etatsNoeuds, ...(courriel ? { courriel } : {}), ...(trustProxy ? { trustProxy } : {}), ...(dossierTableau ? { dossierTableau } : {}), ...(racinesTls ? { racinesTls } : {}) };
 }
 
 const IPV4 = /^(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])){3}$/;

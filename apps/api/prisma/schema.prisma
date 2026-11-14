@@ -21,6 +21,10 @@ model audit_log {
   details   Json     @default("{}")
   tenant    tenant?  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([action, le], map: "audit_log_action_le")
+  @@index([action, objet], map: "audit_log_action_objet")
+  @@index([action, tenant_id, id], map: "audit_log_action_proprietaire")
+  @@index([le], map: "audit_log_le")
   @@schema("app")
 }
 

@@ -249,9 +249,11 @@ Objectifs de performance, à mesurer et non à promettre : p95 de `authorize` < 
 Le propriétaire clique « Ajouter un routeur » et reçoit une commande à coller, valable 30 minutes, à usage unique :
 
 ```routeros
-/tool fetch url="https://api.DOMAINE/enroll/JETON" dst-path=wakatnet-enroll.rsc
+/tool fetch url="https://api.DOMAINE/enroll/JETON" check-certificate=yes dst-path=wakatnet-enroll.rsc
 /import file-name=wakatnet-enroll.rsc
 ```
+
+Avant ces deux lignes, la commande en porte une par racine TLS de l'API (ISRG Root X1 et X2) : elle l'importe si son empreinte est absente, car RouterOS n'a pas de magasin de racines intégré avant la 7.19 (décision de Yacouba du 14/11/2026, ADR 0003). Ces certificats sont marqués par leur **nom** (`wakatnet racine …`), RouterOS ne leur donnant pas de commentaire ; la désinstallation les retire.
 
 - **Étape 1 (script).** Vérifie la version (≥ 7.15), détecte un conflit avec la plage overlay, crée l'interface WireGuard — la clé privée est générée sur le routeur et n'en sort jamais —, puis envoie à l'API : clé publique, identity, modèle, version, noms des serveurs hotspot.
 - **Étape 2 (réponse).** Pairs, adresse, routes, deux entrées `/radius`, `/radius incoming`, règles de pare-feu, profil hotspot, walled garden, `login.html`.

@@ -102,6 +102,7 @@ test("ADR 0019 : inscription → lien → confirmation → connexion → raccord
     const ins = await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: "10.77.0.1",
                                    payload: { nom: "Zone vérifiée", email, mot_de_passe: "un-mot-de-passe-long" } });
     assert.equal(ins.statusCode, 202);
+    await envoisEnCours();             // relecture du 14/11/2026 : le lien se prépare après la réponse
     const m = exp.messages.find((x) => x.a === email)!;
     assert.ok(m, "lien envoyé à l'inscription");
     const lien = /https:\/\/api\.test\.invalid\/tableau\/#\/verifier\?j=([A-Za-z0-9_-]{43})/.exec(m.texte);
@@ -134,8 +135,12 @@ test("ADR 0019 : adresse déjà inscrite → même réponse, avis à la titulair
   await avecApp(async (app) => {
     const p = await proprietaire("déjà inscrit");
     const [{ email }] = await sql<{ email: string }>(URL_ADMIN, "SELECT email FROM app.utilisateur WHERE tenant_id = $1", [p.tenant]);
-    const inscrire = (adresse: string, source: string) => app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: source,
-      payload: { nom: "Z", email: adresse, mot_de_passe: "un-mot-de-passe-long" } });
+    const inscrire = async (adresse: string, source: string) => {
+      const r = await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF, remoteAddress: source,
+        payload: { nom: "Z", email: adresse, mot_de_passe: "un-mot-de-passe-long" } });
+      await envoisEnCours();
+      return r;
+    };
     const neuf = await inscrire(`neuf-${Date.now()}@exemple.bf`, "10.78.0.1");
     const pris = await inscrire(email, "10.78.0.2");
     assert.equal(pris.statusCode, 202);
@@ -258,8 +263,12 @@ test("ADR 0019 (relecture) : des avis provoqués par un tiers n'épuisent pas le
   const exp = new ExpediteurMemoire();
   await avecApp(async (app) => {
     const email = `neuf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@exemple.bf`;
-    const inscrire = (source: string, mdp = "un-mot-de-passe-long") => app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF,
-      remoteAddress: source, payload: { nom: "Z", email, mot_de_passe: mdp } });
+    const inscrire = async (source: string, mdp = "un-mot-de-passe-long") => {
+      const r = await app.inject({ method: "POST", url: "/v1/inscription", headers: CSRF,
+        remoteAddress: source, payload: { nom: "Z", email, mot_de_passe: mdp } });
+      await envoisEnCours();
+      return r;
+    };
     await inscrire("10.80.0.1");
     for (let i = 0; i < 6; i++) await inscrire(`10.80.1.${i}`, "mot-de-passe-du-tiers");      // le tiers insiste
     const renvoi = await app.inject({ method: "POST", url: "/v1/verification/renvoyer", headers: CSRF, remoteAddress: "10.80.2.1", payload: { email } });

@@ -9,7 +9,8 @@ Wants=network-online.target
 Type=simple
 DynamicUser=yes
 # Fichier réservé à root, jamais versionné : WAKATNET_API_DATABASE_URL, WAKATNET_CLE_MARCHANDS,
-# WAKATNET_CLE_HMAC, WAKATNET_API_URL_PUBLIQUE, WAKATNET_PORTAIL_URL_PUBLIQUE, WAKATNET_PORTAIL_IPS, WAKATNET_NOEUDS.
+# WAKATNET_CLE_HMAC, WAKATNET_API_URL_PUBLIQUE, WAKATNET_PORTAIL_URL_PUBLIQUE, WAKATNET_PORTAIL_IPS, WAKATNET_NOEUDS,
+# WAKATNET_RACINES_TLS (/opt/wakatnet/infra/tls/racines-api.pem : public, lisible par l'utilisateur dynamique).
 EnvironmentFile=/etc/wakatnet/api.env
 # NODE_ENV posé sur la ligne d'exécution : EnvironmentFile= l'emporterait sur Environment=.
 ExecStart=/usr/bin/env NODE_ENV=production WAKATNET_API_HOTE=127.0.0.1 WAKATNET_API_PORT=3000 WAKATNET_TRUST_PROXY=127.0.0.1 /usr/bin/node /opt/wakatnet/apps/api/src/serveur.ts

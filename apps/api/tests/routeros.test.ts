@@ -3,7 +3,7 @@
 // Ticket : .scratch/phase-2-multi-proprietaires/issues/04-scripts-routeros.md
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chaine, commande, desinstallation, entretien, etape1, etape2, ValeurInterdite, type Inventaire } from "../src/routeros.ts";
+import { chaine, commande, desinstallation, entretien, etape1, etape2, TAILLE_MAX_ENTRETIEN, ValeurInterdite, type Inventaire } from "../src/routeros.ts";
 import { NOEUDS } from "./aide-sans-base.ts";
 
 const PORTAIL = { hote: "portail.wakatnet.invalid", ips: ["203.0.113.10", "198.51.100.20"] };
@@ -141,15 +141,36 @@ test("désinstallation : profils rétablis à leurs valeurs d'origine, puis retr
   assert.match(profils[0], /use-radius=no radius-accounting=yes radius-interim-update=received/);
   assert.ok(l.includes("/radius incoming set accept=no"));
   const retraits = l.filter((x) => / remove /.test(x));
-  for (const r of retraits) assert.match(r, /find where (comment~"\^wakatnet"|name="wg-wakatnet" comment~"\^wakatnet"|name~"\^wakatnet-")/, r);
+  for (const r of retraits) assert.match(r, /find where (comment~"\^wakatnet"|name="wg-wakatnet" comment~"\^wakatnet"|name~"\^wakatnet-"|name~"\^wakatnet racine ")/, r);
+  assert.ok(l.includes('/certificate remove [find where name~"^wakatnet racine "]'), "racines importées par la commande retirées");
   const ordre = (motif: string) => l.findIndex((x) => x.includes(motif));
   assert.ok(ordre("/ip hotspot profile set") < ordre("/radius remove"));
   assert.ok(ordre("/radius remove") < ordre("/interface wireguard remove"));
 });
 
-test("commande à coller : deux lignes, URL échappée, vérification du certificat", () => {
+test("commande à coller sans racines : deux lignes, URL échappée, vérification du certificat", () => {
   assert.equal(commande("https://api.x", "a".repeat(43)),
     `/tool fetch url="https://api.x/enroll/${"a".repeat(43)}" check-certificate=yes dst-path="wakatnet-enroll.rsc"\n/import file-name="wakatnet-enroll.rsc"`);
+});
+
+test("commande avec racines TLS (ADR 0003) : importées avant le téléchargement, seulement si absentes ; valeurs contrôlées", () => {
+  const pem = "-----BEGIN CERTIFICATE-----\nQUJD\nREVG\n-----END CERTIFICATE-----\n";
+  const e = "a".repeat(64);
+  const l = commande("https://api.x", "a".repeat(43), [{ pem, empreinte: e }, { pem, empreinte: "b".repeat(64) }]).split("\n");
+  assert.equal(l.length, 4);
+  for (const x of l) chaines(x);
+  assert.ok(l[0].startsWith(`:if ([:len [/certificate find where fingerprint="${e}"]] = 0) do={ /file add name="wakatnet-racine-${"a".repeat(16)}.pem" contents="-----BEGIN CERTIFICATE-----\\nQUJD\\nREVG\\n-----END CERTIFICATE-----\\n"; `), l[0]);
+  assert.match(l[0], /:while \(\(\[:len \[\/file find where name="wakatnet-racine-a{16}\.pem"\]\] = 0\) && \(\$n < 30\)\) do=\{ :delay 1s;/, "attente bornée du fichier (7.15), pas un délai fixe");
+  assert.match(l[0], /\/certificate import file-name="wakatnet-racine-a{16}\.pem" passphrase="" name="wakatnet racine a{16}"; \/certificate set \[\/certificate find where fingerprint="a{64}"\] trusted=yes \} on-error=\{ :put "WAKATNET : la racine/);
+  assert.match(l[0], /else=\{ :if \(\[:len \[\/certificate find where fingerprint="a{64}" && !trusted\]\] > 0\) do=\{ :put "WAKATNET : un certificat racine/,
+               "copie présente mais non approuvée : signalée, jamais modifiée (objet du propriétaire)");
+  assert.ok(!/else=\{[^]*trusted=yes/.test(l[0]), "jamais de « trusted=yes » sur un certificat que nous n'avons pas importé");
+  assert.match(l[1], /name="wakatnet racine b{16}"/, "un nom par racine, tiré de son empreinte");
+  assert.match(l[2], /^\/tool fetch url="https:\/\/api\.x\/enroll\/a{43}" check-certificate=yes /, "téléchargement après les racines");
+  for (const mauvais of [{ pem, empreinte: 'a"; /system reset-configuration; "' }, { pem: pem.replace("QUJD", 'QU"JD'), empreinte: e },
+                         { pem: pem.replace("QUJD", "QU$JD"), empreinte: e }, { pem: "pas un pem", empreinte: e }]) {
+    assert.throws(() => commande("https://api.x", "a".repeat(43), [mauvais]), ValeurInterdite);
+  }
 });
 
 test("valeurs serveur invalides : refus de générer", () => {
@@ -188,11 +209,16 @@ test("étape 3, entretien (ADR 0023) : pair d'un nœud déplacé mis à jour, n�
   assert.equal(planif.length, 1);
   const [evenement] = chaines(planif[0]).filter((c) => c.includes("/tool fetch"));
   assert.ok(evenement, "on-event : une seule chaîne, bien échappée");
-  assert.match(evenement, /\/tool fetch url="https:\/\/api\.wakatnet\.invalid\/entretien\/A{43}" check-certificate=yes /,
-               "relecture n° 1 : certificat vérifié avant d'importer");
-  assert.match(planif[0], /policy=read,write,test,sensitive /, "relecture n° 1 : sans le droit « policy »");
-  assert.match(planif[0], /else=\{ \/system scheduler set \[find where name="wakatnet-entretien"\] interval=6h on-event=/);
-  assert.ok(!/set [^}]*disabled=no/.test(planif[0]), "un planificateur désactivé par le propriétaire le reste");
+  assert.match(evenement, /\/tool fetch url="https:\/\/api\.wakatnet\.invalid\/entretien\/A{43}" check-certificate=yes output=user as-value\]/,
+               "relecture n° 1 : certificat vérifié avant d'exécuter ; en mémoire, sans fichier");
+  assert.match(evenement, /:local f \[:parse \(\$r->"data"\)\]; \$f \}/);
+  assert.ok(!evenement.includes("dst-path") && !evenement.includes("/import") && !evenement.includes("/file"),
+            "relecture du 14/11/2026 : aucun fichier, donc ni droit « ftp » ni échange du fichier avant l'import");
+  for (const politique of [/add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive /,
+                           /else=\{ \/system scheduler set \[find where name="wakatnet-entretien"\] interval=6h policy=read,write,test,sensitive on-event=/]) {
+    assert.match(planif[0], politique, "relecture n° 1 : ni « policy » ni « ftp » ; le set ramène un planificateur existant à ces droits");
+  }
+  assert.ok(!/disabled=|scheduler enable/.test(planif[0]), "un planificateur désactivé par le propriétaire le reste");
   assert.ok(avec.findIndex((x) => x.includes("/system scheduler")) < avec.findIndex((x) => x.includes("use-radius=yes")));
   assert.equal(lignesUtiles(E2()).filter((x) => x.includes("/system scheduler")).length, 0, "sans URL : pas de planificateur");
   assert.throws(() => etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL,
@@ -214,7 +240,11 @@ test("étape 3, entretien (ADR 0023) : pair d'un nœud déplacé mis à jour, n�
   assert.ok(retrait.includes('$c != "wakatnet portail 203.0.113.10" && $c != "wakatnet portail 198.51.100.20"'), retrait);
   assert.ok(!lignesUtiles(entretien({ overlayIp: "10.213.1.7", noeuds: NOEUDS, portail: { ...PORTAIL, ips: [] }, coaPort: 3799, listenPort: 13231 }))
     .some((x) => x.includes("walled-garden ip remove")), "liste vide : rien n'est retiré");
-  assert.match(l.at(-3)!, /\/file remove \[find where name="wakatnet-entretien\.rsc"\]/);
+  assert.ok(!s.includes("/file"), "exécuté en mémoire : aucun fichier à retirer");
+  assert.ok(Buffer.byteLength(s) < TAILLE_MAX_ENTRETIEN / 2, `loin de la borne d'output=user (${Buffer.byteLength(s)} octets pour trois nœuds)`);
+  const beaucoup = Array.from({ length: 2000 }, (_, i) => `192.0.${Math.floor(i / 250)}.${(i % 250) + 1}`);
+  assert.throws(() => entretien({ overlayIp: "10.213.1.7", noeuds: NOEUDS, portail: { ...PORTAIL, ips: beaucoup }, coaPort: 3799, listenPort: 13231 }),
+                ValeurInterdite, "au-delà de la borne : refus côté API, plutôt qu'un script tronqué sur le routeur");
   assert.ok(l.findIndex((x) => x.includes(":set wkSecret")) < l.findIndex((x) => x.includes("/radius add")), "secret relu avant usage");
   assert.ok(lignesUtiles(desinstallation(inventaire())).includes('/system scheduler remove [find where comment~"^wakatnet"]'));
 });

@@ -63,6 +63,8 @@ La v1 entre dans l'architecture sans la changer, et la sécurité ne repose pas 
 
 ## [À CONFIRMER] au bac à sable (clés de Yacouba)
 
+Outil : `packages/payments/essais/cinetpay-bac-a-sable.ts`, lancé par Yacouba sur son poste (clés saisies sans écho, `sk_test_` seulement, adresse du bac à sable seulement). Il joue la connexion, une référence inconnue, deux achats Orange de 100 F à la suite et un achat Moov, lit le statut brut à 0, 20 et 60 s, puis `verify()`. Il écrit un rapport qui ne garde que la forme des réponses (clés, statut, code, montant, devise). Auto-essai contre le faux serveur : `WAKATNET_ESSAI_FAUX=1`.
+
 | Point | Effet si faux |
 |---|---|
 | `amount` et `currency` présents dans `GET /v1/payment/{id}` | toutes les ventes CinetPay en écart (décision 3) |

@@ -68,9 +68,35 @@ export async function verifier(mdp: string, stocke: string): Promise<boolean> {
   return k.length === attendu.length && timingSafeEqual(k, attendu);
 }
 
-/** Empreinte factice : le même temps de calcul, que le compte existe ou non. */
+/** Empreinte factice : le même temps de calcul, que le compte existe ou non. Un échec (calculs saturés) n'est PAS gardé :
+ *  sinon toute connexion sur une adresse inconnue répondrait 503 jusqu'au redémarrage de l'API (relecture du 14/11/2026). */
 let EMPREINTE_FACTICE: Promise<string> | null = null;
-const empreinteFactice = () => (EMPREINTE_FACTICE ??= hacher(randomBytes(16).toString("hex")));
+const empreinteFactice = (): Promise<string> => {
+  if (EMPREINTE_FACTICE === null) {
+    const p: Promise<string> = hacher(randomBytes(16).toString("hex")).catch((e: unknown) => {
+      if (EMPREINTE_FACTICE === p) EMPREINTE_FACTICE = null;
+      throw e;
+    });
+    EMPREINTE_FACTICE = p;
+  }
+  return EMPREINTE_FACTICE;
+};
+
+/** Pour les tests seulement : oublier l'empreinte factice, et occuper toutes les places de calcul (rend la fonction qui
+ *  les libère). */
+const horsProduction = () => {
+  if (process.env.NODE_ENV === "production") throw new Error("_pourTests : interdit en production");
+};
+export const _pourTests = {
+  oublierEmpreinteFactice: (): void => { horsProduction(); EMPREINTE_FACTICE = null; },
+  saturer: (): (() => void) => {
+    horsProduction();
+    let ouvrir!: () => void;
+    const porte = new Promise<void>((ok) => (ouvrir = ok));
+    for (let i = 0; i < SCRYPT_ACTIFS + SCRYPT_ATTENTE; i++) void avecPlace(() => porte).catch(() => undefined);
+    return ouvrir;
+  },
+};
 
 export function mdpAcceptable(mdp: unknown): mdp is string {
   return typeof mdp === "string" && mdp.length >= 10 && mdp.length <= 200;
@@ -263,6 +289,8 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
                            courriel: { expediteur: Expediteur | null; urlTableau: string } = { expediteur: null, urlTableau: "" }): void {
   // À l'arrêt, les envois partis après la réponse se terminent avant la fermeture de la base.
   app.addHook("onClose", async () => { await envoisEnCours(); });
+  // Empreinte factice préparée au démarrage : la première adresse inconnue ne paie pas deux calculs (écart de durée).
+  void empreinteFactice().catch(() => undefined);
   app.register(async (pub) => {
     pub.addHook("onRequest", async (req, rep) => {
       if (!csrfOk(req)) return rep.code(403).send({ erreur: "en-tête X-Wakatnet-Requete manquant" });
@@ -283,9 +311,14 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
       const [r] = await base.$queryRaw<{ statut: string; utilisateur_id: bigint | null }[]>`
         SELECT statut, utilisateur_id FROM app.inscription_demander(${nom.trim()}, ${email}, ${empreinteMdp}, ${cleSource(req.ip, cleHmac, new Date(), 48)})`;
       if (r.statut === "trop") return rep.code(429).send({ erreur: "Trop de demandes depuis cette connexion : réessayez plus tard." });
-      if (r.statut === "cree") await envoyerVerification(base, courriel, r.utilisateur_id!, req.log);
-      else if ((r.statut === "existe" || r.statut === "attente") && r.utilisateur_id !== null) {
-        await envoyerAvis(base, courriel, r.utilisateur_id, r.statut === "attente", req.log);
+      // Le lien (compte neuf) ou l'avis (adresse déjà inscrite) se préparent APRÈS la réponse : ils ne font pas le même
+      // travail en base (relecture du 14/11/2026, comme le renvoi). Reste un écart propre à inscription_demander (création
+      // ou lecture d'un compte), de quelques millisecondes, borné par la limite de 5 inscriptions par heure et par source.
+      const id = r.utilisateur_id;
+      if (r.statut === "cree") enArrierePlan(() => envoyerVerification(base, courriel, id!, req.log));
+      else if ((r.statut === "existe" || r.statut === "attente") && id !== null) {
+        const attente = r.statut === "attente";
+        enArrierePlan(() => envoyerAvis(base, courriel, id, attente, req.log));
       }
       return rep.code(202).send({ ok: true, message: REPONSE_INSCRIPTION });
     });
@@ -355,7 +388,20 @@ export function routesAuth(app: FastifyInstance, base: Base, cleChiffrement: Buf
       if (essai === null) return rep.code(429).send({ erreur: "trop d'essais : patientez 15 minutes" });
       const [l] = await base.$queryRaw<{ utilisateur_id: bigint | null; mot_de_passe: string | null; actif: boolean | null }[]>`
         SELECT utilisateur_id, mot_de_passe, actif FROM app.connexion_lire(${email})`;
-      const bon = await verifier(mot_de_passe, l.mot_de_passe ?? (await empreinteFactice()));
+      let bon: boolean;
+      try {
+        bon = await verifier(mot_de_passe, l.mot_de_passe ?? (await empreinteFactice()));
+      } catch (e) {
+        // Calculs saturés (503) : aucun mot de passe n'a été vérifié, l'essai ne compte pas. Sinon, qui sature scrypt
+        // ferait perdre leurs essais aux vrais utilisateurs (relecture du 14/11/2026). Avec un appareil NULL,
+        // connexion_reussie efface seulement la réservation (migration 0031).
+        if (e instanceof CalculsSatures) {
+          // Une base indisponible ici ne change pas la réponse (503) : l'essai reste alors compté, ce qui est prudent.
+          await base.$executeRaw`SELECT app.connexion_reussie(${essai}, NULL::bytea)`
+            .catch(() => req.log.error("libération de l'essai saturé échouée"));
+        }
+        throw e;
+      }
       // Échec : la réservation reste et compte. Réussite : elle est effacée.
       if (!bon || l.utilisateur_id === null || !l.actif) return rep.code(401).send({ erreur: ECHEC_CONNEXION });
       const jetonAppareil = appareil ?? randomBytes(32).toString("base64url");

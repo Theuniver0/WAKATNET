@@ -75,12 +75,36 @@ function port(v: number): number {
 }
 
 /** Commande à coller par le propriétaire (SPEC §6.2). */
-export function commande(urlPublique: string, jeton: string): string {
+export function commande(urlPublique: string, jeton: string, racines: { pem: string; empreinte: string }[] = []): string {
   const url = chaine(`${urlPublique}/enroll/${jeton}`);
-  return [
+  return [...racines.map((r) => ligneRacine(r)),
     `/tool fetch url=${url} check-certificate=yes dst-path="wakatnet-enroll.rsc"`,
     `/import file-name="wakatnet-enroll.rsc"`,
   ].join("\n");
+}
+
+/** Racine TLS de l'API, importée seulement si son empreinte est absente (RouterOS < 7.19 n'a pas de magasin intégré :
+ *  banc CHR du 14/11/2026, ADR 0003). Nommée « wakatnet racine <début de l'empreinte> » (un nom par racine : deux jeux
+ *  de racines ne se marchent pas dessus), retirée par la désinstallation. Une copie déjà présente mais non approuvée
+ *  n'est pas touchée (c'est un objet du propriétaire) : on le dit, car l'enrôlement échouera. Contrôlée ici aussi : le
+ *  texte va tel quel dans la ligne collée par le propriétaire. */
+function ligneRacine(r: { pem: string; empreinte: string }): string {
+  if (!/^[0-9a-f]{64}$/.test(r.empreinte)) throw new ValeurInterdite("empreinte de racine invalide");
+  const l = r.pem.trim().split("\n");
+  if (l.length < 3 || l[0] !== "-----BEGIN CERTIFICATE-----" || l.at(-1) !== "-----END CERTIFICATE-----"
+      || !l.slice(1, -1).every((x) => /^[A-Za-z0-9+/=]{1,76}$/.test(x))) throw new ValeurInterdite("racine PEM invalide");
+  const court = r.empreinte.slice(0, 16);
+  const fichier = `wakatnet-racine-${court}.pem`, nom = `wakatnet racine ${court}`;
+  const trouve = `[/certificate find where fingerprint="${r.empreinte}"]`;
+  // En 7.15, un fichier créé n'apparaît pas aussitôt dans /file (banc CHR) : attente bornée, pas un délai fixe.
+  return `:if ([:len ${trouve}] = 0) do={ `
+    + `/file add name="${fichier}" contents="${l.join("\\n")}\\n"; `
+    + `:local n 0; :while (([:len [/file find where name="${fichier}"]] = 0) && ($n < 30)) do={ :delay 1s; :set n ($n + 1) }; `
+    + `:do { /certificate import file-name="${fichier}" passphrase="" name="${nom}"; /certificate set ${trouve} trusted=yes } `
+    + `on-error={ :put "WAKATNET : la racine ${nom} n'a pas pu etre importee ; l'enrolement va echouer. Recollez la commande." }; `
+    + `:do { /file remove [find where name="${fichier}"] } on-error={} } `
+    + `else={ :if ([:len [/certificate find where fingerprint="${r.empreinte}" && !trusted]] > 0) do={ `
+    + `:put "WAKATNET : un certificat racine ${court}... est present mais non approuve (trusted=no) ; l'enrolement va echouer. Approuvez-le ou retirez-le, puis recollez la commande." } }`;
 }
 
 /** Étape 1 : contrôles, interface WireGuard (clé privée générée sur le routeur), inventaire, POST. */
@@ -266,16 +290,28 @@ export function planificateur(url: string): string[] {
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?\/entretien\/[A-Za-z0-9_-]{43}$/.test(url)) throw new ValeurInterdite("URL d'entretien invalide");
   // check-certificate=yes : sans lui, quiconque est sur le chemin réseau servirait le script importé (relecture de
   // sécurité n° 1, SPEC §6.2 exigence 6). Pas de droit « policy » : rien dans l'entretien ne touche aux utilisateurs.
-  const evenement = `:do { /tool fetch url="${url}" check-certificate=yes dst-path="wakatnet-entretien.rsc"; /import file-name="wakatnet-entretien.rsc" verbose=no } `
-    + `on-error={ :log warning "wakatnet : entretien indisponible, configuration inchangee" }; `
-    + `:do { /file remove [find where name="wakatnet-entretien.rsc"] } on-error={}`;
+  // Sans fichier : le script est téléchargé en mémoire (`output=user`) et exécuté par `:parse`. Un fichier intermédiaire
+  // exigeait le droit « ftp » (banc CHR 7.19.4, 14/11/2026 : « cannot open file: permission denied ») ; ce droit
+  // aurait permis à un script importé de lire les sauvegardes et de réécrire les pages du portail, et un compte local
+  // « ftp » aurait pu remplacer le fichier entre le téléchargement et l'import (relecture du 14/11/2026). `:parse`
+  // analyse tout avant d'exécuter : un script tronqué ou mal formé n'applique rien.
+  // Le `set` réécrit droits, intervalle et événement ; seul `disabled` est préservé.
+  const evenement = `:do { :local r [/tool fetch url="${url}" check-certificate=yes output=user as-value]; `
+    + `:if (($r->"status") != "finished") do={ :error "telechargement incomplet" }; `
+    + `:local f [:parse ($r->"data")]; $f } `
+    + `on-error={ :log warning "wakatnet : entretien indisponible, configuration inchangee" }`;
   const e = chaine(evenement);
-  return [`:if ([:len [/system scheduler find where name="wakatnet-entretien"]] = 0) do={ /system scheduler add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive on-event=${e} comment="wakatnet entretien (desactivable)" } else={ /system scheduler set [find where name="wakatnet-entretien"] interval=6h on-event=${e} }`];
+  return [`:if ([:len [/system scheduler find where name="wakatnet-entretien"]] = 0) do={ /system scheduler add name="wakatnet-entretien" interval=6h policy=read,write,test,sensitive on-event=${e} comment="wakatnet entretien (desactivable)" } else={ /system scheduler set [find where name="wakatnet-entretien"] interval=6h policy=read,write,test,sensitive on-event=${e} }`];
 }
 
+/** `fetch output=user` garde la réponse dans une variable, de taille limitée (environ 64 Kio d'après la documentation
+ *  MikroTik, non mesuré) : on refuse bien avant. L'entretien d'un routeur à deux nœuds fait environ 6 Kio. */
+export const TAILLE_MAX_ENTRETIEN = 32 * 1024;
+
 /** Étape 3, entretien (SPEC §6.2, ADR 0023) : regénère les objets « wakatnet » ; jamais l'activation ni l'inventaire.
- *  Aucun secret dans le fichier : le secret RADIUS est relu sur le routeur (relecture de sécurité n° 7). Le fichier se
- *  supprime lui-même, et le planificateur le retire aussi. */
+ *  Aucun secret dans le script : le secret RADIUS est relu sur le routeur (relecture de sécurité n° 7). Exécuté en
+ *  mémoire par le planificateur, sans fichier ; sa taille est bornée (TAILLE_MAX_ENTRETIEN). */
+
 export function entretien(e: Entretien): string {
   const coa = port(e.coaPort);
   const lp = port(e.listenPort);
@@ -285,10 +321,11 @@ export function entretien(e: Entretien): string {
   lignes.push(`:do { :set wkSecret [/radius get [:pick [/radius find where comment~"^wakatnet"] 0] secret] } on-error={}`);
   lignes.push(`:if ([:len $wkSecret] = 0) do={ :error "WAKATNET : entretien impossible, aucun serveur RADIUS wakatnet sur ce routeur. Rien n'a ete modifie." }`);
   lignes.push(...blocsWakatnet(e, null, coa, lp));
-  lignes.push(`/file remove [find where name="wakatnet-entretien.rsc"]`);
   lignes.push(`:log info "wakatnet : entretien applique"`);
   lignes.push(`}`);
-  return lignes.join("\n") + "\n";
+  const texte = lignes.join("\n") + "\n";
+  if (Buffer.byteLength(texte) > TAILLE_MAX_ENTRETIEN) throw new ValeurInterdite("entretien trop long pour output=user");
+  return texte;
 }
 
 /** Désinstallation (R6) : désactive RADIUS d'abord, puis retire tout objet marqué « wakatnet ». */
@@ -315,8 +352,10 @@ export function desinstallation(inventaire: Inventaire): string {
   lignes.push(`/ip address remove [find where comment~"^wakatnet"]`);
   lignes.push(`/interface wireguard peers remove [find where comment~"^wakatnet"]`);
   lignes.push(`/interface wireguard remove [find where name="wg-wakatnet" comment~"^wakatnet"]`);
+  lignes.push(`/certificate remove [find where name~"^wakatnet racine "]`);
   lignes.push(`/file remove [find where name~"^wakatnet-"]`);
   lignes.push(`:put "WAKATNET : desinstallation terminee. Le hotspot fonctionne de nouveau avec ses seuls utilisateurs locaux."`);
+  lignes.push(`:put "Les certificats racines importes a l'enrolement (wakatnet racine ...) sont retires : un autre service qui s'en servait doit les reimporter."`);
   lignes.push(`}`);
   return lignes.join("\n") + "\n";
 }

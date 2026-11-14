@@ -126,7 +126,7 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
     if (typeof cree === "string") {
       return rep.code(409).send({ erreur: "Quota de routeurs atteint (routeurs raccordés, révoqués compris) : demandez une hausse à Telecom Universel." });
     }
-    return rep.code(201).send({ commande: commande(config.urlPublique, jeton), expire_le: cree.expire_le.toISOString() });
+    return rep.code(201).send({ commande: commande(config.urlPublique, jeton, config.racinesTls ?? []), expire_le: cree.expire_le.toISOString() });
   });
 
   // Propriétaire : page de redirection du hotspot vers le portail, pour SON site (phase 3, ticket 06).
@@ -266,9 +266,18 @@ export function routesRouteur(app: FastifyInstance, config: Config, base: Base):
     const [r] = await base.$queryRaw<{ router_id: bigint; overlay_ip: string; coa_port: number; listen_port: number | null }[]>`
       SELECT router_id, overlay_ip, coa_port, listen_port FROM app.entretien_lire(${empreinte(req.params.jeton)})`;
     if (!r || r.listen_port === null) return rep.code(404).send({ erreur: "inconnu" });
-    return rep.type("text/plain; charset=utf-8").header("cache-control", "no-store").send(entretien({
-      overlayIp: r.overlay_ip, noeuds: config.noeuds, coaPort: r.coa_port, listenPort: r.listen_port,
-      portail: { hote: new URL(config.urlPortail).hostname, ips: config.portailIps ?? [] },
-    }));
+    let script: string;
+    try {
+      script = entretien({
+        overlayIp: r.overlay_ip, noeuds: config.noeuds, coaPort: r.coa_port, listenPort: r.listen_port,
+        portail: { hote: new URL(config.urlPortail).hostname, ips: config.portailIps ?? [] },
+      });
+    } catch (e) {
+      // Ex. configuration trop longue pour `output=user` : tous les routeurs échoueraient en silence (simple avertissement
+      // de leur côté, configuration inchangée). On le rend visible ici (relecture du 14/11/2026).
+      req.log.error({ err: e, routeur: String(r.router_id) }, "entretien : script impossible à produire");
+      return rep.code(503).send({ erreur: "entretien indisponible" });
+    }
+    return rep.type("text/plain; charset=utf-8").header("cache-control", "no-store").send(script);
   });
 }

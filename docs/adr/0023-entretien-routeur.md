@@ -27,8 +27,10 @@
    - Le jeton figure en clair dans le planificateur. Un compte en lecture seule le voit, et il apparaît dans un `/export`. C'est pourquoi **il ne donne pas le secret RADIUS** : l'entretien relit le secret sur le routeur.
    - **Rotation** par le propriétaire : `POST /v1/routers/:id/entretien` rend une nouvelle ligne de planificateur à coller, et l'ancien jeton cesse aussitôt de valoir. Elle sert après une fuite, et pour les routeurs enrôlés avant cette migration.
 2. **Planificateur.**
-   - `wakatnet-entretien`, toutes les 6 h, commentaire `wakatnet entretien (desactivable)`, droits `read,write,test,sensitive`. Il n'a pas le droit `policy` : rien dans l'entretien ne touche aux utilisateurs.
-   - Il télécharge `https://api.DOMAINE/entretien/<jeton>` **avec `check-certificate=yes`** (exigence 6), l'importe, puis supprime le fichier.
+   - `wakatnet-entretien`, toutes les 6 h, commentaire `wakatnet entretien (desactivable)`, droits `read,write,test,sensitive`. Il n'a ni le droit `policy` (rien dans l'entretien ne touche aux utilisateurs) ni le droit `ftp`.
+   - **Sans fichier** : le script est téléchargé en mémoire (`fetch … output=user as-value`) puis exécuté par `:parse`. Un fichier intermédiaire exigeait le droit `ftp` (banc CHR 7.19.4 du 14/11/2026 : « cannot open file: permission denied »). Ce droit aurait permis à un script importé de lire les sauvegardes du routeur et de réécrire les pages du portail. Un compte local `ftp` aurait aussi pu remplacer le fichier entre le téléchargement et l'import (relecture du 14/11/2026). `:parse` analyse tout le script avant de l'exécuter : un script tronqué n'applique rien. La taille est bornée à 32 Kio côté API (`TAILLE_MAX_ENTRETIEN`).
+   - Une nouvelle étape 2, ou une rotation, réécrit droits, intervalle et événement ; **seul `disabled` est préservé**.
+   - Il télécharge `https://api.DOMAINE/entretien/<jeton>` **avec `check-certificate=yes`** (exigence 6) et l'exécute en mémoire.
    - Un échec (réseau, 404) ne change rien sur le routeur : un avertissement est journalisé.
    - **Désactivable** : `/system scheduler disable wakatnet-entretien`. Un nouvel enrôlement ne le réactive pas, car la mise à jour ne touche pas `disabled`.
 3. **Contenu.**
@@ -65,7 +67,7 @@
 
 | Point | Effet si faux |
 |---|---|
-| `policy=read,write,test,sensitive` suffit à `/tool fetch` et à `/import`, et à relire le secret `/radius` (`sensitive`) | l'entretien échoue, journalise et ne change rien |
+| `policy=read,write,test,sensitive` suffit. Avec un fichier intermédiaire, c'était **faux** (il fallait `ftp`, banc CHR 7.19.4). Sans fichier (`output=user` puis `:parse`) : **vérifié** par `infra/routeros/essais/chr.sh` en 7.15.3 et 7.19.4 (vrai planificateur, IP du portail remplacée, aucun échec journalisé) | l'entretien échoue, journalise et ne change rien |
 | `:foreach … walled-garden ip find …` et le retrait par `$i` | une ancienne IP du portail reste ouverte |
 | `/ip hotspot walled-garden ip add … dst-address=… protocol=tcp dst-port=443` laisse un client non connecté joindre le portail en HTTPS | le portail est injoignable avant connexion |
 | `/interface wireguard peers set … endpoint-address=…` sur un pair existant rétablit le tunnel vers B déplacé | B reste injoignable jusqu'au réenrôlement |
