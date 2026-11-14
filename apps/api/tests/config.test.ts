@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cheminMasque } from "../src/app.ts";
-import { ConfigInvalide, lireConfig } from "../src/config.ts";
+import { readFileSync } from "node:fs";
+import { ConfigInvalide, lireConfig, lireRacinesTls } from "../src/config.ts";
+
+// Racine d'essai (certificat public seul, clé détruite) : tests seulement.
+const RACINE = `${import.meta.dirname}/racines-essai/racine.pem`;
+const RACINES = { WAKATNET_RACINES_TLS: RACINE };
 
 const URL = { WAKATNET_API_DATABASE_URL: "postgresql://x@h/d" };
 
@@ -45,7 +50,7 @@ test("WAKATNET_TRUST_PROXY (ADR 0016 §2) : adresses seulement ; absent, aucune 
   assert.throws(() => lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "true" }), ConfigInvalide);
   // En production, son absence ramènerait toutes les requêtes à une seule source (M2, M7) : refusé.
   assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", ...CLES }), /WAKATNET_TRUST_PROXY requis en production/);
-  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES }).trustProxy, "127.0.0.1");
+  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES }).trustProxy, "127.0.0.1");
 });
 
 test("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources resteraient en clair (T10, ADR 0016 §2)", () => {
@@ -56,7 +61,7 @@ test("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources rester
   assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_HMAC: "" }), /WAKATNET_CLE_HMAC requise en production/);
   assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_MARCHANDS: CLES.WAKATNET_CLE_MARCHANDS }),
                 /WAKATNET_CLE_HMAC/);
-  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES }).cles?.hmac.length === 32);
+  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES }).cles?.hmac.length === 32);
 });
 
 test("WAKATNET_PORTAIL_IPS (walled garden, SPEC §7.1) : IPv4 séparées par des virgules ; exigée en production", () => {
@@ -73,4 +78,22 @@ test("relecture n° 2 : nom d'hôte du portail vérifié au démarrage (règle d
     assert.throws(() => lireConfig({ ...URL, WAKATNET_PORTAIL_URL_PUBLIQUE: mauvais }), ConfigInvalide, mauvais);
   }
   assert.equal(lireConfig({ ...URL, WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.wakatnet.bf:8443" }).urlPortail, "https://portail.wakatnet.bf:8443");
+});
+
+test("WAKATNET_RACINES_TLS (ADR 0003 : pas de magasin de racines avant RouterOS 7.19) : racines auto-signées valides ; exigée en production", () => {
+  const PROD = { ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES };
+  assert.throws(() => lireConfig(PROD), /WAKATNET_RACINES_TLS exigée en production/);
+  const [r] = lireConfig({ ...PROD, ...RACINES }).racinesTls!;
+  assert.match(r.empreinte, /^[0-9a-f]{64}$/, "empreinte au format du routeur (/certificate fingerprint)");
+  assert.equal(lireConfig(URL).racinesTls, undefined, "hors production : facultative");
+  const pem = readFileSync(RACINE, "utf8");
+  const feuille = readFileSync(`${import.meta.dirname}/racines-essai/feuille.pem`, "utf8");
+  assert.throws(() => lireRacinesTls(pem + pem), /en double/);
+    assert.throws(() => lireRacinesTls(feuille), /n'est pas une racine/, "certificat signé par une autre autorité");
+  assert.throws(() => lireRacinesTls(pem.repeat(4)), /1 à 3/);
+  assert.throws(() => lireRacinesTls(pem.replace(/\n[A-Za-z0-9+/]{8}/, "\nAAAAAAAA")), /illisible|n'est pas une racine/, "base64 abîmé : refus clair");
+  assert.throws(() => lireRacinesTls(pem + "\n-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"), /rien d'autre/, "jamais de clé à côté");
+  assert.throws(() => lireRacinesTls(""), /1 à 3/);
+  assert.throws(() => lireRacinesTls(pem, new Date("2047-01-01")), /validité/);
+  assert.throws(() => lireConfig({ ...URL, WAKATNET_RACINES_TLS: "/inexistant/racines.pem" }), /illisible/);
 });

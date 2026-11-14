@@ -1407,3 +1407,12 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Fait** : `packages/payments/essais/cinetpay-bac-a-sable.ts`, que Yacouba lance chez lui ; rapport sans secret, à renvoyer (ADR 0022).
 - **Preuves** : auto-essai contre le faux serveur (connexion, référence inconnue, trois achats, `verify()`) ; rapport sans clé, mot de passe ni numéro (recherche : 0) ; `tsc` sans erreur.
 
+## 14/11/2026 — Racines TLS dans la commande d'enrôlement (décision de Yacouba)
+
+- **Fait** :
+  - `WAKATNET_RACINES_TLS` (1 à 3 racines, contrôlées au démarrage, exigée en production) ; ISRG Root X1 et X2 dans `infra/tls/`, copiées du paquet signé `ca-certificates` (letsencrypt.org injoignable d'ici : empreintes à comparer avant le premier enrôlement réel) ;
+  - la commande importe chaque racine si son empreinte est absente (`wakatnet racine N`) ; la désinstallation les retire ;
+  - le banc CHR joue désormais la commande réelle, sans autorité posée à la main.
+- **Preuves** : `chr.sh` 47/47 en 7.15.3 et 7.19.4 (dont import des vraies racines ISRG X1 et X2) ; suite API : voir le message de commit. Relecture par un second agent : `.gitignore` excluait les `.pem` (racines jamais déployées, tests cassés sur un clone propre), corrigé ; attente bornée du fichier, copie non approuvée signalée, doublons refusés, un nom par racine.
+- **Reste à prouver sur un vrai routeur** : chaîne publique (contre-signature), collage d'une ligne de 3,1 Ko dans Winbox.
+

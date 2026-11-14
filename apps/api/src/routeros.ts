@@ -75,12 +75,36 @@ function port(v: number): number {
 }
 
 /** Commande à coller par le propriétaire (SPEC §6.2). */
-export function commande(urlPublique: string, jeton: string): string {
+export function commande(urlPublique: string, jeton: string, racines: { pem: string; empreinte: string }[] = []): string {
   const url = chaine(`${urlPublique}/enroll/${jeton}`);
-  return [
+  return [...racines.map((r) => ligneRacine(r)),
     `/tool fetch url=${url} check-certificate=yes dst-path="wakatnet-enroll.rsc"`,
     `/import file-name="wakatnet-enroll.rsc"`,
   ].join("\n");
+}
+
+/** Racine TLS de l'API, importée seulement si son empreinte est absente (RouterOS < 7.19 n'a pas de magasin intégré :
+ *  banc CHR du 14/11/2026, ADR 0003). Nommée « wakatnet racine <début de l'empreinte> » (un nom par racine : deux jeux
+ *  de racines ne se marchent pas dessus), retirée par la désinstallation. Une copie déjà présente mais non approuvée
+ *  n'est pas touchée (c'est un objet du propriétaire) : on le dit, car l'enrôlement échouera. Contrôlée ici aussi : le
+ *  texte va tel quel dans la ligne collée par le propriétaire. */
+function ligneRacine(r: { pem: string; empreinte: string }): string {
+  if (!/^[0-9a-f]{64}$/.test(r.empreinte)) throw new ValeurInterdite("empreinte de racine invalide");
+  const l = r.pem.trim().split("\n");
+  if (l.length < 3 || l[0] !== "-----BEGIN CERTIFICATE-----" || l.at(-1) !== "-----END CERTIFICATE-----"
+      || !l.slice(1, -1).every((x) => /^[A-Za-z0-9+/=]{1,76}$/.test(x))) throw new ValeurInterdite("racine PEM invalide");
+  const court = r.empreinte.slice(0, 16);
+  const fichier = `wakatnet-racine-${court}.pem`, nom = `wakatnet racine ${court}`;
+  const trouve = `[/certificate find where fingerprint="${r.empreinte}"]`;
+  // En 7.15, un fichier créé n'apparaît pas aussitôt dans /file (banc CHR) : attente bornée, pas un délai fixe.
+  return `:if ([:len ${trouve}] = 0) do={ `
+    + `/file add name="${fichier}" contents="${l.join("\\n")}\\n"; `
+    + `:local n 0; :while (([:len [/file find where name="${fichier}"]] = 0) && ($n < 30)) do={ :delay 1s; :set n ($n + 1) }; `
+    + `:do { /certificate import file-name="${fichier}" passphrase="" name="${nom}"; /certificate set ${trouve} trusted=yes } `
+    + `on-error={ :put "WAKATNET : la racine ${nom} n'a pas pu etre importee ; l'enrolement va echouer. Recollez la commande." }; `
+    + `:do { /file remove [find where name="${fichier}"] } on-error={} } `
+    + `else={ :if ([:len [/certificate find where fingerprint="${r.empreinte}" && !trusted]] > 0) do={ `
+    + `:put "WAKATNET : un certificat racine ${court}... est present mais non approuve (trusted=no) ; l'enrolement va echouer. Approuvez-le ou retirez-le, puis recollez la commande." } }`;
 }
 
 /** Étape 1 : contrôles, interface WireGuard (clé privée générée sur le routeur), inventaire, POST. */
@@ -328,8 +352,10 @@ export function desinstallation(inventaire: Inventaire): string {
   lignes.push(`/ip address remove [find where comment~"^wakatnet"]`);
   lignes.push(`/interface wireguard peers remove [find where comment~"^wakatnet"]`);
   lignes.push(`/interface wireguard remove [find where name="wg-wakatnet" comment~"^wakatnet"]`);
+  lignes.push(`/certificate remove [find where name~"^wakatnet racine "]`);
   lignes.push(`/file remove [find where name~"^wakatnet-"]`);
   lignes.push(`:put "WAKATNET : desinstallation terminee. Le hotspot fonctionne de nouveau avec ses seuls utilisateurs locaux."`);
+  lignes.push(`:put "Les certificats racines importes a l'enrolement (wakatnet racine ...) sont retires : un autre service qui s'en servait doit les reimporter."`);
   lignes.push(`}`);
   return lignes.join("\n") + "\n";
 }

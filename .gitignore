@@ -12,6 +12,11 @@ secrets/
 **/secrets/
 *.key
 *.pem
+# Certificats PUBLICS seulement (aucune clé) : racines TLS de l'API importées par la commande d'enrôlement, et
+# certificats d'essai des tests. Toute autre exception est interdite.
+!infra/tls/racines-api.pem
+!apps/api/tests/racines-essai/racine.pem
+!apps/api/tests/racines-essai/feuille.pem
 *.p12
 *.pfx
 wireguard/*.conf

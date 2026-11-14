@@ -1,8 +1,9 @@
 // WAKATNET — banc CHR (infra/routeros/essais/chr.sh) : produit les scripts RouterOS avec le VRAI générateur de l'API
 // (apps/api/src/routeros.ts), pour qu'un RouterOS réel les exécute. Aucune logique de script ici.
-//   node --experimental-strip-types generer.ts <etape1|etape2|entretien|desinstallation> <parametres.json> [inventaire.json]
+//   node --experimental-strip-types generer.ts <commande|etape1|etape2|entretien|desinstallation> <parametres.json> [inventaire.json]
 import { readFileSync } from "node:fs";
-import { desinstallation, entretien, etape1, etape2, type Inventaire, type Noeud } from "../../../apps/api/src/routeros.ts";
+import { lireRacinesTls } from "../../../apps/api/src/config.ts";
+import { commande, desinstallation, entretien, etape1, etape2, type Inventaire, type Noeud } from "../../../apps/api/src/routeros.ts";
 
 type Parametres = {
   urlPublique: string;
@@ -14,6 +15,8 @@ type Parametres = {
   urlEntretien?: string;
   coaPort?: number;
   listenPort?: number;
+  /** Fichier PEM des racines que la commande importe (comme WAKATNET_RACINES_TLS). */
+  racines?: string;
 };
 
 const [quoi, fichierParametres, fichierInventaire] = process.argv.slice(2);
@@ -22,6 +25,9 @@ const p = JSON.parse(readFileSync(fichierParametres, "utf8")) as Parametres;
 const inventaire = (): Inventaire => JSON.parse(readFileSync(fichierInventaire, "utf8")) as Inventaire;
 
 switch (quoi) {
+  case "commande":
+    process.stdout.write(commande(p.urlPublique, p.jeton, p.racines ? lireRacinesTls(readFileSync(p.racines, "utf8")) : []) + "\n");
+    break;
   case "etape1":
     process.stdout.write(etape1(p.urlPublique, p.jeton, new Date(Date.now() + 3600_000)));
     break;

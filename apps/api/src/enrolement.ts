@@ -126,7 +126,7 @@ export function routesEnrolement(app: FastifyInstance, config: Config, base: Bas
     if (typeof cree === "string") {
       return rep.code(409).send({ erreur: "Quota de routeurs atteint (routeurs raccordés, révoqués compris) : demandez une hausse à Telecom Universel." });
     }
-    return rep.code(201).send({ commande: commande(config.urlPublique, jeton), expire_le: cree.expire_le.toISOString() });
+    return rep.code(201).send({ commande: commande(config.urlPublique, jeton, config.racinesTls ?? []), expire_le: cree.expire_le.toISOString() });
   });
 
   // Propriétaire : page de redirection du hotspot vers le portail, pour SON site (phase 3, ticket 06).

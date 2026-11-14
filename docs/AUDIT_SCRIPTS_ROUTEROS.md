@@ -35,7 +35,7 @@ Un défaut probable a été corrigé pendant l'audit. Deux points critiques rest
 
 Banc `infra/routeros/essais/chr.sh` : un CHR neuf sous qemu (émulation, sans KVM), l'hôte jouant la plateforme
 (`plateforme.py`, HTTPS par une autorité de test, scripts du **vrai** générateur via `generer.ts`) et le nœud A
-(`wireguard-go`). Résultat : **38 contrôles sur 38 en 7.15.3 et en 7.19.4** :
+(`wireguard-go`). Résultat : **47 contrôles sur 47 en 7.15.3 et en 7.19.4** (dont la commande d'enrôlement réelle, racine comprise) :
 - refus de l'étape 1 sans rien modifier ni rien envoyer : pas de hotspot, adresse dans 10.213.0.0/16, autre RADIUS du hotspot ;
 - enrôlement complet à travers un vrai tunnel WireGuard (preuve par ping), profil passé en RADIUS avec accounting,
   `require-message-auth=yes-for-request-resp` accepté, CoA ouvert, règles `wakatnet` placées devant un pare-feu
@@ -50,11 +50,16 @@ Constats :
    (lecture des sauvegardes, pages du portail, échange du fichier avant l'import : relecture par un second agent),
    l'entretien s'exécute **en mémoire** (`output=user as-value` puis `:parse`), avec les seuls droits
    `read,write,test,sensitive` (ADR 0023).
-2. **À trancher** : RouterOS n'a de magasin de certificats racines intégré (`/certificate settings`
+2. **Tranché (Yacouba, 14/11/2026 : racine dans la commande)** : RouterOS n'a de magasin de certificats racines intégré (`/certificate settings`
    `builtin-trust-anchors`) qu'à partir de la **7.19** (absent de 7.15.3, 7.16.2, 7.17.2, 7.18.2 ; présent en 7.19.4).
    De 7.15 à 7.18, la commande d'enrôlement (`fetch … check-certificate=yes` vers l'API, certificat public) échoue tant
    qu'aucune racine n'est importée. Le banc importe sa propre autorité de test : il ne prouve donc pas la chaîne
    publique (le CHR du banc n'a pas de DNS). Même question pour RouterOS 6.
+   **Fait** : la commande importe les racines de `WAKATNET_RACINES_TLS` (ISRG Root X1 et X2, `infra/tls/`) si leur
+   empreinte est absente ; le banc ne pose plus son autorité à la main : c'est la commande réelle qui l'importe
+   (47/47 en 7.15.3 et 7.19.4 : enrôlement, ligne rejouée sans doublon, copie non approuvée signalée et laissée, vraies racines ISRG X1 et X2 importées, racines retirées à la désinstallation). Reste à
+   prouver sur un vrai routeur : la chaîne publique servie par nginx (contre-signature X1 → YR), et le collage d'une
+   ligne de 3,1 Ko dans le terminal de Winbox.
 3. Banc seulement : en 7.15, `/import` lancé par SSH n'affiche pas le message d'un `:error` (il est dans le journal), et
    un fichier déposé par SCP n'apparaît pas aussitôt dans `/file`.
 

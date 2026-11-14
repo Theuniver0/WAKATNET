@@ -30,7 +30,8 @@ nettoyer() {
 }
 trap nettoyer EXIT
 
-ros() { timeout 180 sshpass -p '' ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PubkeyAuthentication=no \
+# -n : ssh ne lit pas l'entrée standard (sinon il avalerait les lignes suivantes de la commande collée).
+ros() { timeout 180 sshpass -p '' ssh -n -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PubkeyAuthentication=no \
           -o LogLevel=ERROR -p "$PORT_SSH" admin@127.0.0.1 "$1" 2>&1 | tr -d '\r' || true; }  # un refus attendu n'arrête pas le banc
 # En 7.15, un fichier déposé par SCP n'apparaît pas aussitôt dans /file : on attend qu'il y soit.
 envoyer() {
@@ -86,14 +87,20 @@ json.dump({"urlPublique": f"https://10.0.2.2:{port}", "jeton": jeton(), "overlay
            "secret": "".join(secrets.choice(alpha) for _ in range(32)),
            "noeuds": [{"nom": "A", "overlay": "10.213.0.1", "cle": open(f"{d}/a.pub").read().strip(), "endpoint": "10.0.2.2", "port": 51820}],
            "portail": {"hote": "portail.essai.bf", "ips": ["192.0.2.20"]},
-           "urlEntretien": f"https://10.0.2.2:{port}/entretien/{jeton()}"}, open(f"{d}/parametres.json", "w"))
+           "urlEntretien": f"https://10.0.2.2:{port}/entretien/{jeton()}", "racines": f"{d}/ca.crt"}, open(f"{d}/parametres.json", "w"))
 EOF
 WAKATNET_BANC_WG=$WG python3 "$ICI/plateforme.py" "$T" "$PORT_HTTPS" "$T/srv.crt" "$T/srv.key" > "$T/plateforme.err" 2>&1 &
 echo $! > "$T/plateforme.pid"
-envoyer "$T/ca.crt"
-ros '/certificate import file-name=ca.crt passphrase="" name=wakatnet-banc-ca' > /dev/null
-ros '/certificate set [find where name~"wakatnet-banc-ca"] trusted=yes' > /dev/null
+# Aucune autorité importée à la main : c'est la commande d'enrôlement qui apporte la racine (ADR 0003).
 generer etape1 "$T/parametres.json" > "$T/wakatnet-enroll.rsc"
+generer commande "$T/parametres.json" > "$T/commande.rsc"
+# La commande telle que le propriétaire la colle, ligne à ligne ; puis les erreurs journalisées depuis un repère.
+coller() {
+  local REPERE; REPERE=$(date +%s%N)
+  ros ":log info \"banc-repere-$REPERE\""
+  while IFS= read -r ligne; do [ -n "$ligne" ] && ros "$ligne"; done < "$1"
+  ros ":local vu false; :foreach i in=[/log find] do={ :local m [/log get \$i message]; :if (\$vu and [/log get \$i topics]~\"error\") do={ :put \$m }; :if (\$m = \"banc-repere-$REPERE\") do={ :set vu true } }"
+}
 posts() { local n; n=$(grep -c '^POST' "$T/plateforme.log" 2>/dev/null || true); echo "${n:-0}"; }
 
 echo "== Étape 1 : refus, sans rien modifier"
@@ -114,7 +121,8 @@ echo "== Étapes 1 et 2 : enrôlement"
 # Pare-feu du propriétaire déjà en place (établies, administration, refus du reste) : les règles wakatnet doivent passer
 # devant le refus, sinon le tunnel et le CoA seraient bloqués.
 ros '/ip firewall filter add chain=input action=accept connection-state=established,related comment="regle du proprietaire"; /ip firewall filter add chain=input action=accept protocol=tcp dst-port=22 comment="regle du proprietaire"; /ip firewall filter add chain=input action=drop comment="regle du proprietaire"' > /dev/null
-sortie=$(importer "$T/wakatnet-enroll.rsc")
+verifier "aucune racine wakatnet avant la commande" "$(compter '/certificate find where name~"^wakatnet racine "')" "0"
+sortie=$(coller "$T/commande.rsc")
 echo "$sortie" | grep -q "routeur enrole" && ok "enrôlement" || { ko "enrôlement ($sortie)"; ros '/log print without-paging' | tail -25 | sed 's/^/     /'; sed 's/^/     plateforme : /' "$T/plateforme.err" | tail -5; }
 verifier "profil : use-radius" "$(ros ':put [/ip hotspot profile get [find where name=hsprof1] use-radius]' | tail -1)" "true"
 verifier "profil : accounting" "$(ros ':put [/ip hotspot profile get [find where name=hsprof1] radius-accounting]' | tail -1)" "true"
@@ -126,6 +134,23 @@ case "$premiere" in wakatnet*) ok "règles wakatnet avant la règle du propriét
 verifier "aucun fichier temporaire" "$(compter '/file find where name~"^wakatnet-"')" "0"
 verifier "planificateur : droits" "$(ros ':put [/system scheduler get [find where name="wakatnet-entretien"] policy]' | tail -1)" "read;write;test;sensitive"
 verifier "utilisateur local conservé" "$(compter '/ip hotspot user find where name="client-local"')" "1"
+verifier "racine importée par la commande, de confiance" "$(compter '/certificate find where name~"^wakatnet racine " and trusted')" "1"
+head -1 "$T/commande.rsc" > "$T/racine.rsc"; coller "$T/racine.rsc" > /dev/null
+verifier "racine : ligne rejouée sans doublon" "$(compter '/certificate find where name~"^wakatnet racine "')" "1"
+# Copie présente mais non approuvée : signalée, jamais modifiée.
+ros '/certificate set [find where name~"^wakatnet racine "] trusted=no' > /dev/null
+coller "$T/racine.rsc" | grep -q "present mais non approuve" && ok "racine non approuvée : signalée" || ko "racine non approuvée : pas de message"
+verifier "racine non approuvée : laissée telle quelle" "$(compter '/certificate find where name~"^wakatnet racine " and !trusted')" "1"
+ros '/certificate set [find where name~"^wakatnet racine "] trusted=yes' > /dev/null
+# Les VRAIES racines de production (ISRG Root X1 et X2, infra/tls/) : lignes de 3,1 Ko et 1,3 Ko, import réel.
+python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); p["racines"]=sys.argv[2]; json.dump(p,open(sys.argv[3],"w"))' \
+  "$T/parametres.json" "$ICI/../../tls/racines-api.pem" "$T/parametres-isrg.json"
+generer commande "$T/parametres-isrg.json" | grep '^:if' > "$T/racines-isrg.rsc"
+coller "$T/racines-isrg.rsc" > /dev/null
+for fp in 96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6 69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470; do
+  verifier "racine de production ${fp:0:16} importée et approuvée" "$(compter "/certificate find where fingerprint=\"$fp\" and trusted and name~\"^wakatnet racine \"")" "1"
+done
+verifier "aucun fichier de racine laissé" "$(compter '/file find where name~"^wakatnet-racine"')" "0"
 regles=$(compter '/ip firewall filter find where comment~"^wakatnet"')
 
 echo "== Étape 2 rejouée : idempotence ; un planificateur désactivé le reste"
@@ -168,6 +193,7 @@ verifier "CoA rétabli" "$(ros ':put [/radius incoming get accept]' | tail -1)" 
 for o in '/ip firewall filter' '/radius' '/system scheduler' '/ip hotspot walled-garden' '/ip hotspot walled-garden ip' '/ip address' '/ip route' '/interface wireguard peers'; do
   verifier "plus d'objet wakatnet : $o" "$(compter "$o find where comment~\"^wakatnet\"")" "0"
 done
+verifier "racine retirée" "$(compter '/certificate find where name~"^wakatnet racine "')" "0"
 verifier "plus d'interface wg-wakatnet" "$(compter '/interface wireguard find where name="wg-wakatnet"')" "0"
 verifier "règles du propriétaire conservées" "$(compter '/ip firewall filter find where comment="regle du proprietaire"')" "3"
 verifier "utilisateur local conservé" "$(compter '/ip hotspot user find where name="client-local"')" "1"

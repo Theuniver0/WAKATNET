@@ -14,7 +14,11 @@
 ## Décisions
 
 1. **RouterOS 7 : minimum 7.15.** Le script d'enrôlement refuse toute version inférieure, avec un message clair et la procédure de mise à jour.
-   - Constat du banc CHR (14/11/2026) : le magasin de racines intégré (`builtin-trust-anchors`) n'existe qu'à partir de la 7.19. De 7.15 à 7.18, la vérification du certificat de l'API échoue sans racine importée. Décision en attente (Yacouba) : relever le minimum à 7.19, ou fournir la racine dans la commande d'enrôlement (`docs/AUDIT_SCRIPTS_ROUTEROS.md`).
+   - Constat du banc CHR (14/11/2026) : le magasin de racines intégré (`builtin-trust-anchors`) n'existe qu'à partir de la 7.19. De 7.15 à 7.18, la vérification du certificat de l'API échoue sans racine importée. **Décision de Yacouba (14/11/2026)** : la racine est fournie dans la commande d'enrôlement, et le minimum reste 7.15. La commande importe ISRG Root X1 et X2 si leur empreinte est absente (`infra/tls/`, `WAKATNET_RACINES_TLS`), sous le nom `wakatnet racine N` ; la désinstallation les retire. Effet de bord accepté : le routeur fait confiance à deux racines de plus, pour tous ses services. Écarts et limites (relecture du 14/11/2026) :
+     - marquage par le **nom** (`wakatnet racine <début de l'empreinte>`), et non par un commentaire : un certificat RouterOS n'en a pas (écart au §6.2, exigences 2 et 5, consigné dans la SPEC) ;
+     - une racine déjà présente n'est ni importée ni retirée ; présente mais non approuvée, elle est signalée et laissée telle quelle ;
+     - en 7.19 et plus, les ancres intégrées n'apparaissent pas dans `/certificate find` (non vérifié) : la commande y importe peut-être X1 et X2 en double. C'est sans danger, et l'effet est le même sur toutes les versions ;
+     - la désinstallation les retire : un service du propriétaire qui s'en servait entre-temps doit les réimporter (message affiché).
 2. **RouterOS 6 : accepté, en phase 2b**, c'est-à-dire après la preuve complète du chemin v7 (phase 2) et **avant l'enrôlement des propriétaires pilotes tiers**. Le pilote sur les sites de Telecom Universel se fait en v7.
    - Versions : **6.49.x long-term uniquement**. Minimum 6.49.18 si LABO-00 confirme qu'elle porte le Message-Authenticator ; sinon, la version minimale est décidée par un ADR à partir des résultats du labo.
    - **Un seul type de tunnel** pour la v6 : L2TP/IPsec ou SSTP, choisi par le labo (tenue derrière le CGNAT Starlink et 4G, coût CPU sur MIPS). Deux tunnels, vers les nœuds A et B, comme en v7.

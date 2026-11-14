@@ -141,15 +141,36 @@ test("désinstallation : profils rétablis à leurs valeurs d'origine, puis retr
   assert.match(profils[0], /use-radius=no radius-accounting=yes radius-interim-update=received/);
   assert.ok(l.includes("/radius incoming set accept=no"));
   const retraits = l.filter((x) => / remove /.test(x));
-  for (const r of retraits) assert.match(r, /find where (comment~"\^wakatnet"|name="wg-wakatnet" comment~"\^wakatnet"|name~"\^wakatnet-")/, r);
+  for (const r of retraits) assert.match(r, /find where (comment~"\^wakatnet"|name="wg-wakatnet" comment~"\^wakatnet"|name~"\^wakatnet-"|name~"\^wakatnet racine ")/, r);
+  assert.ok(l.includes('/certificate remove [find where name~"^wakatnet racine "]'), "racines importées par la commande retirées");
   const ordre = (motif: string) => l.findIndex((x) => x.includes(motif));
   assert.ok(ordre("/ip hotspot profile set") < ordre("/radius remove"));
   assert.ok(ordre("/radius remove") < ordre("/interface wireguard remove"));
 });
 
-test("commande à coller : deux lignes, URL échappée, vérification du certificat", () => {
+test("commande à coller sans racines : deux lignes, URL échappée, vérification du certificat", () => {
   assert.equal(commande("https://api.x", "a".repeat(43)),
     `/tool fetch url="https://api.x/enroll/${"a".repeat(43)}" check-certificate=yes dst-path="wakatnet-enroll.rsc"\n/import file-name="wakatnet-enroll.rsc"`);
+});
+
+test("commande avec racines TLS (ADR 0003) : importées avant le téléchargement, seulement si absentes ; valeurs contrôlées", () => {
+  const pem = "-----BEGIN CERTIFICATE-----\nQUJD\nREVG\n-----END CERTIFICATE-----\n";
+  const e = "a".repeat(64);
+  const l = commande("https://api.x", "a".repeat(43), [{ pem, empreinte: e }, { pem, empreinte: "b".repeat(64) }]).split("\n");
+  assert.equal(l.length, 4);
+  for (const x of l) chaines(x);
+  assert.ok(l[0].startsWith(`:if ([:len [/certificate find where fingerprint="${e}"]] = 0) do={ /file add name="wakatnet-racine-${"a".repeat(16)}.pem" contents="-----BEGIN CERTIFICATE-----\\nQUJD\\nREVG\\n-----END CERTIFICATE-----\\n"; `), l[0]);
+  assert.match(l[0], /:while \(\(\[:len \[\/file find where name="wakatnet-racine-a{16}\.pem"\]\] = 0\) && \(\$n < 30\)\) do=\{ :delay 1s;/, "attente bornée du fichier (7.15), pas un délai fixe");
+  assert.match(l[0], /\/certificate import file-name="wakatnet-racine-a{16}\.pem" passphrase="" name="wakatnet racine a{16}"; \/certificate set \[\/certificate find where fingerprint="a{64}"\] trusted=yes \} on-error=\{ :put "WAKATNET : la racine/);
+  assert.match(l[0], /else=\{ :if \(\[:len \[\/certificate find where fingerprint="a{64}" && !trusted\]\] > 0\) do=\{ :put "WAKATNET : un certificat racine/,
+               "copie présente mais non approuvée : signalée, jamais modifiée (objet du propriétaire)");
+  assert.ok(!/else=\{[^]*trusted=yes/.test(l[0]), "jamais de « trusted=yes » sur un certificat que nous n'avons pas importé");
+  assert.match(l[1], /name="wakatnet racine b{16}"/, "un nom par racine, tiré de son empreinte");
+  assert.match(l[2], /^\/tool fetch url="https:\/\/api\.x\/enroll\/a{43}" check-certificate=yes /, "téléchargement après les racines");
+  for (const mauvais of [{ pem, empreinte: 'a"; /system reset-configuration; "' }, { pem: pem.replace("QUJD", 'QU"JD'), empreinte: e },
+                         { pem: pem.replace("QUJD", "QU$JD"), empreinte: e }, { pem: "pas un pem", empreinte: e }]) {
+    assert.throws(() => commande("https://api.x", "a".repeat(43), [mauvais]), ValeurInterdite);
+  }
 });
 
 test("valeurs serveur invalides : refus de générer", () => {

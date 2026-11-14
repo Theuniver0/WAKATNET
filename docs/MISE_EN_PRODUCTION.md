@@ -32,6 +32,20 @@ Les deux clés vont dans `/etc/wakatnet/api.env` (lu par `wakatnet-api` et `waka
 
 **IP dédiée du portail** (SPEC §7.1, walled garden) : `WAKATNET_PORTAIL_IPS=<IPv4 publique du portail>` dans `/etc/wakatnet/api.env`, sur les deux nœuds ; plusieurs IP se séparent par des virgules (celle de A et celle de B si chacune sert le portail). Elle est inscrite dans le walled garden de chaque routeur à l'enrôlement (HTTPS par IP). Sans elle, un client non connecté n'atteint pas le portail et ne peut rien acheter : en production, l'API **refuse de démarrer** sans elle. Un changement d'IP impose de réenrôler les routeurs, ou d'attendre l'étape 3 d'entretien.
 
+**Racines TLS de l'API** (ADR 0003, `infra/tls/README.md`) : `WAKATNET_RACINES_TLS=/opt/wakatnet/infra/tls/racines-api.pem` dans `/etc/wakatnet/api.env`. Le fichier est public et livré avec le code ; l'API le lit avec son utilisateur dynamique, ce qu'elle ne pourrait pas faire sous `/etc/wakatnet` (0750, root). La commande d'enrôlement importe ces racines sur les routeurs RouterOS 7.15 à 7.18, qui n'ont pas de magasin intégré. En production, l'API **refuse de démarrer** sans elles. Avant le premier enrôlement réel :
+- comparer les empreintes à celles de letsencrypt.org (`infra/tls/README.md`) ;
+- vérifier que la chaîne **réellement servie** par nginx remonte à l'une de ces racines, contre-signature comprise. Sinon, un routeur 7.15 à 7.18 ne peut pas construire le chemin, et tous les enrôlements échouent :
+
+  ```bash
+  openssl s_client -connect api.DOMAINE:443 -servername api.DOMAINE -showcerts </dev/null 2>/dev/null | awk '/BEGIN CERT/,/END CERT/' > /tmp/chaine.pem
+  ```
+
+  ```bash
+  openssl verify -no-CApath -no-CAstore -CAfile /opt/wakatnet/infra/tls/racines-api.pem -untrusted /tmp/chaine.pem /tmp/chaine.pem
+  ```
+
+  Attendu : `OK`. Si la vérification échoue, la `fullchain` de certbot ne contient pas le certificat de contre-signature : choisir la chaîne avec `--preferred-chain`, ou ajouter la racine de la chaîne servie à `racines-api.pem`.
+
 ### Clés B2
 
 Depuis le poste de Yacouba seulement, avec l'outil `b2` (v4) autorisé par la clé maîtresse (`b2 account authorize`, qui la lit au clavier). La clé maîtresse ne va **jamais** sur un nœud ni sur la machine de contrôle. `NOM_DU_BUCKET` est le nom réel du bucket (`pgbackrest_s3_bucket`).

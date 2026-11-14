@@ -24,7 +24,9 @@
 1. Sur la ligne du site, cliquer **Raccorder un routeur**. Une commande s'affiche.
    - Elle est **valable 30 minutes** et ne sert **qu'une fois**.
    - Ne la partagez pas : elle permet d'enrôler un routeur sur votre compte.
-2. Ouvrir le **Terminal** du routeur (Winbox : *New Terminal*), coller la commande, puis Entrée.
+2. Ouvrir le **Terminal** du routeur (Winbox : *New Terminal*), coller **toute** la commande (quatre lignes), puis Entrée.
+   - Les deux premières lignes installent, s'ils ne sont pas déjà dans la liste des certificats du routeur, les deux certificats racines qui permettent de vérifier WAKATNET (`wakatnet racine …`, retirés à la désinstallation). RouterOS n'a pas de magasin de racines intégré avant la 7.19.
+   - Si le terminal affiche « présent mais non approuvé », un certificat racine identique existe déjà sans être approuvé : approuvez-le (`trusted=yes`) ou retirez-le, puis recollez la commande.
 3. Le routeur :
    - télécharge son script de raccordement (certificat vérifié) ;
    - crée son tunnel WireGuard vers les deux nœuds de WAKATNET ;

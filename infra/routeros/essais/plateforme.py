@@ -2,6 +2,7 @@
 """WAKATNET — banc CHR : plateforme minimale en HTTPS, jouée par l'hôte (le CHR la joint en 10.0.2.2).
 
 Elle sert ce que l'API servirait, avec les scripts du VRAI générateur (generer.ts), sans base ni tunnel réel :
+  GET  /enroll/<jeton>      réponse = étape 1 (ce que télécharge la commande collée par le propriétaire)
   POST /enroll/<jeton>      corps = inventaire JSON de l'étape 1 ; réponse = étape 2 (une fois par jeton, comme l'API)
   GET  /entretien/<jeton>   réponse = entretien (étape 3), regénéré à chaque appel depuis parametres.json
 Tout ce que le routeur envoie est gardé dans <dossier>/recu-* pour les contrôles du banc.
@@ -61,6 +62,8 @@ class Plateforme(BaseHTTPRequestHandler):
         return self.repondre(200, generer("etape2", os.path.join(DOSSIER, "recu-etape1.json")))
 
     def do_GET(self):
+        if self.path.startswith("/enroll/"):
+            return self.repondre(200, generer("etape1"))
         if self.path.startswith("/entretien/"):
             with open(os.path.join(DOSSIER, "recu-entretien"), "a") as f:
                 f.write(self.path + "\n")
