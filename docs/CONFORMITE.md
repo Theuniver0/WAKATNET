@@ -2,6 +2,8 @@
 
 > **Date de création : 10/11/2026.** Livrable du §15 item 12 du SPEC ; références : §1.4, §3 (D1), §8.3, §10.1, §12 (porte G-ARGENT).
 > **Ce document n'est pas un avis juridique, fiscal ni comptable.** Il rassemble ce qu'un ingénieur a pu constater, avec le statut de chaque constat, et les cases que Yacouba doit faire remplir par un juriste, un comptable et les prestataires.
+> Dossiers prêts à envoyer pour remplir ce gabarit : `docs/courriels/2026-11-14-LISEZMOI.md`.
+>
 > **Tout est [À CONFIRMER]** tant qu'une pièce écrite (contrat, avis signé, récépissé, extrait officiel) n'est pas référencée dans la case correspondante.
 
 ---
@@ -20,6 +22,15 @@ Contrôle technique attendu : le drapeau qui active `settlement_mode = B` en pro
 
 ---
 
+## 1 bis. Mode A : pièces exigées aussi par G-ARGENT
+
+Le mode A est celui du lancement : il n'est pas verrouillé par un drapeau, mais G-ARGENT exige ces pièces avant le premier franc réel (relecture des dossiers du 14/11/2026, `docs/courriels/2026-11-14-LISEZMOI.md`).
+
+| Pièce | Référence du document | Date | Signataire / auteur | Réserves | Statut |
+|---|---|---|---|---|---|
+| Avis juridique sur le mode A (crédits prépayés, clés API du propriétaire, commission) | | | | | [À CONFIRMER] |
+| Statut de Telecom Universel : forme juridique, RCCM, IFU, régime fiscal, objet social | | | | | [À CONFIRMER] |
+
 ## 2. Verrou du mode B et du mode C
 
 | Pièce | Mode | Référence du document | Date | Signataire / auteur | Portée exacte (opérateurs, pays, plafonds) | Réserves | Statut |
@@ -28,6 +39,8 @@ Contrôle technique attendu : le drapeau qui active `settlement_mode = B` en pro
 | Avis juridique sur le mode B | B | | | | | | [À CONFIRMER] |
 | Accord écrit de l'agrégateur | C | | | | | | [À CONFIRMER] |
 | Avis juridique sur le mode C | C | | | | | | [À CONFIRMER] |
+
+**Drapeau `mode_b_autorise`** (migration 0025) : c'est un booléen posé à la main par l'administrateur de la base, sans lien technique avec ce tableau. Règle : ne le poser qu'après avoir rempli les deux lignes du mode B ci-dessus, et consigner dans `docs/JOURNAL.md` la référence des deux pièces le jour où il est posé.
 
 Questions à poser au juriste pour l'avis sur le mode B [À CONFIRMER] :
 

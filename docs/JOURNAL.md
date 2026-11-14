@@ -1416,3 +1416,12 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Preuves** : `chr.sh` 47/47 en 7.15.3 et 7.19.4 (dont import des vraies racines ISRG X1 et X2) ; suite API : voir le message de commit. Relecture par un second agent : `.gitignore` excluait les `.pem` (racines jamais déployées, tests cassés sur un clone propre), corrigé ; attente bornée du fichier, copie non approuvée signalée, doublons refusés, un nom par racine.
 - **Reste à prouver sur un vrai routeur** : chaîne publique (contre-signature), collage d'une ligne de 3,1 Ko dans Winbox.
 
+## 14/11/2026 — G-ARGENT : dossiers de conformité ; bac à sable pawaPay bloqué
+
+- **Demande** : « on continue — pour G-ARGENT ». Yacouba autorise le jeton pawaPay et laisse le choix des dossiers.
+- **Fait** :
+  - dossiers prêts à envoyer (`docs/courriels/2026-11-14-*`) : avocat (31 questions), CIL (projet de formalité T1–T10, 11 questions, mention du portail), comptable (20 questions), agrégateurs pawaPay et CinetPay ; index `2026-11-14-LISEZMOI.md`. Chaque question renvoie à sa case de `CONFORMITE.md` ; rien d'inventé : le reste est [À CONFIRMER] ;
+  - `CONFORMITE.md` : cases du mode A ajoutées (avis juridique, statut de Telecom Universel), règle écrite pour le drapeau `mode_b_autorise` (booléen manuel, vérifié dans la migration 0025) ; courriels du 10/11 marqués jamais envoyés.
+- **Bloqué** : bac à sable pawaPay. L'API répond 401 « API token not found » malgré le secret de l'environnement, ressaisi par le formulaire sécurisé, avec ou sans en-tête du client, après le délai de prise en compte. À vérifier par Yacouba dans les réglages de l'environnement (une seule règle pour l'hôte, `Authorization`, préfixe `Bearer`, jeton du tableau de bord sandbox seul).
+- **Incohérences notées, non corrigées** (décision ou relecture à faire) : mode C « R&D » (SPEC D1) contre « cible prioritaire » (ADR 0001) ; registre §7 en retard sur §7 bis (durées, Hetzner, destinataires de T6) ; liste BCEAO au 31/08/2026 (SPEC §1.4) non attestée au-delà du 28/02/2026.
+
