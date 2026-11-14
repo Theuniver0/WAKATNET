@@ -59,18 +59,21 @@ Une ligne par prestataire contacté (voir `docs/QUESTIONS_AGREGATEURS.md` et `do
 
 | Prestataire | Entité contractante | Contrat signé (réf., date) | Modes autorisés par écrit (A / B / C) | Encaissement pour compte de tiers autorisé ? | Grille tarifaire écrite (réf.) | Clauses de blocage des fonds | Préavis de hausse | Statut |
 |---|---|---|---|---|---|---|---|---|
-| pawaPay / Kerry Payments Burkina | | | | | | | | [À CONFIRMER] |
-| CinetPay | | | | | | | | [À CONFIRMER] |
+| **MoneyFusion** (agrégateur réel unique, ADR 0024) | Entité à Abidjan (Côte d'Ivoire) ; entité contractante et entité au Burkina : à obtenir | | | | | | | [À CONFIRMER] |
+| pawaPay / Kerry Payments Burkina | | | | | | | | Retiré le 14/11/2026 (ADR 0024) |
+| CinetPay | | | | | | | | Retiré le 14/11/2026 (ADR 0024) |
 | YengaPay / Kreezus | | | | | | | | [À CONFIRMER] |
 | LigdiCash | | | | | | | | [À CONFIRMER] |
 | InTouch Burkina | | | | | | | | [À CONFIRMER] |
 | FedaPay | | | | | | | | [À CONFIRMER] |
 | Wave (recharge des crédits) | | | | | | | | [À CONFIRMER] |
 
+MoneyFusion : le contrat marchand n'est pas connu. Il doit couvrir le cas où **chaque propriétaire a son propre compte** et où la plateforme appelle l'API pour lui (ADR 0024). Courriel : `docs/courriels/2026-11-14-agregateurs.md`.
+
 Points relevés dans les conditions publiques, à faire confirmer (tous **non vérifiés** : vus en extrait de moteur de recherche, pages non chargées) :
 
-- pawaPay : interdiction de créer un compte pour un tiers ou en son nom ; annexe « sous-marchands » soumise à l'approbation de sa conformité.
-- CinetPay : offre « marque blanche » permettant à un partenaire d'agréger des marchands ; compte réservé à une entreprise établie dans le pays d'encaissement ; « un compte = un pays » (ce dernier point est écrit dans le README du SDK PHP officiel, lu directement).
+- pawaPay (historique, retiré le 14/11/2026, ADR 0024) : interdiction de créer un compte pour un tiers ou en son nom ; annexe « sous-marchands » soumise à l'approbation de sa conformité.
+- CinetPay (historique, retiré le 14/11/2026, ADR 0024) : offre « marque blanche » permettant à un partenaire d'agréger des marchands ; compte réservé à une entreprise établie dans le pays d'encaissement ; « un compte = un pays » (ce dernier point est écrit dans le README du SDK PHP officiel, lu directement).
 - PayDunya : cession du compte interdite sans accord écrit ; blocage des fonds jusqu'à 120 jours en cas de fraude.
 - Flutterwave : « Payment Facilitators (unless Registered & Licensed) » soumis à pré-approbation.
 - Wave : « Aggregated Merchants » réservé à certaines entreprises, sous contrat.
@@ -89,9 +92,10 @@ Une absence d'une liste d'**établissements de paiement** ne prouve rien : la li
 
 | Prestataire | Entité | Constat | Source vue | Statut | Vérifié par Yacouba (date, lien, capture) |
 |---|---|---|---|---|---|
+| **MoneyFusion** (agrégateur réel unique, ADR 0024) | Entité à Abidjan (Côte d'Ivoire) | Le site se dit « Partenaire reconnu par plusieurs institutions agréées BCEAO ». Agrément propre non trouvé : elle ne se dit pas elle-même établissement de paiement agréé. Entité et régime au Burkina inconnus | Site moneyfusion.net/about, lu le 14/11/2026 | non vérifié | [À CONFIRMER] par écrit de MoneyFusion |
 | InTouch | INTOUCH Burkina (SARL) | EP **EP.BF.001/2025**, sur les listes au 15/09/2025 et au 28/02/2026. La date « 9 mai 2025 » ne vient que de la presse, contredite par d'autres dates | Extraits des PDF BCEAO ; presse | partiel (numéro) ; non vérifiable (date) | [À CONFIRMER] |
-| pawaPay | KERRY Payments Burkina (SA) | EP **EP.BF.002/2025**, sur la liste au 28/02/2026, absente de celle du 15/09/2025. La page « Local Partners » de pawaPay la présente comme son entité locale | Extrait du PDF BCEAO ; extrait du site pawaPay | partiel | [À CONFIRMER] |
-| CinetPay | CINETPAY AFRICA | EP **EP.CI.007/2025** (Côte d'Ivoire), du 29/08/25, liste au 28/02/2026. Absent des EP du Burkina. Régime d'exercice au Burkina inconnu | Extrait du PDF BCEAO | partiel | [À CONFIRMER] |
+| pawaPay (retiré le 14/11/2026, ADR 0024) | KERRY Payments Burkina (SA) | EP **EP.BF.002/2025**, sur la liste au 28/02/2026, absente de celle du 15/09/2025. La page « Local Partners » de pawaPay la présente comme son entité locale | Extrait du PDF BCEAO ; extrait du site pawaPay | partiel | [À CONFIRMER] |
+| CinetPay (retiré le 14/11/2026, ADR 0024) | CINETPAY AFRICA | EP **EP.CI.007/2025** (Côte d'Ivoire), du 29/08/25, liste au 28/02/2026. Absent des EP du Burkina. Régime d'exercice au Burkina inconnu | Extrait du PDF BCEAO | partiel | [À CONFIRMER] |
 | PayDunya | DUNYA Digital Payment Côte d'Ivoire / Sénégal | **EP.CI.008/2025** (29/08/25) et **EP.SN.001/2025** (06/05/25), liste au 28/02/2026. Le lien entre « Dunya Digital Payment » et la marque PayDunya n'est sourcé nulle part | Extrait du PDF BCEAO | partiel (numéros) ; non vérifié (lien de marque) | [À CONFIRMER] |
 | FedaPay | FEDAPAY (SA) | **EP.BN.004/2026** (Bénin) : vu sur la liste BCEAO Bénin 2026 (extrait) et sur le site FedaPay. Absent de la liste au 28/02/2026. Le site FedaPay se décrit tantôt « Établissement de Paiement », tantôt « agrégateur de paiement ». Date du 02/04/2026 : presse seulement. Rien au Burkina | Extraits ; presse | partiel | [À CONFIRMER] |
 | KkiaPay | OPEN SI | **EP.BN.002/2025** (Bénin), du 04/09/25, liste au 28/02/2026. Le lien entre Open SI et KkiaPay n'est sourcé nulle part | Extrait du PDF BCEAO | partiel (numéro) ; non vérifié (lien) | [À CONFIRMER] |
@@ -137,7 +141,7 @@ Aucune source sur la CIL n'a été consultée dans cette session : **rien ci-des
 | Formalité préalable exigée (déclaration, demande d'avis, autorisation) pour chaque traitement du §7 | | | [À CONFIRMER] |
 | Récépissé ou numéro de la formalité | | | [À CONFIRMER] |
 | Transfert de données hors du Burkina : les 2 VPS (D6) sont-ils hébergés hors du pays ? Conditions d'un transfert vers ce pays | | | [À CONFIRMER] |
-| Données échangées avec les agrégateurs (numéro du payeur) : accord de traitement, pays d'hébergement | | | [À CONFIRMER] |
+| Données échangées avec MoneyFusion, l'agrégateur (numéro du payeur) : accord de traitement, pays d'hébergement | | | [À CONFIRMER] |
 | Information des personnes : mentions à afficher sur le portail captif (texte court, compatible §7.1) | | | [À CONFIRMER] |
 | Droits des personnes (accès, rectification, opposition, effacement) : procédure et délai de réponse | | | [À CONFIRMER] |
 | Notification des violations de données : à qui, dans quel délai | | | [À CONFIRMER] |
@@ -152,7 +156,7 @@ Collecte minimale (§10.1 du SPEC) : la plateforme ne demande ni nom, ni inscrip
 | # | Traitement | Données | Personnes concernées | Finalité | Base légale proposée | Durée de conservation proposée | Destinataires | Lieu d'hébergement | Mesures de sécurité | Statut |
 |---|---|---|---|---|---|---|---|---|---|---|
 | T1 | Authentification sur le hotspot | **Adresse MAC** du client (`Calling-Station-Id`), IP attribuée, identifiant du routeur, code du ticket | Clients finaux | Ouvrir l'accès acheté, lier un ticket à un appareil (`Port-Limit`), limiter les abus | Exécution du contrat de vente du forfait [À CONFIRMER] | Durée de validité du ticket + [N] jours ; journal `auth_log` : [N] jours | Propriétaire du site ; Telecom Universel (exploitation) | VPS A et B ([pays À CONFIRMER]) | Cloisonnement par `tenant_id` et RLS ; accès restreint ; chiffrement des sauvegardes | [À CONFIRMER] |
-| T2 | Paiement d'un forfait | **Numéro du payeur**, opérateur, montant, référence et statut du paiement, corps brut des webhooks (`payment_event`) | Clients finaux | Encaisser, délivrer le ticket, récupérer un ticket après fermeture de la page (§7.2), traiter les litiges et remboursements, rapprochement | Exécution du contrat ; obligations comptables pour les pièces de paiement [À CONFIRMER] | Données de paiement : durée d'archivage comptable [À CONFIRMER avec le comptable] ; numéro du payeur dans les données opérationnelles : [N] mois, puis pseudonymisé | Agrégateur concerné ; propriétaire ; Telecom Universel | VPS A et B ; agrégateur ([pays À CONFIRMER]) | Webhooks vérifiés ; corps bruts en accès restreint ; aucune donnée de paiement dans les logs applicatifs | [À CONFIRMER] |
+| T2 | Paiement d'un forfait | **Numéro du payeur**, opérateur, montant, référence et statut du paiement, corps brut des webhooks (`payment_event`) | Clients finaux | Encaisser, délivrer le ticket, récupérer un ticket après fermeture de la page (§7.2), traiter les litiges et remboursements, rapprochement | Exécution du contrat ; obligations comptables pour les pièces de paiement [À CONFIRMER] | Données de paiement : durée d'archivage comptable [À CONFIRMER avec le comptable] ; numéro du payeur dans les données opérationnelles : [N] mois, puis pseudonymisé | MoneyFusion (ADR 0024) ; propriétaire ; Telecom Universel | VPS A et B ; MoneyFusion (Côte d'Ivoire, [À CONFIRMER]) | Webhooks vérifiés ; corps bruts en accès restreint ; aucune donnée de paiement dans les logs applicatifs | [À CONFIRMER] |
 | T3 | Sessions et comptabilité d'usage (accounting) | Début, fin, durée, octets entrants et sortants, cause de fin, MAC, IP, routeur | Clients finaux | Appliquer les limites du forfait, statistiques du propriétaire, supervision, litiges | Exécution du contrat ; intérêt légitime pour la supervision [À CONFIRMER] ; obligation légale éventuelle (§6) | Table `session` partitionnée par mois : [N] mois, puis agrégats anonymes | Propriétaire ; Telecom Universel ; autorités sur réquisition [À CONFIRMER] | VPS A et B | Partitions supprimées à échéance ; accès par rôle | [À CONFIRMER] |
 | T4 | Comptes des propriétaires, gérants et vendeurs | Identité, téléphone, courriel, rôle, point de vente, journal des connexions, 2FA | Propriétaires, gérants, vendeurs | Gestion du compte et des droits, sécurité, support | Exécution du contrat de service WAKATNET | Durée du contrat + [N] ans [À CONFIRMER] | Telecom Universel ; **Brevo** (sous-traitant d'envoi : adresse e-mail et texte du message de confirmation, ADR 0019) | VPS A et B ; Brevo (France, Allemagne) | 2FA du super-admin ; mots de passe hachés ; audit | [À CONFIRMER] |
 | T5 | Connaissance du propriétaire et facturation | Raison sociale, RCCM, IFU, coordonnées de paiement, factures de commission, recharges de crédits | Propriétaires | Facturer la commission, obligations fiscales et comptables, lutte contre la fraude | Obligation légale ; exécution du contrat [À CONFIRMER] | Durée légale de conservation des pièces comptables [À CONFIRMER avec le comptable] | Telecom Universel ; comptable ; administration fiscale | VPS A et B | Accès restreint | [À CONFIRMER] |
@@ -191,7 +195,7 @@ Ce que fait la plateforme aujourd'hui. Le juriste et la CIL valident ou font cha
 |---|---|---|
 | Sessions RADIUS fermées (T3) : MAC, IP | **12 mois** après le début de la session | la ligne, ses durées et ses octets : le décompte d'un ticket (un forfait limité en temps d'usage n'a pas de date de fin) ; les sessions vivantes ne sont jamais touchées |
 | Accounting en quarantaine et anomalies (T3) : données brutes, MAC comprise | **12 mois**, puis supprimées | rien |
-| Corps bruts des webhooks (T2, `payment_event`) : avec pawaPay, le numéro du payeur en clair | **6 mois**, puis vidés (comme le numéro du payeur) | l'identifiant d'événement (dédoublonnage), la date et le paiement ; F4 est ainsi fermé |
+| Corps bruts des webhooks (T2, `payment_event`) : avec l'ancien adaptateur pawaPay (retiré le 14/11/2026, ADR 0024), le numéro du payeur en clair | **6 mois**, puis vidés (comme le numéro du payeur) | l'identifiant d'événement (dédoublonnage), la date et le paiement ; F4 est ainsi fermé |
 | Journal d'audit (T7) | **5 ans**, puis supprimé | rien. À noter : le registre propose « durée comptable » (10 ans) pour le grand livre (T8), qui n'est pas purgé ; le journal d'audit reste plus court |
 
 Point à confirmer avec le juriste : si la loi impose de conserver les **données de connexion** plus de 12 mois (obligation d'un fournisseur d'accès public, §6), allonger la durée des sessions dans la migration suivante. Un raccourcissement se fait de même.
@@ -225,7 +229,7 @@ Aucune source ARCEP n'a été consultée dans cette session : **rien ci-dessous 
 | TVA applicable à la commission de la plateforme ; à la vente de crédits prépayés (mode A) : exigible à la recharge ou à la consommation ? | | | [À CONFIRMER] |
 | Imputation SYSCOHADA : produit de commission, crédits prépayés non consommés (dette envers le propriétaire, produit constaté d'avance ?), frais d'agrégateur | | | [À CONFIRMER] |
 | Mode B : imputation de la dette envers les propriétaires et du compte de compensation chez l'agrégateur | | | [À CONFIRMER] |
-| Frais d'agrégateur hors taxes (CinetPay, pawaPay annoncent des frais HT) : TVA récupérable ? | | | [À CONFIRMER] |
+| Frais d'agrégateur hors taxes (CinetPay et pawaPay annonçaient des frais HT ; retirés le 14/11/2026, ADR 0024 ; MoneyFusion : à confirmer) : TVA récupérable ? | | | [À CONFIRMER] |
 | Retenue à la source ou autre prélèvement sur des paiements à des prestataires étrangers (agrégateurs établis hors du Burkina) | | | [À CONFIRMER] |
 | Durée légale de conservation des pièces comptables (alimente T2, T5, T8 du §7) | | | [À CONFIRMER] |
 | Le relevé par propriétaire (§8.5) peut-il servir de pièce justificative pour sa propre comptabilité ? | | | [À CONFIRMER] |

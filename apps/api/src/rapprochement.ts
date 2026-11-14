@@ -56,7 +56,7 @@ const JOUR_MS = 86_400_000;
 /** Délai maximal entre l'encaissement et notre confirmation (vérification périodique pendant 24 h, ADR 0013). */
 const RETARD_MAX_MS = JOUR_MS;
 /** Audit 3 : les débits hors paiement (frais) portés par la référence d'un dépôt ne dépassent pas 10 % de son montant.
- *  Les frais de pawaPay d'un dépôt (« pass through » et « PawaPay fees ») sont de quelques pour cent ; un remboursement,
+ *  Les frais d'un paiement chez l'agrégateur sont de quelques pour cent ; un remboursement,
  *  ou tout débit du montant entier, déclaré à tort dans --hors-paiement dépasse ce seuil. En pour cent, entier (A1). */
 export const SEUIL_HORS_PAIEMENT_PCT = 10n;
 
@@ -471,7 +471,7 @@ export function lireArguments(args: string[]): Arguments {
   const col: Colonnes = { reference: une("col-reference", "reference"), montant: une("col-montant", "montant"),
     date: une("col-date", "date"), statut: une("col-statut", "statut"),
     reussi: une("reussi").split(","),
-    // Facultatifs : un journal de portefeuille (pawaPay) n'a aucune ligne d'échec, mais des frais et des retraits.
+    // Facultatifs : un journal de portefeuille n'a aucune ligne d'échec, mais des frais et des retraits.
     echec: v.has("echec") ? une("echec").split(",") : [],
     hors: v.has("hors-paiement") ? une("hors-paiement").split(",") : [],
     ...(v.has("hors-sans-reference") ? { horsSansReference: une("hors-sans-reference").split(",") } : {}),
@@ -489,8 +489,8 @@ if (process.argv[1] && lanceDirectement()) {
   //     --releve-du 2026-11-19T00:00:00Z --releve-au 2026-11-21T08:00:00Z \
   //     --col-reference reference --col-montant montant --col-date date --col-statut statut \
   //     --reussi SUCCESS --echec FAILED,CANCELLED
-  //   Relevé pawaPay (journal du portefeuille, sans échec) : --reussi Deposit, sans --echec, et
-  //     --hors-paiement "Deposit pass through fees,Deposit PawaPay fees,Withdrawal" (docs/PILOTE.md §4).
+  //   Relevé en journal de portefeuille (sans échec) : --reussi <type des paiements>, sans --echec, et
+  //     --hors-paiement "<frais>,<retraits>" (docs/PILOTE.md §4) ; le relevé de MoneyFusion est à lire (ADR 0024).
   //   Jour réellement sans mouvement (fichiers réduits à l'en-tête) : --releve-vide, noté en tête du rapport.
   // Base en LECTURE SEULE, rôle wk_rapprochement (migration 0038) : WAKATNET_RAPPROCHEMENT_DATABASE_URL, jamais en argument.
   // Sortie : rapport Markdown. Code : 0 écart nul, 1 écarts à instruire, 2 entrée invalide (relevé insuffisant ou vide,

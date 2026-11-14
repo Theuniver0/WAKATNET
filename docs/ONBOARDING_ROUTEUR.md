@@ -46,7 +46,12 @@
 ## 4. Forfaits et vente
 
 - **Forfaits** : nom, prix, durée de connexion, validité, débit, nombre d'appareils, puis **Créer le forfait**.
-- **Vente en ligne** : par le portail, dès que le compte marchand est enregistré. Ce réglage arrivera avec l'adaptateur de paiement réel ; voir `docs/PILOTE.md` §2.
+- **Vente en ligne** : par le portail, dès que le compte marchand est enregistré. Elle reste fermée tant que la porte G-ARGENT n'est pas franchie ; voir `docs/PILOTE.md` §2. L'agrégateur est MoneyFusion (ADR 0024). **Il n'y a pas de bac à sable : le premier paiement sera réel**, en petit montant. Chaque propriétaire a son propre compte et fait les étapes suivantes :
+  1. Ouvrir un compte **Money Fusion Enterprise**, puis créer une application dans « API de paiement ».
+  2. Déclarer dans l'application les **adresses IP publiques des nœuds A et B** de WAKATNET. Seules les IP enregistrées peuvent appeler l'API ; sans elles, la vente s'arrête (« IP non autorisée »). Le tableau de bord rappelle ces adresses. Si elles changent (bascule, changement d'hébergeur), les ajouter de nouveau.
+  3. Déclarer le **site du portail** : il doit être public, et la page de retour lui appartient. Le tableau de bord rappelle l'adresse à saisir.
+  4. Après la validation de l'application par MoneyFusion, copier le **lien API** généré. Il vaut clé : ne l'envoyer ni par courriel ni par message.
+  5. Le coller dans l'écran « compte marchand » du tableau de bord. Il n'est jamais réaffiché.
 - **Vente en espèces** :
   1. **Points de vente**, puis **Tickets papier** et **Générer les tickets** ;
   2. **Imprimer (PDF)**, 10 tickets par page A4 ;

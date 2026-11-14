@@ -147,7 +147,9 @@ export async function redirection(urlPortail: string, publicId: string): Promise
   return (await readFile(MODELE_REDIRECTION, "utf8")).replaceAll("__PORTAIL__", urlPortail).replaceAll("__SITE__", publicId);
 }
 
-export function routesPortail(app: FastifyInstance, base: Base, service: ServicePaiement | null, cleHmac: Buffer | null): void {
+/** `urlPortail` : origine publique du portail (page de retour après le paiement chez MoneyFusion, ADR 0024). */
+export function routesPortail(app: FastifyInstance, base: Base, service: ServicePaiement | null, cleHmac: Buffer | null,
+                              urlPortail: string | null = null): void {
   app.register(async (p) => {
     p.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string", bodyLimit: 4096 },
       (_req, corps, fait) => fait(null, Object.fromEntries(new URLSearchParams(corps as string))));
@@ -219,16 +221,13 @@ export function routesPortail(app: FastifyInstance, base: Base, service: Service
 
     // Formulaire de paiement (une clé de soumission par affichage : P9).
     function formulaire(id: string, c: Contexte, plan: { plan_id: bigint; nom: string; prix_xof: bigint }, erreur = ""): string {
-      const ussd = `*144*4*6*${plan.prix_xof}#`;
       return page("Paiement", `<h1>${esc(plan.nom)} — ${plan.prix_xof} F</h1>${erreur ? `<p class="erreur">${esc(erreur)}</p>` : ""}
 <form method="post" action="/p/${esc(id)}/payer">${champsCaches(c)}
 <input type="hidden" name="plan" value="${plan.plan_id}"><input type="hidden" name="soumission" value="${randomBytes(18).toString("base64url")}">
 <fieldset><label class="choix"><input type="radio" name="operateur" value="orange_bf" required style="width:auto"> Orange Money</label>
-<p class="petit">Composez d'abord <a href="tel:${esc(ussd.replace("#", "%23"))}"><b>${esc(ussd)}</b></a>, puis saisissez le code reçu.</p>
-<label class="choix"><input type="radio" name="operateur" value="moov_bf" style="width:auto"> Moov Money</label>
-<p class="petit">Vous validerez le paiement sur votre téléphone.</p></fieldset>
+<label class="choix"><input type="radio" name="operateur" value="moov_bf" style="width:auto"> Moov Money</label></fieldset>
 <label for="numero">Votre numéro</label><input id="numero" name="numero" inputmode="tel" maxlength="16" required>
-<label for="otp">Code reçu (Orange Money)</label><input id="otp" name="otp" inputmode="numeric" maxlength="8" autocomplete="one-time-code">
+<p class="petit">Vous validerez le paiement sur la page sécurisée de MoneyFusion, puis vous reviendrez ici chercher votre ticket.</p>
 <button class="btn" type="submit">Payer ${plan.prix_xof} F</button></form>
 <a class="btn sec" href="/p/${esc(id)}/forfaits${esc(suffixe(c))}">Retour</a>`);
     }
@@ -259,15 +258,13 @@ export function routesPortail(app: FastifyInstance, base: Base, service: Service
       if (!plan) return rep.redirect(`/p/${req.params.site}/forfaits${suffixe(c)}`, 303);
       if (service === null) return envoyer(rep, formulaire(req.params.site, c, plan, "Paiement momentanément indisponible."), 503);
       const op = b.operateur === "orange_bf" || b.operateur === "moov_bf" ? (b.operateur as Operateur) : null;
-      const otp = String(b.otp ?? "").trim();
       if (!op) return envoyer(rep, formulaire(req.params.site, c, plan, "Choisissez Orange Money ou Moov Money."), 422);
-      if (op === "orange_bf" && !/^[0-9]{4,8}$/.test(otp)) {
-        return envoyer(rep, formulaire(req.params.site, c, plan, "Saisissez le code reçu après avoir composé le code Orange Money."), 422);
-      }
       if (!SOUMISSION.test(String(b.soumission ?? ""))) return envoyer(rep, formulaire(req.params.site, c, plan, "Formulaire expiré : recommencez."), 422);
       const r = await service.creer({ sitePublic: req.params.site, planId: plan.plan_id, operateur: op, numero: String(b.numero ?? ""),
-                                      otp: op === "orange_bf" ? otp : undefined, jetonAppareil: empreinte(jetonAppareil(req, rep)),
-                                      soumission: String(b.soumission), source: cleSource(req.ip, cleHmac), ip: ipComparable(req.ip) });
+                                      jetonAppareil: empreinte(jetonAppareil(req, rep)),
+                                      soumission: String(b.soumission), source: cleSource(req.ip, cleHmac), ip: ipComparable(req.ip),
+                                      // Retour de la page MoneyFusion : le suivi de CET achat, contexte du hotspot compris.
+                                      ...(urlPortail ? { urlRetour: (ref: string) => `${urlPortail}/p/${req.params.site}/achat/${ref}${suffixe(c)}` } : {}) });
       if (r.statut === "numero_invalide") return envoyer(rep, formulaire(req.params.site, c, plan, "Numéro invalide : 8 chiffres."), 422);
       if (r.statut === "trop_de_demandes") {
         return envoyer(rep, formulaire(req.params.site, c, plan, "Trop de demandes pour ce numéro : patientez quelques minutes."), 429);
@@ -275,6 +272,8 @@ export function routesPortail(app: FastifyInstance, base: Base, service: Service
       if (r.statut !== "cree" && r.statut !== "deja") {
         return envoyer(rep, formulaire(req.params.site, c, plan, "L'achat en ligne est momentanément indisponible ici."), 409);
       }
+      // Flux redirect (MoneyFusion) : le client paie sur la page du fournisseur, dont l'adaptateur a contrôlé l'adresse.
+      if ("urlPaiement" in r && r.urlPaiement) return rep.redirect(r.urlPaiement, 303);
       const extra: Record<string, string> = "message" in r && r.message ? { m: r.message === "paiement refusé par l'opérateur" ? "refus" : "panne" } : {};
       return rep.redirect(`/p/${req.params.site}/achat/${r.reference}${suffixe(c, extra)}`, 303);
     });

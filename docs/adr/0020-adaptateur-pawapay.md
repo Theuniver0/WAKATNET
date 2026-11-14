@@ -1,6 +1,6 @@
 # ADR 0020 — Adaptateur réel : pawaPay, API v2 (D2, ticket 3.08, préparation de G-ARGENT)
 
-- **Statut** : décidé le 12/11/2026, par délégation de Yacouba (« tranche G-ARGENT : prépare l'adaptateur réel »). **G-ARGENT reste fermée** : la porte exige aussi `docs/CONFORMITE.md` rempli (contrat, avis juridique, autorisations), ce qui revient à Yacouba (SPEC §12).
+- **Statut** : **Remplacé par l'ADR 0024 le 14/11/2026** (adaptateur retiré du code). Historique ci-dessous. Décidé le 12/11/2026, par délégation de Yacouba (« tranche G-ARGENT : prépare l'adaptateur réel »). **G-ARGENT reste fermée** : la porte exige aussi `docs/CONFORMITE.md` rempli (contrat, avis juridique, autorisations), ce qui revient à Yacouba (SPEC §12).
 - **Références** : SPEC §7.2, §7.3, §12 (G-ARGENT), D2 ; `docs/PAYMENT_PROVIDERS.md` §1.3 et §2.1 ; ADR 0013 ; documentation officielle de pawaPay v2, lue le 12/11/2026 : `https://docs.pawapay.io/v2/` (initiate-deposit, check-deposit-status, deposit-callback, signatures, public-keys, providers, test_numbers, failure_codes, what_to_know, deposits, active-configuration).
 
 ## Pourquoi pawaPay

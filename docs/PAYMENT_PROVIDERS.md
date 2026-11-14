@@ -1,5 +1,7 @@
 # Prestataires de paiement Mobile Money — matrice de vérification (phase 0)
 
+> **Décision du 14/11/2026 (ADR 0024).** MoneyFusion est le seul agrégateur réel de WAKATNET. pawaPay et CinetPay sont retirés du code. Ce document garde l'étude du 10/11/2026 comme historique : ses classements (§1.3) et ses fiches pawaPay et CinetPay (§2.1, §2.2) ne décrivent plus l'état du projet. Voir la section « MoneyFusion » ci-dessous.
+
 > **Date : 10/11/2026.** Livrable du §12 (phase 0) et du §15 item 3 du SPEC.
 > Méthode : recherche documentaire, puis contre-vérification adverse par un second agent. **Quand le contre-vérificateur dit qu'une valeur n'est pas dans la source, c'est lui qui l'emporte** : la valeur est rétrogradée en « non vérifié ».
 > Règle 2 du §13 : comportement observé en labo > doc officielle de la version visée > journal des modifications > forums. Un blog tiers n'est qu'un **indice**, jamais une preuve.
@@ -114,11 +116,25 @@ Suivent, dans l'ordre :
 
 ---
 
+## 1 bis. MoneyFusion — seul agrégateur réel (ajouté le 14/11/2026, ADR 0024)
+
+Source unique : `docs/adr/0024-adaptateur-moneyfusion.md` (documentation officielle `docs.moneyfusion.net`, lue le 14/11/2026).
+
+- **Contrat technique.** Compte « Money Fusion Enterprise » ; une application dans « API de paiement » ; un **lien API** généré après validation, qui vaut clé. Seules les IP enregistrées peuvent appeler l'API. Le client paie sur une page hébergée par MoneyFusion (flux redirect, sans code OTP au portail).
+- **Burkina couvert.** La liste publique des retraits cite le Burkina Faso, XOF, `orange-money-burkina` et `moov-burkina-faso` (lue le 14/11/2026).
+- **Pas de bac à sable.** Le premier essai sera réel, en petits montants, après G-ARGENT.
+- **Webhook non signé.** Il ne sert que de déclencheur : seul le statut lu chez MoneyFusion fait foi. Le statut est lu sans authentification, par jeton.
+- **Montant au statut.** Brut ou net de `frais` : **[À CONFIRMER]**. La devise n'est pas rendue.
+- **Risque réglementaire.** Entité à Abidjan (Côte d'Ivoire). Son site dit « Partenaire reconnu par plusieurs institutions agréées BCEAO ». Elle ne se dit pas elle-même établissement de paiement agréé. Agrément, contrat et entité au Burkina : à obtenir par écrit (`docs/CONFORMITE.md` §3 et §4).
+- **Retraits.** Non branchés (mode B verrouillé).
+
+---
+
 ## 2. Matrices détaillées par prestataire
 
 Chaque ligne indique la valeur et son statut. Les sources sont listées en §8.
 
-### 2.1 pawaPay — entité locale Kerry Payments Burkina
+### 2.1 pawaPay — entité locale Kerry Payments Burkina (retiré le 14/11/2026, ADR 0024)
 
 | Critère | Valeur | Statut |
 |---|---|---|
@@ -139,7 +155,7 @@ Chaque ligne indique la valeur et son statut. Les sources sont listées en §8.
 | Agrément BCEAO | Page officielle « Local Partners » : Kerry Payments = entité locale de traitement, dont une au Burkina. Liste BCEAO au 28/02/2026 : **KERRY Payments Burkina EP.BF.002/2025**. PDF non ouvert, date d'agrément non lue | non vérifié (extraits) |
 | Délai de règlement | BF : T+5 (local) / T+7 (transfrontalier) selon un extrait, **contredit** par un autre extrait (T+6 / T+8) ; préfinancement T+2 / T+4 ; jours ouvrés | contradictoire, non vérifié |
 
-### 2.2 CinetPay
+### 2.2 CinetPay (retiré le 14/11/2026, ADR 0024)
 
 | Critère | Valeur | Statut |
 |---|---|---|

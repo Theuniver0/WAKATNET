@@ -11,7 +11,7 @@ const ID_WEBHOOK = /^[A-Za-z0-9_-]{24}$/;
 const ID_FOURNISSEUR = /^[a-z][a-z0-9_]{1,31}$/;
 
 /** Propriétaire : enregistre (ou remplace) ses clés ; elles ne sont JAMAIS rendues ensuite. */
-export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique: string }, base: Base,
+export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique: string; urlPortail?: string; noeuds?: { endpoint: string }[] }, base: Base,
                                      service: ServicePaiement | null): void {
   app.put<{ Body: { fournisseur?: unknown; cles?: unknown } }>("/v1/compte-marchand", async (req, rep) => {
     if (service === null) return rep.code(503).send({ erreur: "paiement non configuré (clés de chiffrement absentes)" });
@@ -25,7 +25,7 @@ export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique
       throw e;
     }
     const ouvert = () => rep.code(409).send({ erreur: "changement de compte marchand impossible tant que des paiements sont ouverts (24 h au plus)" });
-    // ADR 0020 : le compte est vérifié chez le fournisseur avant d'être enregistré (jeton, callbacks signés).
+    // Si l'adaptateur sait vérifier le compte chez le fournisseur (verifierCompte), il le fait avant l'enregistrement.
     // Audit du 13/11/2026 (migration 0037) : AVANT tout appel au fournisseur, le refus pour paiements ouverts (409),
     // puis la limite de 5 vérifications par heure et par propriétaire (sinon de faux jetons feraient appeler le
     // fournisseur en boucle). compte_marchand_enregistrer refait le contrôle des paiements sous verrou.
@@ -58,11 +58,15 @@ export function routesCompteMarchand(app: FastifyInstance, config: { urlPublique
       if (/paiements encore ouverts/.test(String(e))) return ouvert();
       throw e;
     }
-    return { fournisseur, url_webhook: `${config.urlPublique}/webhooks/${fournisseur}/${webhook}` };
+    // MoneyFusion (ADR 0024) : l'application du marchand n'accepte que les IP déclarées et un site public. On rend ce qu'il
+    // doit y saisir : les IP publiques des nœuds (d'où partent les appels) et l'adresse du portail (page de retour).
+    return { fournisseur, url_webhook: `${config.urlPublique}/webhooks/${fournisseur}/${webhook}`,
+             ips_serveurs: (config.noeuds ?? []).map((n) => n.endpoint), url_portail: config.urlPortail ?? null };
   });
 }
 
-/** Public : un webhook ne fait que déclencher verify() ; sa signature est vérifiée, son corps conservé. */
+/** Public : un webhook ne fait que déclencher verify() ; sa signature est vérifiée s'il en a une (MoneyFusion n'en a pas :
+ *  ADR 0024), son corps conservé. */
 export function routesWebhook(app: FastifyInstance, service: ServicePaiement | null): void {
   app.register(async (brut) => {
     // Corps BRUT (Buffer) : la signature porte sur les octets reçus (§10.1).
@@ -74,7 +78,7 @@ export function routesWebhook(app: FastifyInstance, service: ServicePaiement | n
         return rep.code(404).send({ erreur: "inconnu" });
       }
       const corps = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-      // Requête telle que reçue : une signature RFC 9421 (pawaPay) couvre la méthode, l'hôte et le chemin (ADR 0020).
+      // Requête telle que reçue (méthode, hôte, chemin) : à la disposition d'un adaptateur dont la signature les couvre.
       const r = await service.webhook(req.params.fournisseur, req.params.webhook, req.headers, corps,
                                       { methode: req.method, autorite: String(req.headers.host ?? ""), chemin: req.url.split("?")[0] });
       return rep.code(r.code).send(r.corps);

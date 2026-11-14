@@ -18,9 +18,9 @@
 | Condition | État | Qui |
 |---|---|---|
 | Phase 3 verte avec le `MockProvider` | Fait (P1 à P9, grand livre) | — |
-| **Adaptateur réel en bac à sable** (ticket 3.08) | **Écrit** : pawaPay v2 (ADR 0020), prouvé contre un faux serveur aux formes de la documentation officielle. **Bac à sable réel non joué** : il faut le jeton | Yacouba ouvre un compte de bac à sable pawaPay et fournit le jeton ; l'agent joue les numéros de test du Burkina |
-| Format du relevé du compte marchand (colonnes, statuts, fuseau, référence portée) | **Encore inconnu** : pawaPay offre un relevé par API (« Statements ») et un export du tableau de bord, non lus. Notre référence voyage dans `clientReferenceId` (ADR 0020). L'outil de rapprochement se règle par options | Agent, au bac à sable |
-| Écran « compte marchand » du tableau de bord (mode A) | **Fait** : environnement et jeton pawaPay, adresse des callbacks à recopier ; argent réel refusé tant que `WAKATNET_ARGENT_REEL` n'est pas posée | — |
+| **Adaptateur réel** (ticket 3.08) | **Écrit** : MoneyFusion (ADR 0024), prouvé contre un faux serveur aux formes de la documentation officielle. pawaPay et CinetPay sont retirés du code (14/11/2026). **Pas de bac à sable** : MoneyFusion n'en documente aucun. Le premier essai sera **réel, en petits montants, après G-ARGENT** ; il tranchera la question brut ou net du `Montant` (ADR 0024, décision 5) | Yacouba, après G-ARGENT ; chaque propriétaire déclare les IP des nœuds A et B dans son application MoneyFusion |
+| Format du relevé du compte marchand (colonnes, statuts, fuseau, référence portée) | **Non documenté** chez MoneyFusion (ADR 0024). À lire sur un **vrai export** ; notre référence voyage dans `personal_Info[0].reference`. L'outil de rapprochement se règle par options | Agent, sur le premier export réel |
+| Écran « compte marchand » du tableau de bord (mode A) | **Fait** (ADR 0024) : le tableau de bord rappelle les IP publiques des nœuds A et B et l'adresse du portail à saisir dans l'application MoneyFusion ; argent réel refusé tant que `WAKATNET_ARGENT_REEL` n'est pas posée | — |
 | `docs/CONFORMITE.md` : contrat de l'agrégateur, statut d'agrément vérifié, juriste, CIL, ARCEP, comptable (mentions de facture) | **Tout est [À CONFIRMER]** | Yacouba (piste B) |
 
 ### G-PILOTE : phase 5 verte
@@ -83,13 +83,15 @@ sudo -u wk-rappro bash -c 'set -a; . /etc/wakatnet/rapprochement.env; set +a; cd
    - un paiement de part et d'autre de minuit ;
    - une confirmation tardive (webhook perdu, repris par la vérification périodique, dans les 24 h).
 6. Ce qu'il **ne** contrôle **pas** :
-   - le montant des frais de l'agrégateur par rapport à son contrat (avec pawaPay, ils sont seulement totalisés, et bornés à 10 % de leur dépôt ; voir plus bas) ;
+   - le montant des frais de l'agrégateur par rapport à son contrat (avec l'ancien profil pawaPay, retiré le 14/11/2026, ils étaient seulement totalisés, et bornés à 10 % de leur dépôt ; voir plus bas ; MoneyFusion : à voir sur un vrai export) ;
    - les ventes en espèces (tickets papier). Elles se rapprochent à la main : tickets activés au tableau de bord, contre la caisse du point de vente ;
    - **un relevé tronqué dont la couverture est déclarée complète**. `--releve-du` et `--releve-au` sont une déclaration de l'exploitant : l'outil vérifie qu'elle couvre la période, pas que l'export la couvre réellement. Un export arrêté à 15 h et déclaré jusqu'à J + 1 ferait paraître des encaissements absents (des écarts, jamais un faux « écart nul » pour un ticket délivré), mais un encaissement sans ticket de la fin de journée passerait inaperçu. Le contrôle de continuité de la colonne `Balance` (chaque solde = solde précédent + montant) viendra avec un export réel ; d'ici là, vérifier à l'œil que la dernière ligne de l'export est postérieure à J + 1 00:10.
 
 Les colonnes et les statuts se règlent par options (`--col-reference`, `--col-montant`, `--col-date`, `--col-statut`, `--reussi`, `--echec`, `--hors-paiement`, `--sep`), une fois le format réel du relevé connu.
 
-### Relevé pawaPay (ADR 0020)
+### Relevé pawaPay (ADR 0020) — historique, retiré le 14/11/2026 (ADR 0024)
+
+> **Retiré.** pawaPay n'est plus branché (ADR 0024). Ce profil ne vaut plus pour le pilote ; il est gardé comme exemple de méthode. **Le relevé MoneyFusion n'est pas documenté** : colonnes, fuseau et référence se lisent sur un vrai export, après le premier essai réel. Les options de l'outil (`--col-*`, `--reussi`, `--echec`, `--hors-paiement`, `--sep`) se règlent alors.
 
 Le relevé de pawaPay (Dashboard > Finances > Statements > Export, ou `POST /v2/statements`) est le **journal du portefeuille**, et non une liste de paiements :
 - une ligne par mouvement de solde, sans colonne de statut ;

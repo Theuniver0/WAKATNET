@@ -1425,3 +1425,24 @@ Produit par un workflow de 4 agents : rédaction et tests, deux relectures adver
 - **Bloqué** : bac à sable pawaPay. L'API répond 401 « API token not found » malgré le secret de l'environnement, ressaisi par le formulaire sécurisé, avec ou sans en-tête du client, après le délai de prise en compte. À vérifier par Yacouba dans les réglages de l'environnement (une seule règle pour l'hôte, `Authorization`, préfixe `Bearer`, jeton du tableau de bord sandbox seul).
 - **Incohérences notées, non corrigées** (décision ou relecture à faire) : mode C « R&D » (SPEC D1) contre « cible prioritaire » (ADR 0001) ; registre §7 en retard sur §7 bis (durées, Hetzner, destinataires de T6) ; liste BCEAO au 31/08/2026 (SPEC §1.4) non attestée au-delà du 28/02/2026.
 
+## 14/11/2026 — MoneyFusion remplace pawaPay et CinetPay (décision de Yacouba)
+
+- **Demande** : « SUPPRIME COMPLETTEMENT PAWAPAY ET CINETPAY ET INTEGRE MONEYFUSION ».
+- **Source** : documentation officielle `docs.moneyfusion.net` (paiement, statut, webhook, retraits), lue avec curl à travers le proxy. L'outil de lecture de l'agent n'y parvenait pas. Burkina Faso confirmé par la liste publique des moyens (XOF, Orange, Moov).
+- **Fait** (ADR 0024) :
+  - adaptateur `moneyfusion.ts` : page hébergée (flux redirect), statut par jeton, webhook non signé simple déclencheur ;
+  - portail sans code OTP, avec redirection vers la page de MoneyFusion et retour au suivi de l'achat ;
+  - migration 0053 (lecture du jeton) ;
+  - tableau de bord : lien API, IP des nœuds et site du portail à déclarer ;
+  - walled garden `payin.moneyfusion.net` (tcp/443 et HTTP) ;
+  - argent réel refusé avant G-ARGENT, puisqu'il n'y a pas de bac à sable ;
+  - pawaPay, CinetPay, leurs tests et l'outil d'essai CinetPay supprimés ; documentation alignée.
+- **Relecture de sécurité** : un bloquant (jeton perdu si le webhook arrive pendant `charge()`, client débité sans ticket) et quatre points à corriger. Tout est corrigé et testé (détail dans l'ADR 0024).
+- **Preuves** : suite API 228/228 ; banc CHR 49/49 en 7.15.3 et 7.19.4 ; e2e : voir le commit.
+- **Risques acceptés, à lever avant G-ARGENT** :
+  - MoneyFusion est à Abidjan ; aucun agrément propre n'a été trouvé (courriel prêt) ;
+  - aucun bac à sable : premier essai réel en petits montants ;
+  - `Montant` brut ou net, et valeurs de `moyen` : à confirmer ;
+  - IP des nœuds à déclarer par chaque propriétaire.
+- **À faire par Yacouba** : supprimer le secret réseau « Jeton bac à sable pawaPay » de l'environnement (je ne peux pas supprimer un secret).
+
