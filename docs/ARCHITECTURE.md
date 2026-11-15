@@ -17,7 +17,7 @@ Client Wi-Fi ──► MikroTik du propriétaire (hotspot, RouterOS ≥ 7.15)
 │ de bord, webhooks) · minuteries systemd ·          │                 │ main, ADR 0015) · nginx (certificat│
 │ wg-agent · pgBackRest                              │                 │ auto-signé) · wg-agent            │
 └───────────────┬────────────────────────────────────┘                 └───────────────────────────────────┘
-                │ HTTPS sortant : agrégateurs (pawaPay, CinetPay), Brevo, stockage S3 (Backblaze B2)
+                │ HTTPS sortant : agrégateur (MoneyFusion, ADR 0024 ; pawaPay et CinetPay retirés le 14/11/2026), Brevo, stockage S3 (Backblaze B2)
 ```
 
 ## 2. Composants
@@ -31,7 +31,7 @@ Client Wi-Fi ──► MikroTik du propriétaire (hotspot, RouterOS ≥ 7.15)
 | API | Node 22 et Fastify, en TypeScript exécuté nativement ; Prisma pour `app` ; routes de propriétaire, de super-admin, d'enrôlement, d'entretien et de webhooks | `apps/api/src/` | ADR 0012 à 0016 |
 | Portail captif | Rendu serveur par l'API (`/p/…`), sans dépendance externe ; origine propre (`portail.`) | `apps/api/src/portail.ts` | ADR 0013 §9 et §10 |
 | Tableau de bord | React, fichiers statiques servis par l'API, CSP stricte | `apps/dashboard/` | ADR 0014 §5 |
-| Paiements | Interface `FournisseurPaiement` ; `MockProvider`, pawaPay v2, CinetPay v1 (production verrouillée) ; `verify()` fait foi | `packages/payments/` | ADR 0013, 0020, 0022 |
+| Paiements | Interface `FournisseurPaiement` ; `MockProvider`, MoneyFusion (flux redirect ; argent réel verrouillé jusqu'à G-ARGENT) ; `verify()` fait foi. 14/11/2026 : pawaPay et CinetPay retirés | `packages/payments/` | ADR 0013, 0024 (0020 et 0022 : historique) |
 | Tâches de fond | **Minuteries systemd** au lieu d'un worker BullMQ et de Redis : paiements et frais papier (60 s), coupures CoA et Disconnect (30 s), sessions fantômes (60 s), purges (jour), santé (60 s), sauvegarde (nuit), essai de restauration (mois) | `infra/systemd/`, `apps/api/src/taches.ts` | ADR 0013 §6, 0015 |
 | Overlay | WireGuard ; `wg-agent` (Go) aligne les pairs du nœud sur la base, sans redémarrer l'interface | `apps/wg-agent/` | ADR 0012 |
 | Enrôlement | Étape 1 (script), étape 2 (configuration, walled garden, activation en dernier), étape 3 (entretien planifié), désinstallation | `apps/api/src/routeros.ts` | ADR 0012, 0023 |

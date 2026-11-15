@@ -54,10 +54,10 @@ Deux exigences passent avant toute fonctionnalité, parce que la plateforme port
 | Sujet | Fait |
 |---|---|
 | Orange Money BF | Flux « pré-OTP » : le client compose `*144*4*6*MONTANT#`, obtient un code à 6 chiffres, le saisit sur la page de paiement. Fonctionne sans data. |
-| Moov Money BF | Confirmation par code secret après une notification poussée (la doc CinetPay cite `*555*6#`). |
+| Moov Money BF | Confirmation par code secret après une notification poussée (la doc CinetPay cite `*555*6#` ; source historique, CinetPay retiré le 14/11/2026, ADR 0024). |
 | Wave | API Business : sessions Checkout (URL de lancement de l'appli), Payout, webhooks signés HMAC-SHA256, « Aggregated Merchants » pour les plateformes. Le paiement se valide dans l'appli Wave, donc **avec de la data** : depuis un hotspot non authentifié, c'est un problème → **[LABO]**. |
-| Agrégateurs annonçant le Burkina | LigdiCash (local ; Orange + Moov ; facture → redirection → callback ; payout), CinetPay (Orange BF, Moov BF, cartes ; API de transfert), PayDunya, InTouch, YengaPay (local ; annonce aussi Telecel, Sank, Coris), pawaPay (Orange + Moov), FedaPay (Moov, Orange), KkiaPay, Moneroo (orchestrateur), Flutterwave (Orange, Mobicash). **Chaque nom est à revérifier dans sa doc officielle en phase 0.** |
-| Frais publics | CinetPay Burkina : 1,5 à 3,5 % à l'encaissement selon le volume, 1,5 % au transfert. Montant minimum par transaction et frais fixes : non trouvés → **[À CONFIRMER]**. |
+| Agrégateurs annonçant le Burkina | LigdiCash (local ; Orange + Moov ; facture → redirection → callback ; payout), CinetPay (Orange BF, Moov BF, cartes ; API de transfert), PayDunya, InTouch, YengaPay (local ; annonce aussi Telecel, Sank, Coris), pawaPay (Orange + Moov), FedaPay (Moov, Orange), KkiaPay, Moneroo (orchestrateur), Flutterwave (Orange, Mobicash). **Chaque nom est à revérifier dans sa doc officielle en phase 0.** (14/11/2026 : retenu, MoneyFusion, absente de cette liste de phase 0 ; pawaPay et CinetPay retirés ; ADR 0024.) |
+| Frais publics | CinetPay Burkina (14/11/2026 : retiré, ADR 0024 ; indication historique) : 1,5 à 3,5 % à l'encaissement selon le volume, 1,5 % au transfert. Montant minimum par transaction et frais fixes : non trouvés → **[À CONFIRMER]**. |
 | Monnaie | XOF, sans décimales. Certains fournisseurs raisonnent en « unités mineures » : normaliser dans chaque adaptateur, avec un test. |
 
 Grille de référence des WiFi Zones de Telecom Universel, à reprendre comme données de démonstration : 100 F (3 h ou 5 h), 200 F (6 h), 300 F (1 jour), 500 F (3 jours), 1 000 F (7 jours). **Le ticket à 100 F est le plus vendu** : chaque franc de frais compte, et un frais fixe par transaction rendrait la vente en ligne non rentable.
@@ -116,7 +116,7 @@ Avance avec la valeur par défaut. Les lignes marquées « Yacouba » lui sont s
 | ID | Décision | Défaut pour avancer | Qui tranche |
 |---|---|---|---|
 | D1 | **Circuit de l'argent.** Mode A « encaissement direct » : chaque propriétaire branche son propre compte marchand, la plateforme ne touche jamais son argent, la commission est prélevée sur un solde de crédits qu'il a prépayé. Mode B « collecte centralisée » : compte marchand de Telecom Universel, grand livre, reversements. Mode C « répartition par le prestataire agréé » : sous-marchands ou split natif, si un agrégateur le propose. | Le code gère A et B via `settlement_mode` par propriétaire. **B reste désactivé en production** tant que `docs/CONFORMITE.md` ne contient pas l'accord écrit de l'agrégateur et un avis juridique. C = ticket R&D. | Yacouba |
-| D2 | Agrégateur de lancement | Interface `PaymentProvider` + `MockProvider` ; UN vrai adaptateur en phase 3, celui dont Yacouba fournit les clés de bac à sable. | Yacouba |
+| D2 | Agrégateur de lancement | Interface `PaymentProvider` + `MockProvider` ; UN vrai adaptateur en phase 3, celui dont Yacouba fournit les clés de bac à sable. **(14/11/2026 : l'adaptateur réel est MoneyFusion, seul agrégateur réel ; pawaPay et CinetPay sont retirés du code ; MoneyFusion n'a pas de bac à sable ; ADR 0024.)** | Yacouba |
 | D3 | Commission | `commission_bps` par propriétaire, défaut 1000 (10 %, niveau du marché). Frais de l'agrégateur à la charge du propriétaire. | Yacouba |
 | D4 | Tickets vendus en espèces | Sans règle, un propriétaire peut tout vendre en espèces et ne jamais payer de commission. Prévoir un frais par activation de ticket hors ligne (`offline_fee_bps`), prélevé sur le solde de crédits. Défaut 0 tant que Yacouba n'a pas tranché. | Yacouba |
 | D5 | Versions RouterOS | **≥ 7.15** (WireGuard + Message-Authenticator). RouterOS 6 hors v1. | Yacouba |
@@ -124,7 +124,7 @@ Avance avec la valeur par défaut. Les lignes marquées « Yacouba » lui sont s
 | D7 | Chemin critique | WireGuard (noyau Linux), FreeRADIUS et PostgreSQL installés nativement (systemd) sur chaque nœud, sans CHR intermédiaire. API, worker, portail et tableaux de bord en conteneurs. Moins de couches sur le chemin d'authentification. | Toi (ADR) |
 | D8 | Plage de l'overlay | `10.213.0.0/16`, un /32 par routeur, paramétrable. Éviter `100.64.0.0/10` (CGNAT de Starlink et des opérateurs) et les plages hotspot courantes. | Toi (ADR) |
 | D9 | Identité du client final | Aucune inscription. Numéro du payeur uniquement. Pas de SMS en v1. | Yacouba |
-| D10 | Stack applicative | La même que NetManager : React 18 / Vite / TypeScript, Fastify / Node.js, PostgreSQL / Prisma, BullMQ / Redis. Si le dépôt NetManager est accessible, inventorie ce qui est réutilisable (adaptateurs LigdiCash / CinetPay / PayDunya, mécaniques d'expiration, import Mikhmon) avant d'écrire du neuf. | Toi |
+| D10 | Stack applicative | La même que NetManager : React 18 / Vite / TypeScript, Fastify / Node.js, PostgreSQL / Prisma, BullMQ / Redis. Si le dépôt NetManager est accessible, inventorie ce qui est réutilisable (adaptateurs LigdiCash / CinetPay / PayDunya de NetManager ; 14/11/2026 : aucun adaptateur CinetPay dans WAKATNET, retiré, ADR 0024 ; mécaniques d'expiration, import Mikhmon) avant d'écrire du neuf. | Toi |
 
 ---
 
@@ -325,7 +325,7 @@ Si le **[LABO]** du §1.1 confirme que la base locale est consultée avant RADIU
 ### 7.1 Contraintes du portail
 
 - Il s'ouvre dans les mini-navigateurs de portail captif d'iOS et d'Android, sur des téléphones d'entrée de gamme, à faible débit : HTML rendu côté serveur, moins de 100 Ko au total, **aucune dépendance externe** (ni CDN, ni polices, ni scripts tiers : ils ne sont pas dans le walled garden), pas de popup, pas de nouvel onglet.
-- Il est servi depuis une IP fixe dédiée, qui doit rester si possible la seule entrée du walled garden. Préfère les flux en API directe (code USSD + OTP, validation poussée) qui gardent le client sur le portail. Si un agrégateur n'offre qu'une page de paiement hébergée, la liste exacte de ses domaines est ajoutée au walled garden, documentée, testée et tenue à jour depuis la plateforme : jamais de joker large.
+- Il est servi depuis une IP fixe dédiée, qui doit rester si possible la seule entrée du walled garden. Préfère les flux en API directe (code USSD + OTP, validation poussée) qui gardent le client sur le portail. (14/11/2026 : MoneyFusion n'offre qu'une page hébergée ; le flux redirect est retenu et `payin.moneyfusion.net` est au walled garden, ADR 0024.) Si un agrégateur n'offre qu'une page de paiement hébergée, la liste exacte de ses domaines est ajoutée au walled garden, documentée, testée et tenue à jour depuis la plateforme : jamais de joker large.
 - Français par défaut, textes courts, gros boutons.
 - Sur le routeur, `login.html` est une minuscule page de redirection vers le portail. Elle transmet au minimum `$(mac)`, `$(ip)`, `$(link-login-only)`, `$(link-orig)`, `$(error)` et l'identifiant public du site. Liste complète des variables et règles d'échappement : section de personnalisation des pages dans la doc hotspot.
 - Les causes de refus du §5.2 remontent au portail par `$(error)` et y deviennent des messages utiles (« Forfait terminé — en racheter un ») → **[LABO]**.
@@ -337,6 +337,8 @@ Si le **[LABO]** du §1.1 confirme que la base locale est consultée avant RADIU
    - **Orange Money** : afficher le code `*144*4*6*MONTANT#` (copiable ; lien `tel:` en amélioration progressive → **[LABO]**), puis demander le numéro et le code reçu.
    - **Moov Money** : numéro, puis attente de la validation sur le téléphone.
    - **Wave** : proposé seulement si le **[LABO]** est concluant. Pistes : entrées de walled garden pour l'appli, ou session d'essai très bridée via `trial` (attention aux abus par MAC aléatoire).
+> **14/11/2026 (ADR 0024) : flux redirect.** Le portail ne demande plus de code OTP, ni le code Orange `*144*4*6*MONTANT#` ni le PIN Moov décrits à l'étape 2. Il crée le paiement, puis redirige le client vers la page hébergée de MoneyFusion. Le client revient à la page de suivi de l'achat, qui attend la confirmation comme avant (étape 3). Le texte de l'étape 2 décrit le parcours d'origine.
+
 3. L'API crée le paiement (`PENDING`) et appelle `provider.charge()`. Le portail interroge l'état toutes les 3 s, pendant 3 min au plus.
 4. À la confirmation, dans **une seule transaction SQL** : écritures du grand livre + création du ticket + lien paiement ↔ ticket.
 5. Auto-connexion : renvoi du navigateur vers `link-login-only` avec le code du ticket. Préférer une redirection GET à un formulaire POST d'une page HTTPS vers une cible HTTP, que certains navigateurs signalent comme non sécurisé → **[LABO]** sur Chrome Android et Safari iOS, dans et hors du mini-navigateur.
@@ -374,7 +376,8 @@ interface PaymentProvider {
 
 - `MockProvider` scriptable : succès, échec, lenteur, webhook en double, webhook avant la réponse de `charge()`, webhook jamais reçu, montant différent.
 - En mode A, les appels utilisent les clés du propriétaire, et ses webhooks arrivent sur une URL qui lui est propre.
-- **Ne devine jamais l'API d'un agrégateur.** Lis sa doc officielle ; si elle est inaccessible ou ambiguë, arrête-toi et demande à Yacouba la doc ou les clés du bac à sable.
+- (14/11/2026, ADR 0024) MoneyFusion : webhook **non signé**, donc `parseWebhook` ne vérifie aucune signature (un corps illisible est refusé en 401) ; le webhook ne fait que déclencher `verify()`, qui lit le statut par jeton et fait seul foi. `verify` reçoit aussi la référence du fournisseur (le jeton). Le scénario P5 (signature invalide) ne s'applique pas à MoneyFusion.
+- **Ne devine jamais l'API d'un agrégateur.** Lis sa doc officielle ; si elle est inaccessible ou ambiguë, arrête-toi et demande à Yacouba la doc ou les clés du bac à sable (MoneyFusion n'en a pas : ADR 0024).
 
 ### 7.4 Matrice de tests paiement
 

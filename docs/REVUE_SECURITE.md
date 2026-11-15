@@ -1,5 +1,7 @@
 # Revue de sécurité — phase 5
 
+> **Note du 14/11/2026.** Cette revue date du 12/11/2026 et porte sur le code d'alors. Les mentions de pawaPay et de CinetPay (argent, clés, F6) sont historiques : ces adaptateurs sont retirés, MoneyFusion les remplace (ADR 0024).
+
 - **Date** : 12/11/2026. **Ticket** : `.scratch/phase-5-haute-disponibilite/issues/08-revue-securite.md` ; SPEC §12 (phase 5).
 - **Relecteur** : un agent qui n'a pas écrit le code, en lecture seule, sur le commit `3046f22`. Il a lu le code et raisonné, sans exécuter de test.
 - **Suites** : décidées et appliquées par l'agent principal, sur la branche de la phase 5. Chaque correction est prouvée par un test, cité dans le tableau.

@@ -134,6 +134,8 @@ case "$premiere" in wakatnet*) ok "règles wakatnet avant la règle du propriét
 verifier "aucun fichier temporaire" "$(compter '/file find where name~"^wakatnet-"')" "0"
 verifier "planificateur : droits" "$(ros ':put [/system scheduler get [find where name="wakatnet-entretien"] policy]' | tail -1)" "read;write;test;sensitive"
 verifier "utilisateur local conservé" "$(compter '/ip hotspot user find where name="client-local"')" "1"
+verifier "page de paiement MoneyFusion ouverte en HTTPS (ADR 0024)" "$(compter '/ip hotspot walled-garden ip find where comment="wakatnet paiement payin.moneyfusion.net"')" "1"
+verifier "page de paiement MoneyFusion ouverte en HTTP" "$(compter '/ip hotspot walled-garden find where comment="wakatnet paiement payin.moneyfusion.net http"')" "1"
 verifier "racine importée par la commande, de confiance" "$(compter '/certificate find where name~"^wakatnet racine " and trusted')" "1"
 head -1 "$T/commande.rsc" > "$T/racine.rsc"; coller "$T/racine.rsc" > /dev/null
 verifier "racine : ligne rejouée sans doublon" "$(compter '/certificate find where name~"^wakatnet racine "')" "1"

@@ -186,10 +186,10 @@ test("valeurs serveur invalides : refus de générer", () => {
 
 test("walled garden (SPEC §6.2 étape 2, §7.1) : portail joignable avant connexion, HTTPS par IP dédiée, idempotent, posé AVANT l'activation, retiré à la désinstallation", () => {
   const l = lignesUtiles(E2());
-  const http = l.filter((x) => x.includes("/ip hotspot walled-garden add"));
+  const http = l.filter((x) => x.includes("/ip hotspot walled-garden add") && x.includes("portail"));
   assert.equal(http.length, 1);
   assert.match(http[0], /find where comment="wakatnet portail http"\]\] = 0\) do=\{ \/ip hotspot walled-garden add dst-host="portail\.wakatnet\.invalid" action=allow/);
-  const https = l.filter((x) => x.includes("/ip hotspot walled-garden ip add"));
+  const https = l.filter((x) => x.includes("/ip hotspot walled-garden ip add") && x.includes("portail"));
   assert.deepEqual(https.map((x) => /dst-address=([0-9.]+) protocol=tcp dst-port=443/.exec(x)?.[1]), ["203.0.113.10", "198.51.100.20"]);
   for (const x of https) assert.match(x, /^:if \(\[:len \[\/ip hotspot walled-garden ip find where comment="wakatnet portail [0-9.]+"\]\] = 0\)/, "idempotent");
   const premiereActivation = l.findIndex((x) => x.includes("use-radius=yes"));
@@ -199,7 +199,13 @@ test("walled garden (SPEC §6.2 étape 2, §7.1) : portail joignable avant conne
   assert.ok(d.includes('/ip hotspot walled-garden ip remove [find where comment~"^wakatnet"]'));
   // Sans IP dédiée : l'entrée HTTP seule (le HTTPS dépendrait de LABO-14) ; la production l'interdit (config.ts).
   const sansIp = lignesUtiles(etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: { ...PORTAIL, ips: [] } }));
-  assert.equal(sansIp.filter((x) => x.includes("walled-garden ip add")).length, 0);
+  assert.equal(sansIp.filter((x) => x.includes("walled-garden ip add") && x.includes("portail")).length, 0);
+  // ADR 0024 : la page de paiement MoneyFusion est ouverte avant connexion, en HTTPS (par nom) et en HTTP ; additif.
+  const avecIp = lignesUtiles(etape2({ overlayIp: "10.213.1.7", secret: "S".repeat(32), noeuds: NOEUDS, inventaire: inventaire(), portail: PORTAIL }));
+  assert.ok(avecIp.some((x) => x.includes('/ip hotspot walled-garden ip add action=accept dst-host="payin.moneyfusion.net" protocol=tcp dst-port=443 comment="wakatnet paiement payin.moneyfusion.net"')));
+  assert.ok(avecIp.some((x) => x.includes('/ip hotspot walled-garden add dst-host="payin.moneyfusion.net" action=allow comment="wakatnet paiement payin.moneyfusion.net http"')));
+  assert.ok(lignesUtiles(entretien({ overlayIp: "10.213.1.7", noeuds: NOEUDS, portail: PORTAIL, coaPort: 3799, listenPort: 13231 }))
+    .some((x) => x.includes('dst-host="payin.moneyfusion.net"')), "l'entretien la remet aussi");
 });
 
 test("étape 3, entretien (ADR 0023) : pair d'un nœud déplacé mis à jour, nœud ajouté, règles remises à jour ; planificateur désactivable, retiré à la désinstallation", () => {

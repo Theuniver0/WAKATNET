@@ -1,6 +1,6 @@
 # ADR 0001 — Circuit de l'argent (décision D1)
 
-- **Statut** : accepté par Yacouba le 10/11/2026, à la porte G0 (séance de questions une par une). Révisable quand les agrégateurs auront répondu au questionnaire.
+- **Statut** : accepté par Yacouba le 10/11/2026, à la porte G0 (séance de questions une par une). Révisable quand les agrégateurs auront répondu au questionnaire. (Note du 14/11/2026 : pawaPay, cité plus bas, est retiré ; MoneyFusion est le seul agrégateur réel, ADR 0024. Le mode B reste verrouillé.)
 - **Références** : `docs/SPEC.md` §1.4, §3 (D1, D4), §8.2, §8.3, §11 ; `docs/G0.md` ; `docs/PAYMENT_PROVIDERS.md` ; `docs/CONFORMITE.md`.
 
 ## Contexte

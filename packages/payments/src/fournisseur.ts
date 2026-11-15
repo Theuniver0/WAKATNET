@@ -26,11 +26,15 @@ export interface DemandePaiement {
   numero: string;
   /** Code reçu par le payeur (flux ussd_otp). */
   otp?: string;
+  /** Page où le fournisseur renvoie le client après paiement (flux redirect). */
+  urlRetour?: string;
 }
 
 export interface ResultatPaiement {
   referenceFournisseur: string;
   statut: StatutFournisseur;
+  /** Flux redirect : page de paiement hébergée par le fournisseur, où le portail envoie le client. */
+  urlPaiement?: string;
 }
 
 export interface EtatPaiement {
@@ -78,7 +82,8 @@ export interface FournisseurPaiement {
   readonly id: string;
   capacites(): Capacites;
   charge(demande: DemandePaiement): Promise<ResultatPaiement>;
-  verify(reference: string): Promise<EtatPaiement>;
+  /** `referenceFournisseur` : celle notée au paiement, pour un fournisseur qui ne se consulte que par elle (MoneyFusion). */
+  verify(reference: string, referenceFournisseur?: string): Promise<EtatPaiement>;
   /** Vérifie la signature et lève SignatureInvalide sinon. Peut être asynchrone (clés publiques à lire, ADR 0020). */
   parseWebhook(enTetes: Record<string, string | string[] | undefined>, corpsBrut: Buffer, requete?: RequeteWebhook):
     EvenementWebhook | Promise<EvenementWebhook>;

@@ -91,7 +91,7 @@ test("achat par les formulaires : attente, puis ticket et auto-connexion GET ver
   });
 });
 
-test("P9 par le formulaire : double envoi → un seul paiement ; Orange sans code reçu → 422", async () => {
+test("P9 par le formulaire : double envoi → un seul paiement ; plus de code OTP (ADR 0024)", async () => {
   await avecApp(async (app) => {
     const v = await vendeur(app, "portail P9");
     const f = await app.inject({ url: `/p/${v.publicId}/payer${ctx}&plan=${v.plan}` });
@@ -103,10 +103,11 @@ test("P9 par le formulaire : double envoi → un seul paiement ; Orange sans cod
     assert.equal(a.headers.location, b.headers.location);
     const [n] = await sql<{ n: number }>(URL_ADMIN, "SELECT count(*)::int AS n FROM app.payment WHERE tenant_id = $1", [v.tenant]);
     assert.equal(n.n, 1);
+    // ADR 0024 : plus de code OTP sur le portail (le client valide sur la page du fournisseur) ; Orange sans code passe.
+    assert.ok(!(await app.inject({ url: `/p/${v.publicId}/payer${ctx}&plan=${v.plan}` })).body.includes('name="otp"'));
     const sansOtp = new URLSearchParams({ plan: v.plan, soumission: "S".repeat(24), operateur: "orange_bf", numero: numero("00") }).toString();
     const r = await app.inject({ method: "POST", url: `/p/${v.publicId}/payer`, headers: h, payload: sansOtp });
-    assert.equal(r.statusCode, 422);
-    assert.match(r.body, /code reçu/);
+    assert.equal(r.statusCode, 303, r.body);
   });
 });
 
@@ -156,7 +157,7 @@ test("retrouver depuis un AUTRE appareil : numéro + 4 derniers caractères ; te
   });
 });
 
-test("scan de sécurité F5/F6 (migration 0045) : jamais pour pawaPay ni CinetPay ; plafond dur de 10 échecs par numéro sur 24 h, quel que soit l'appareil", async () => {
+test("scan de sécurité F5/F6 (migration 0045) : jamais pour un vrai agrégateur (MoneyFusion) ; plafond dur de 10 échecs par numéro sur 24 h, quel que soit l'appareil", async () => {
   await avecApp(async (app) => {
     const v = await vendeur(app, "portail retrouver durci");
     const acheter = async (num: string) => {
@@ -172,15 +173,12 @@ test("scan de sécurité F5/F6 (migration 0045) : jamais pour pawaPay ni CinetPa
     // Sans cookie : un jeton d'appareil neuf à chaque requête (ce que fait un attaquant).
     const essayer = (num: string, suf: string) => app.inject({ method: "POST", url: `/p/${v.publicId}/retrouver`,
       headers: { "content-type": "application/x-www-form-urlencoded" }, payload: `numero=${num}&suffixe=${suf}` });
-    // 1. Paiement pawaPay : la référence (depositId) n'est pas remise au client ; même le bon suffixe ne le rend pas.
+    // 1. Paiement d'un vrai agrégateur (MoneyFusion : son jeton n'est pas remis au client) : même le bon suffixe ne le rend
+    //    pas ; seul le simulateur est retrouvable par suffixe (0045).
     const n1 = numero("00");
     const rf1 = await acheter(n1);
-    await sql(URL_ADMIN, "UPDATE app.payment SET fournisseur = 'pawapay' WHERE reference_fournisseur = $1", [rf1]);
-    assert.equal((await essayer(n1, rf1.slice(-4))).statusCode, 404, "pawaPay : jamais retrouvable par le suffixe");
-    const n3 = numero("00");
-    const rf3 = await acheter(n3);
-    await sql(URL_ADMIN, "UPDATE app.payment SET fournisseur = 'cinetpay' WHERE reference_fournisseur = $1", [rf3]);
-    assert.equal((await essayer(n3, rf3.slice(-4))).statusCode, 404, "CinetPay : jamais retrouvable par le suffixe");
+    await sql(URL_ADMIN, "UPDATE app.payment SET fournisseur = 'moneyfusion' WHERE reference_fournisseur = $1", [rf1]);
+    assert.equal((await essayer(n1, rf1.slice(-4))).statusCode, 404, "MoneyFusion : jamais retrouvable par le suffixe");
     // 2. Plafond dur : 10 échecs du numéro dans les 24 h (au-delà des 15 min) bloquent, même le bon suffixe.
     const n2 = numero("00");
     const rf2 = await acheter(n2);

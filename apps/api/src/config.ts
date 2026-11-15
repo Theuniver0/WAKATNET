@@ -90,6 +90,10 @@ export function lireConfig(env: NodeJS.ProcessEnv = process.env): Config {
       throw new ConfigInvalide((e as Error).message);
     }
   }
+  // Exigée en production (relecture ADR 0024) : c'est la page de retour du client après la page de paiement MoneyFusion.
+  if (!env.WAKATNET_PORTAIL_URL_PUBLIQUE && env.NODE_ENV === "production") {
+    throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE exigée en production : page de retour du client après le paiement (ADR 0024)");
+  }
   const urlPortail = env.WAKATNET_PORTAIL_URL_PUBLIQUE ?? "https://portail.wakatnet.invalid";
   if (!/^https:\/\/[a-z0-9.-]+(:[0-9]{1,5})?$/.test(urlPortail)) {
     throw new ConfigInvalide("WAKATNET_PORTAIL_URL_PUBLIQUE : https://hôte[:port], sans chemin");

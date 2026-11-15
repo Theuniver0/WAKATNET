@@ -12,7 +12,7 @@ import {
 } from "../../../packages/payments/src/index.ts";
 import type { Base } from "./base.ts";
 import { chiffrer, dechiffrer, hmacNumero } from "./chiffrement.ts";
-import { creerFournisseur, type ClesMarchand } from "./fournisseurs.ts";
+import { creerFournisseur, FournisseurInconnu, type ClesMarchand } from "./fournisseurs.ts";
 
 export const DELAI_CHARGE_MS = 15_000;
 /** verify() aussi est borné : un fournisseur muet ne doit jamais bloquer la tâche périodique (revue). */
@@ -28,7 +28,7 @@ export class ServicePaiement {
 
   private readonly base: Base;
   private readonly cles: Cles;
-  /** Adresse publique de l'API (WAKATNET_API_URL_PUBLIQUE) : URL de notification que CinetPay exige à chaque paiement. */
+  /** Adresse publique de l'API (WAKATNET_API_URL_PUBLIQUE) : URL de notification transmise à chaque paiement (MoneyFusion). */
   private readonly urlPublique: string | null;
 
   constructor(base: Base, cles: Cles, urlPublique: string | null = null) {
@@ -45,8 +45,7 @@ export class ServicePaiement {
   private fournisseurDe(tenantId: bigint, l: { fournisseur: string; cles: Buffer; webhook_id?: string }): FournisseurPaiement {
     const cles = JSON.parse(dechiffrer(this.cles.marchands, l.cles, `tenant:${tenantId}`).toString("utf8")) as ClesMarchand;
     const livrer = this.livreur && l.webhook_id ? this.livreur(l.fournisseur, l.webhook_id) : null;
-    const urls = this.urlPublique && l.webhook_id
-      ? { webhook: `${this.urlPublique}/webhooks/${l.fournisseur}/${l.webhook_id}`, retour: this.urlPublique } : {};
+    const urls = this.urlPublique && l.webhook_id ? { webhook: `${this.urlPublique}/webhooks/${l.fournisseur}/${l.webhook_id}` } : {};
     return creerFournisseur(l.fournisseur, cles, livrer, urls);
   }
 
@@ -60,12 +59,14 @@ export class ServicePaiement {
   async creer(e: {
     sitePublic: string; planId: bigint; operateur: Operateur; numero: string; otp?: string;
     jetonAppareil: Buffer; soumission: string;
+    /** Page de suivi de l'achat, sans la référence : `${urlRetour}${reference}…` (flux redirect, MoneyFusion). */
+    urlRetour?: (reference: string) => string;
     /** Source (cleSource) : la garde du site compte par source (revue de sécurité M7, migration 0031). */
     source?: string;
     /** IP de la requête (ipComparable) : celle d'un routeur du site lui donne son budget propre (migration 0032). */
     ip?: string | null;
   }): Promise<
-    | { statut: "cree" | "deja"; reference: string; statutPaiement: string; message?: string }
+    | { statut: "cree" | "deja"; reference: string; statutPaiement: string; message?: string; urlPaiement?: string }
     | { statut: "site_inconnu" | "forfait_inconnu" | "vente_suspendue" | "sans_compte_marchand" | "numero_invalide" | "trop_de_demandes" }
   > {
     const numero = normaliserNumero(e.numero);
@@ -79,9 +80,14 @@ export class ServicePaiement {
     if (r.statut !== "cree" && r.statut !== "deja") return { statut: r.statut as "site_inconnu" };
     if (r.statut === "deja") return { statut: "deja", reference: r.reference!, statutPaiement: r.statut_paiement! };
 
-    const fournisseur = await this.fournisseurDuProprietaire(r.tenant_id!);
+    let fournisseur: FournisseurPaiement | null;
+    // Compte inutilisable ici (argent réel avant G-ARGENT, ADR 0024) : comme sans compte marchand, jamais une erreur 500.
+    try { fournisseur = await this.fournisseurDuProprietaire(r.tenant_id!); } catch (e) {
+      if (e instanceof FournisseurInconnu) return { statut: "sans_compte_marchand" };
+      throw e;
+    }
     if (fournisseur === null) return { statut: "sans_compte_marchand" };
-    // Référence du fournisseur déterministe (pawaPay : depositId dérivé de la référence) : notée AVANT charge(), dans
+    // Référence du fournisseur déterministe (si l'adaptateur la calcule) : notée AVANT charge(), dans
     // sa propre transaction validée (audit du 13/11/2026). Un callback sans clientReferenceId, arrivé après un charge()
     // resté sans réponse (paiement CREATED), retrouve ainsi son paiement. Si la note échoue, charge() n'est pas appelé :
     // aucun argent ne bouge, le paiement CREATED expirera.
@@ -94,10 +100,12 @@ export class ServicePaiement {
       if (!Number.isSafeInteger(montant) || montant <= 0) throw new Error("montant du paiement hors des entiers sûrs (A1)");
       const res = await avecDelai(fournisseur.charge({
         reference: r.reference!, montant, devise: "XOF", operateur: e.operateur, numero, otp: e.otp,
+        ...(e.urlRetour ? { urlRetour: e.urlRetour(r.reference!) } : {}),
       }), DELAI_CHARGE_MS);
-      // Référence du fournisseur vide (CinetPay, rejeu) : rien n'est écrit, celle déjà notée reste.
+      // Référence du fournisseur vide (rejeu) : rien n'est écrit, celle déjà notée reste. Pour MoneyFusion, c'est le
+      // jeton : sans lui, verify() ne pourrait jamais lire le paiement ; il est noté avant que le client ne reçoive la page.
       const s = await this.transition(r.reference!, "PENDING", res.referenceFournisseur || null, null, null, "charge");
-      return { statut: "cree", reference: r.reference!, statutPaiement: s };
+      return { statut: "cree", reference: r.reference!, statutPaiement: s, ...(res.urlPaiement ? { urlPaiement: res.urlPaiement } : {}) };
     } catch (err) {
       if (err instanceof PaiementRefuse) {
         const s = await this.transition(r.reference!, "FAILED", null, null, null, "charge");
@@ -124,7 +132,10 @@ export class ServicePaiement {
   async rapprocher(reference: string, tenantId: bigint, fournisseur?: FournisseurPaiement, origine = "verify"): Promise<string> {
     const f = fournisseur ?? await this.fournisseurDuProprietaire(tenantId);
     if (f === null) return "sans_compte_marchand";
-    const etat = await avecDelai(f.verify(reference), DELAI_VERIFY_MS);
+    // Référence du fournisseur notée au paiement : MoneyFusion ne se consulte que par elle (son jeton, ADR 0024).
+    const [l] = await this.base.$queryRaw<{ r: string | null }[]>`
+      SELECT app.paiement_reference_fournisseur_lire(${reference}, ${tenantId}) AS r`;
+    const etat = await avecDelai(f.verify(reference, l?.r ?? undefined), DELAI_VERIFY_MS);
     if (etat.reference !== reference) throw new Error("verify : référence inattendue");
     if (etat.statut === "SUCCEEDED") {
       // A8 : montant du fournisseur normalisé en XOF entier ; illisible → MISMATCH (montant -1).
@@ -162,21 +173,36 @@ export class ServicePaiement {
     if (evt.idEvenement.length < 1 || evt.idEvenement.length > 200 || !/^wk_[A-Za-z0-9_-]{22}$/.test(evt.reference)) {
       return { code: 400, corps: { erreur: "événement invalide" } };
     }
-    await this.base.$queryRaw`SELECT app.paiement_evenement(${fournisseurId}, ${evt.idEvenement}, ${compte.tenant_id},
-                                                            ${evt.reference}, ${corps})`;
+    // Relecture du 14/11/2026 (webhook MoneyFusion non signé) : rien n'est conservé pour un paiement inconnu de ce
+    // compte (sinon des POST inventés rempliraient la base), ni pour un événement qui porte un AUTRE jeton que celui noté
+    // pour ce paiement (sinon un faux événement occuperait la clé du vrai, dont le corps serait perdu, §10.1).
     const [p] = await this.base.$queryRaw<{ statut: string }[]>`
       SELECT statut FROM app.paiement_du_proprietaire(${evt.reference}, ${compte.tenant_id})`;
     if (!p) return { code: 200, corps: { ok: true, ignore: "paiement inconnu de ce compte" } };
-    // État final : aucun appel au fournisseur (relecture CinetPay n° 8 : un webhook rejoué ne fait plus appeler le
+    if (evt.referenceFournisseur) {
+      const [n] = await this.base.$queryRaw<{ r: string | null }[]>`
+        SELECT app.paiement_reference_fournisseur_lire(${evt.reference}, ${compte.tenant_id}) AS r`;
+      if (n?.r && n.r !== evt.referenceFournisseur) return { code: 401, corps: { erreur: "événement incohérent" } };
+    }
+    await this.base.$queryRaw`SELECT app.paiement_evenement(${fournisseurId}, ${evt.idEvenement}, ${compte.tenant_id},
+                                                            ${evt.reference}, ${corps})`;
+    // État final : aucun appel au fournisseur (relecture n° 8 de l'ADR 0022 : un webhook rejoué ne fait plus appeler le
     // fournisseur avec les clés du marchand). FAILED et EXPIRED restent vérifiés : un succès tardif délivre le ticket.
     if (["SUCCEEDED", "MISMATCH", "REFUNDED"].includes(p.statut)) return { code: 200, corps: { ok: true, statut: p.statut } };
-    const statut = await this.rapprocher(evt.reference, compte.tenant_id, f, "webhook");
-    return { code: 200, corps: { ok: true, statut } };
+    try {
+      const statut = await this.rapprocher(evt.reference, compte.tenant_id, f, "webhook");
+      return { code: 200, corps: { ok: true, statut } };
+    } catch (e) {
+      // Fournisseur muet, ou jeton pas encore noté (webhook arrivé pendant charge()) : rien ne change ; la tâche
+      // périodique et les webhooks suivants reprendront le paiement.
+      if (e instanceof FournisseurIndisponible || e instanceof DelaiDepasse) return { code: 200, corps: { ok: true, statut: p.statut, reessai: true } };
+      throw e;
+    }
   }
 }
 
 /** Référence du fournisseur connue avant charge(), si l'adaptateur la sait calculer (méthode facultative, hors du
- *  contrat FournisseurPaiement : seul pawaPay la fournit aujourd'hui). */
+ *  contrat FournisseurPaiement : aucun adaptateur actuel ne la fournit ; MoneyFusion rend son jeton à charge()). */
 function referencePrevue(f: FournisseurPaiement, reference: string): string | null {
   const calcul = (f as Partial<{ referenceFournisseurPrevue(reference: string): string }>).referenceFournisseurPrevue;
   if (typeof calcul !== "function") return null;

@@ -1,5 +1,7 @@
 # Questionnaire aux agrégateurs de paiement
 
+> **Note du 14/11/2026 (ADR 0024).** MoneyFusion est le seul agrégateur réel ; pawaPay et CinetPay sont retirés. Les sections §3.1 (pawaPay) et §3.2 (CinetPay) sont historiques. Le courriel à MoneyFusion est `docs/courriels/2026-11-14-agregateurs.md`.
+
 > **Date : 10/11/2026** (mis à jour après les décisions D1, D4, D5, D6, D9 de la porte G0). Livrable du §12 (phase 0) et du §15 item 3 du SPEC.
 > À envoyer par Telecom Universel aux prestataires retenus dans `docs/PAYMENT_PROVIDERS.md` §1.3.
 > Mode d'emploi : copier le **courriel type** (§1), y coller la **partie générale** (§2), puis la **section propre au destinataire** (§3). Les champs entre crochets sont à remplir avant l'envoi.

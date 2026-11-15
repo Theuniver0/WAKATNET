@@ -1,6 +1,6 @@
 # ADR 0022 — Second adaptateur réel : CinetPay, API v1 « paiement direct » (D2)
 
-- **Statut** : décidé le 13/11/2026, sur demande de Yacouba (« Ajoute cinetpay »). **G-ARGENT reste fermée** : comme pour pawaPay, l'environnement de production n'est accepté qu'avec `WAKATNET_ARGENT_REEL=1`, que Yacouba pose lui-même (SPEC §12).
+- **Statut** : **Remplacé par l'ADR 0024 le 14/11/2026** (adaptateur retiré du code). Historique ci-dessous. Décidé le 13/11/2026, sur demande de Yacouba (« Ajoute cinetpay »). **G-ARGENT reste fermée** : comme pour pawaPay, l'environnement de production n'est accepté qu'avec `WAKATNET_ARGENT_REEL=1`, que Yacouba pose lui-même (SPEC §12).
 - **Références** :
   - SPEC §7.2, §7.3, D2 ;
   - `docs/PAYMENT_PROVIDERS.md` §2.2 (CinetPay, deuxième du classement de D2) ;

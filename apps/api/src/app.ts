@@ -138,7 +138,7 @@ export function construire(config: Config, base: Base,
   app.decorate("paiement", service);
 
   // Portail captif : public, servi sur l'IP dédiée du portail en production (ADR 0013 §10).
-  routesPortail(app, base, service, config.cles?.hmac ?? null);
+  routesPortail(app, base, service, config.cles?.hmac ?? null, config.urlPortail);
 
   return app;
 }

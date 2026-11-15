@@ -234,6 +234,15 @@ function blocsWakatnet(e: Omit<Entretien, "coaPort" | "listenPort">, secret: str
     const c = chaine(`wakatnet portail ${ip(a)}`);
     lignes.push(`:if ([:len [/ip hotspot walled-garden ip find where comment=${c}]] = 0) do={ /ip hotspot walled-garden ip add action=accept dst-address=${ip(a)} protocol=tcp dst-port=443 comment=${c} }`);
   }
+  // Page de paiement hébergée de MoneyFusion (ADR 0024) : le client y paie AVANT d'être connecté. HTTPS : par nom
+  // d'hôte, résolu par le routeur (walled-garden ip dst-host), tcp/443 SEULEMENT (relecture : derrière un CDN, ces IP
+  // sont partagées ; tous les ports ouvriraient d'autres services sans ticket) ; HTTP : par nom d'hôte. [LABO] : qu'un téléphone non
+  // connecté y accède vraiment (ressources tierces de la page comprises) reste à prouver sur matériel.
+  for (const h of HOTES_PAIEMENT) {
+    const ci = chaine(`wakatnet paiement ${h}`), ch = chaine(`wakatnet paiement ${h} http`);
+    lignes.push(`:if ([:len [/ip hotspot walled-garden ip find where comment=${ci}]] = 0) do={ /ip hotspot walled-garden ip add action=accept dst-host=${chaine(h)} protocol=tcp dst-port=443 comment=${ci} }`);
+    lignes.push(`:if ([:len [/ip hotspot walled-garden find where comment=${ch}]] = 0) do={ /ip hotspot walled-garden add dst-host=${chaine(h)} action=allow comment=${ch} }`);
+  }
   // Relecture de sécurité n° 5 : une ancienne IP du portail ne reste pas ouverte avant connexion. Seules les entrées
   // « wakatnet portail <ip> » sont retirées, et jamais toutes (liste vide : rien n'est retiré).
   if (e.portail.ips.length > 0) {
@@ -242,6 +251,9 @@ function blocsWakatnet(e: Omit<Entretien, "coaPort" | "listenPort">, secret: str
   }
   return lignes;
 }
+
+/** Hôtes de la page de paiement de l'agrégateur, ouverts avant connexion (ADR 0024 : MoneyFusion, page hébergée). */
+export const HOTES_PAIEMENT = ["payin.moneyfusion.net"] as const;
 
 /** Étape 2 : pairs, adresse, routes, /radius, pare-feu, preuve du tunnel, puis activation. */
 export function etape2(e: Etape2): string {

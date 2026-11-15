@@ -161,7 +161,8 @@ Contenu : `[global]`, `repo1-cipher-pass=` (phrase de passe), `repo1-s3-key=` (k
 ## 3. Avant d'ouvrir la vente en ligne (G-ARGENT)
 
 - Adaptateur réel en production, avec clés de production : seulement après G-ARGENT (`docs/PILOTE.md` §2).
-- Compte marchand du propriétaire enregistré, webhook déclaré chez l'agrégateur (`https://api.DOMAINE/webhooks/...`).
+- Compte marchand MoneyFusion du propriétaire enregistré (ADR 0024) : lien API collé dans le tableau de bord ; dans l'application MoneyFusion, les IP publiques des nœuds A **et** B déclarées et le site du portail renseigné. L'adresse du webhook voyage avec chaque paiement : rien à déclarer.
+- `WAKATNET_ARGENT_REEL=1` : sans elle, un compte MoneyFusion (argent réel, pas de bac à sable) est refusé.
 - Un achat réel de 100 F, puis un rapprochement du jour (`docs/PILOTE.md` §4).
 
 ## 4. Mise à jour

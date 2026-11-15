@@ -1,4 +1,6 @@
-# Courriels aux agrégateurs — envoi du 10/11/2026
+# Courriels aux agrégateurs — préparés le 10/11/2026
+
+> **Jamais envoyés.** Remplacés par `2026-11-14-agregateurs.md`, désormais un courriel unique à MoneyFusion (14/11/2026 : pawaPay et CinetPay retirés, ADR 0024). Gardés comme trace ; les questionnaires `pj/` restent utilisables en pièce jointe.
 
 Trois courriels prêts à envoyer, un par prestataire prioritaire (classement provisoire de `docs/PAYMENT_PROVIDERS.md`). Chacun a pour pièce jointe le questionnaire complet du prestataire, généré depuis `docs/QUESTIONS_AGREGATEURS.md` :
 

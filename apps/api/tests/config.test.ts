@@ -49,19 +49,19 @@ test("WAKATNET_TRUST_PROXY (ADR 0016 §2) : adresses seulement ; absent, aucune 
   assert.equal(lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "127.0.0.1" }).trustProxy, "127.0.0.1");
   assert.throws(() => lireConfig({ ...URL, WAKATNET_TRUST_PROXY: "true" }), ConfigInvalide);
   // En production, son absence ramènerait toutes les requêtes à une seule source (M2, M7) : refusé.
-  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", ...CLES }), /WAKATNET_TRUST_PROXY requis en production/);
-  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES }).trustProxy, "127.0.0.1");
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", ...CLES }), /WAKATNET_TRUST_PROXY requis en production/);
+  assert.equal(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES }).trustProxy, "127.0.0.1");
 });
 
 test("WAKATNET_CLE_HMAC requise en production : sans elle, les IP sources resteraient en clair (T10, ADR 0016 §2)", () => {
   const URL = { WAKATNET_API_DATABASE_URL: "postgresql://x@127.0.0.1/x", WAKATNET_TRUST_PROXY: "127.0.0.1" };
   // Hors production, l'absence reste admise (routes de paiement en 503, sources en clair : tests, développement).
   assert.equal(lireConfig(URL).cles, null);
-  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production" }), /WAKATNET_CLE_HMAC requise en production/);
-  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_HMAC: "" }), /WAKATNET_CLE_HMAC requise en production/);
-  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_CLE_MARCHANDS: CLES.WAKATNET_CLE_MARCHANDS }),
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid" }), /WAKATNET_CLE_HMAC requise en production/);
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", WAKATNET_CLE_HMAC: "" }), /WAKATNET_CLE_HMAC requise en production/);
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", WAKATNET_CLE_MARCHANDS: CLES.WAKATNET_CLE_MARCHANDS }),
                 /WAKATNET_CLE_HMAC/);
-  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES }).cles?.hmac.length === 32);
+  assert.ok(lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES }).cles?.hmac.length === 32);
 });
 
 test("WAKATNET_PORTAIL_IPS (walled garden, SPEC §7.1) : IPv4 séparées par des virgules ; exigée en production", () => {
@@ -70,7 +70,7 @@ test("WAKATNET_PORTAIL_IPS (walled garden, SPEC §7.1) : IPv4 séparées par des
   for (const mauvais of ["203.0.113.256", "portail.x", "203.0.113.10/24", "2001:db8::1"]) {
     assert.throws(() => lireConfig({ ...URL, WAKATNET_PORTAIL_IPS: mauvais }), ConfigInvalide, mauvais);
   }
-  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", ...CLES }), /WAKATNET_PORTAIL_IPS exigée en production/);
+  assert.throws(() => lireConfig({ ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", WAKATNET_TRUST_PROXY: "127.0.0.1", ...CLES }), /WAKATNET_PORTAIL_IPS exigée en production/);
 });
 
 test("relecture n° 2 : nom d'hôte du portail vérifié au démarrage (règle du walled garden)", () => {
@@ -81,7 +81,7 @@ test("relecture n° 2 : nom d'hôte du portail vérifié au démarrage (règle d
 });
 
 test("WAKATNET_RACINES_TLS (ADR 0003 : pas de magasin de racines avant RouterOS 7.19) : racines auto-signées valides ; exigée en production", () => {
-  const PROD = { ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES };
+  const PROD = { ...URL, NODE_ENV: "production", WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.test.invalid", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES };
   assert.throws(() => lireConfig(PROD), /WAKATNET_RACINES_TLS exigée en production/);
   const [r] = lireConfig({ ...PROD, ...RACINES }).racinesTls!;
   assert.match(r.empreinte, /^[0-9a-f]{64}$/, "empreinte au format du routeur (/certificate fingerprint)");
@@ -96,4 +96,10 @@ test("WAKATNET_RACINES_TLS (ADR 0003 : pas de magasin de racines avant RouterOS 
   assert.throws(() => lireRacinesTls(""), /1 à 3/);
   assert.throws(() => lireRacinesTls(pem, new Date("2047-01-01")), /validité/);
   assert.throws(() => lireConfig({ ...URL, WAKATNET_RACINES_TLS: "/inexistant/racines.pem" }), /illisible/);
+});
+
+test("WAKATNET_PORTAIL_URL_PUBLIQUE exigée en production : page de retour après le paiement MoneyFusion (ADR 0024)", () => {
+  const PROD = { ...URL, NODE_ENV: "production", WAKATNET_TRUST_PROXY: "127.0.0.1", WAKATNET_PORTAIL_IPS: "203.0.113.10", ...CLES, ...RACINES };
+  assert.throws(() => lireConfig(PROD), /WAKATNET_PORTAIL_URL_PUBLIQUE exigée en production/);
+  assert.equal(lireConfig({ ...PROD, WAKATNET_PORTAIL_URL_PUBLIQUE: "https://portail.exemple.bf" }).urlPortail, "https://portail.exemple.bf");
 });
