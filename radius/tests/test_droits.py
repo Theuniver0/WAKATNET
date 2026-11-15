@@ -55,6 +55,7 @@ ATTENDU = {
     # lien annulé quand l'envoi échoue (0039).
     "app.compte_marchand_avant_verification(p_verification boolean)": {"wk_api"},
     "app.paiement_reference_fournisseur_noter(p_reference text, p_reference_fournisseur text)": {"wk_api"},
+    "app.paiement_reference_fournisseur_lire(p_reference text, p_tenant bigint)": {"wk_api"},
     "app.verification_annuler(p_empreinte bytea)": {"wk_api"},
     "app.compte_marchand_par_webhook(p_fournisseur text, p_webhook_id text)": {"wk_api"},
     "app.compte_marchand_du_proprietaire(p_tenant bigint)": {"wk_api"},
@@ -180,7 +181,7 @@ def test_chaque_role_n_execute_que_ses_fonctions():
                       ("wk_api", "app.inscription_demander"), ("wk_api", "app.lot_creer"), ("wk_api", "app.lot_remettre"),
                       ("wk_api", "app.lot_tickets"), ("wk_api", "app.lots"), ("wk_api", "app.numeros_purger"),
                       ("wk_api", "app.paiement_creer"), ("wk_api", "app.paiement_du_proprietaire"), ("wk_api", "app.paiement_etat"),
-                      ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_par_reference_fournisseur"), ("wk_api", "app.paiement_reference_fournisseur_noter"), ("wk_api", "app.paiement_replanifier"),
+                      ("wk_api", "app.paiement_evenement"), ("wk_api", "app.paiement_par_jeton"), ("wk_api", "app.paiement_par_reference_fournisseur"), ("wk_api", "app.paiement_reference_fournisseur_lire"), ("wk_api", "app.paiement_reference_fournisseur_noter"), ("wk_api", "app.paiement_replanifier"),
                       ("wk_api", "app.paiement_retrouver"), ("wk_api", "app.paiement_transition"), ("wk_api", "app.paiements_a_verifier"),
                       ("wk_api", "app.paiements_expirer"), ("wk_api", "app.paiements_par_numero"), ("wk_api", "app.portail_forfaits"),
                       ("wk_api", "app.portail_site"), ("wk_api", "app.reemission_reconcilier"), ("wk_api", "app.releve"), ("wk_api", "app.renvoi_demander"), ("wk_api", "app.reversement_avant_envoi"),
