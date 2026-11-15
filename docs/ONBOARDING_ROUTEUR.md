@@ -3,7 +3,7 @@
 - **Pour qui** : le propriétaire d'une zone Wi-Fi, ou Yacouba pour le pilote.
 - **Références** : SPEC §2.2 (parcours 1), §6.2 (enrôlement en une commande) ; ADR 0012 ; `docs/AUDIT_SCRIPTS_ROUTEROS.md`.
 - **Version imprimable**, pour le propriétaire et ses vendeurs : `docs/guides/guide-pilote.pdf`, rendu depuis `docs/guides/guide-pilote.html` par `node docs/guides/imprimer.mjs`. Modifier la source HTML, jamais le PDF.
-- **État** : le parcours a été joué dans le tableau de bord (e2e de la phase 4). Les scripts RouterOS ont été audités, mais **pas encore exécutés sur un CHR**, ni sur un routeur vierge ni sur un routeur déjà configuré (§13, règle 6). À faire avant le premier routeur d'un tiers (G-PILOTE).
+- **État** : le parcours a été joué dans le tableau de bord (e2e de la phase 4). Les scripts RouterOS ont été exécutés sur CHR en 7.15.3 et 7.19.4, avec la commande réelle (`infra/routeros/essais/chr.sh`, 49/49). Reste un essai sur un **vrai** routeur : collage de la commande dans Winbox, chaîne TLS publique, page de paiement depuis un téléphone (`docs/GUIDE_YACOUBA.md`, étape 4). À faire avant le premier routeur d'un tiers (G-PILOTE).
 
 ## Ce qu'il faut
 
